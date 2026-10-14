@@ -16,6 +16,7 @@ three, instead of being made three times.
 | `header` | Pieces of the top line: `Location` shortens a path from the left |
 | `palette` | The command palette (`:` or `ctrl+p`) over the app's own command type, and the footer's favorites |
 | `confirm` | Asking before acting: `y` or `enter` says yes, a strict question takes only `y` |
+| `usercmd` | Your own commands from `<config dir>/<app>/commands.yaml`: palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 
 ## Why textinput is vendored
 

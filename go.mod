@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/rivo/uniseg v0.4.7
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

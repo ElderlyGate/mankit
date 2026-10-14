@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/tugbayatilla/mankit/main/usercmd/commands.schema.json",
+  "title": "Commands of a -man dashboard (gitman, dcman, checkman)",
+  "description": "<config dir>/<app>/commands.yaml. Each command gets a palette entry, a key when it is free, and runs a shell line with the selection filled in.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "commands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/command"
+      }
+    }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "run"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^\\S+$",
+          "description": "Unique; the favorites file stores it."
+        },
+        "key": {
+          "type": "string",
+          "description": "Optional. One character (z, Z, ?), ctrl+<letter>, alt+<character> or a named key (f1–f12, home, end, pgup, …); Ctrl+G is read as ctrl+g. Refused: ctrl+c (always quits), ctrl+i/m/[ (the terminal sends them as tab, enter, esc), ctrl+s/q (flow control), ctrl+b (tmux prefix), and any key a built-in command already has in the view, which leaves the command palette only."
+        },
+        "label": {
+          "type": "string",
+          "description": "Shown in the palette and the footer."
+        },
+        "view": {
+          "type": "string",
+          "default": "all",
+          "description": "Where it works: all, or a view of the app. gitman: log, status, branches. dcman: summary, logs, stats, env, ports, inspect, compose, output. checkman: results, environments, spec, history."
+        },
+        "run": {
+          "type": "string",
+          "description": "Shell line. {name} placeholders are filled with shell-quoted values; do not quote them. gitman: {hash} {short} {branch} {current} {file} {base} {repo}. dcman: {service} {container} {project} {file}. checkman: {env} {place} {key} {spec} {report}. All: {input}, the answer to ask."
+        },
+        "ask": {
+          "type": "string",
+          "description": "Question asked first; the answer fills {input}."
+        },
+        "confirm": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask 'run …?' before running."
+        },
+        "terminal": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hand over the terminal, for interactive commands such as git add -p."
+        }
+      }
+    }
+  }
+}
