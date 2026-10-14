@@ -11,6 +11,11 @@ three, instead of being made three times.
 | `textinput` | bubbles' text input, with paste through `desktop` |
 | `selection` | Drag with the mouse to select text on the screen and copy it |
 | `light` | The header's traffic light: 🟢 focused, 🟡 refreshing in the background, 🔴 not updating |
+| `search` | Search the pane: every hit marked, `n`/`N` between them, the status line |
+| `theme` | The shared colours (`default`, `light`, `mono`); an app's theme embeds `theme.Base` and adds its own |
+| `header` | Pieces of the top line: `Location` shortens a path from the left |
+| `palette` | The command palette (`:` or `ctrl+p`) over the app's own command type, and the footer's favorites |
+| `confirm` | Asking before acting: `y` or `enter` says yes, a strict question takes only `y` |
 
 ## Why textinput is vendored
 
