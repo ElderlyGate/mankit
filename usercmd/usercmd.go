@@ -267,3 +267,37 @@ func ClashMessage(clashes []Clash) string {
 	}
 	return "commands.yaml: key already taken, palette only: " + strings.Join(parts, ", ")
 }
+
+// Init writes starter to path when it is missing, and reports whether it
+// wrote. force replaces an existing file, kept first as path + ".bak".
+func Init(path string, starter []byte, force bool) (wrote bool, backup string, err error) {
+	if path == "" {
+		return false, "", errors.New("no config folder on this system")
+	}
+	if _, err := os.Stat(path); err == nil {
+		if !force {
+			return false, "", nil
+		}
+		backup = path + ".bak"
+		if err := os.Rename(path, backup); err != nil {
+			return false, "", err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, backup, err
+	}
+	return true, backup, os.WriteFile(path, starter, 0o644)
+}
+
+// Editor is $VISUAL, else $EDITOR, else vi (notepad on Windows), opening path.
+func Editor(path string) *exec.Cmd {
+	for _, env := range []string{"VISUAL", "EDITOR"} {
+		if e := strings.Fields(os.Getenv(env)); len(e) > 0 {
+			return exec.Command(e[0], append(e[1:], path)...)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return exec.Command("notepad", path)
+	}
+	return exec.Command("vi", path)
+}
