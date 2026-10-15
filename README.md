@@ -17,6 +17,7 @@ three, instead of being made three times.
 | `palette` | The command palette (`:` or `ctrl+p`) over the app's own command type, and the footer's favorites |
 | `confirm` | Asking before acting: `y` or `enter` says yes, a strict question takes only `y` |
 | `list` | The left-hand list: the highlighted row wraps to show its whole text, with scrolling and mouse clicks that account for it |
+| `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<config dir>/<app>/split` |
 | `usercmd` | Your own commands from `<config dir>/<app>/commands.yaml`: palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 
 ## Why textinput is vendored
