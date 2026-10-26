@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "name": "mankit",
+  "columns": [
+    {
+      "id": "backlog",
+      "label": "Backlog",
+      "index": 0,
+      "wip_limit": null,
+      "policies": null
+    },
+    {
+      "id": "refined",
+      "label": "Refined",
+      "index": 1,
+      "wip_limit": null,
+      "policies": null
+    },
+    {
+      "id": "in-progress",
+      "label": "In Progress",
+      "index": 2,
+      "wip_limit": 2,
+      "policies": null
+    },
+    {
+      "id": "review",
+      "label": "Review",
+      "index": 3,
+      "wip_limit": 3,
+      "policies": [
+        "entry:review"
+      ]
+    },
+    {
+      "id": "done",
+      "label": "Done",
+      "index": 4,
+      "wip_limit": null,
+      "policies": [
+        "entry:done"
+      ]
+    }
+  ],
+  "policies": {
+    "entry:done": {
+      "description": "A card may only enter Done after the outcome has been verified independently — by a second person, or by the same person after a deliberate pause.",
+      "message": "Card has not been verified. Done requires independent acceptance.",
+      "script": ""
+    },
+    "entry:review": {
+      "description": "All acceptance criteria must be met, from the worker's perspective, before a card enters Review.",
+      "message": "Card is not ready for Review — confirm every acceptance criterion is met.",
+      "script": ""
+    },
+    "no-pullback": {
+      "description": "Cards must not move backward through the value stream. If rework is needed, add a note to the card explaining why.",
+      "message": "Moving a card backward hides rework. Add a note to the card explaining why instead.",
+      "script": ""
+    },
+    "wip-limit": {
+      "description": "A column must not hold more cards than its wip_limit.",
+      "message": "Moving this card would exceed the WIP limit. Stop starting, start finishing.",
+      "script": ""
+    }
+  },
+  "board_policies": [
+    "wip-limit",
+    "no-pullback"
+  ],
+  "policy_bypass_tags": [
+    "expedite"
+  ],
+  "column_stamps": {
+    "active_at": "in-progress",
+    "done_at": "done"
+  },
+  "card_format": ""
+}
