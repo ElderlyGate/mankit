@@ -1,11 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/tugbayatilla/mankit/main/usercmd/commands.schema.json",
-  "title": "Commands of a -man dashboard (gitman, dcman, checkman)",
-  "description": "<config dir>/<app>/commands.yaml. Each command gets a palette entry, a key when it is free, and runs a shell line with the selection filled in.",
+  "title": "config.yaml of a -man dashboard (gitman, dcman, checkman, hubman)",
+  "description": "<config dir>/<app>/config.yaml: the colours and your own commands. Each command gets a palette entry, a key when it is free, and runs a shell line with the selection filled in.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "theme": {
+      "enum": ["default", "nord", "gruvbox", "solarized", "high-contrast", "mono", "light"],
+      "description": "Colour theme; --theme overrides it and NO_COLOR forces mono."
+    },
+    "background": {
+      "enum": ["auto", "dark", "light"],
+      "description": "Which variant of the theme: auto asks the terminal."
+    },
+    "prefix": { "type": "string", "description": "hubman only: the install root." },
+    "check_updates": { "enum": ["daily", "never"], "description": "hubman only: the daily update notice." },
     "commands": {
       "type": "array",
       "items": {

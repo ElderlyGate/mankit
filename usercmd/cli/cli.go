@@ -1,5 +1,5 @@
-// Package cli is `<app> commands`: where the commands file is, how to get
-// the starter one back, and whether it loads.
+// Package cli is `<app> commands`: where the config file with the commands
+// is, how to get the starter one back, and whether it loads.
 package cli
 
 import (
@@ -22,14 +22,20 @@ func Command(app string, starter []byte, spec usercmd.Spec, taken func() map[str
 		Use:   "commands",
 		Short: "Your own palette commands: where the file is, recreate it, check it",
 		Long: fmt.Sprintf(`The dashboard's palette also lists the commands in
-%s.
+%s,
+the one file of %s you edit (it also holds theme: and background:).
 They are read at start; a key the dashboard already uses is refused and
-the command stays in the palette.`, path),
+the command stays in the palette. An old commands.yaml is moved in.`, path, app),
 		Args: cobra.NoArgs,
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+			if did, err := usercmd.Migrate(path); err == nil && did != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), did)
+			}
+		},
 	}
 	root.AddCommand(&cobra.Command{
 		Use:   "path",
-		Short: "Print where the commands file is",
+		Short: "Print where the config file with the commands is",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintln(cmd.OutOrStdout(), path)
@@ -42,7 +48,7 @@ the command stays in the palette.`, path),
 	var force bool
 	initCmd := &cobra.Command{
 		Use:   "init",
-		Short: "Write the starter commands file when it is missing (--force replaces yours, kept as .bak)",
+		Short: "Write the starter config file when it is missing (--force replaces yours, kept as .bak)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			wrote, backup, err := usercmd.Init(path, starter, force)
@@ -61,11 +67,11 @@ the command stays in the palette.`, path),
 			return nil
 		},
 	}
-	initCmd.Flags().BoolVar(&force, "force", false, "replace an existing file, keeping it as commands.yaml.bak")
+	initCmd.Flags().BoolVar(&force, "force", false, "replace an existing file, keeping it as config.yaml.bak")
 	root.AddCommand(initCmd)
 	root.AddCommand(&cobra.Command{
 		Use:   "check",
-		Short: "Check the commands file and list what it adds",
+		Short: "Check the commands in the config file and list what they add",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return check(cmd.OutOrStdout(), app, path, spec, taken())
@@ -73,7 +79,7 @@ the command stays in the palette.`, path),
 	})
 	root.AddCommand(&cobra.Command{
 		Use:   "edit",
-		Short: "Open the commands file in $VISUAL or $EDITOR, writing the starter one first if it is missing",
+		Short: "Open the config file in $VISUAL or $EDITOR, writing the starter one first if it is missing",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if _, _, err := usercmd.Init(path, starter, false); err != nil {

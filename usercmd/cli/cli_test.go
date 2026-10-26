@@ -54,7 +54,7 @@ func TestInitPathCheck(t *testing.T) {
 	if err != nil || !strings.Contains(out, "say hello") || !strings.Contains(out, "quit2 (q)") {
 		t.Fatalf("check: %q %v", out, err)
 	}
-	if filepath.Base(path) != "commands.yaml" {
+	if filepath.Base(path) != "config.yaml" {
 		t.Fatal(path)
 	}
 }

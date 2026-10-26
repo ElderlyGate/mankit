@@ -1,7 +1,10 @@
 // Package usercmd is the commands a user adds to a dashboard in
-// <config dir>/<app>/commands.yaml: each gets a palette entry, a key if it
-// is free, and runs a shell line with the selection filled in.
+// <config dir>/<app>/config.yaml, the one file of each app a person edits:
+// each gets a palette entry, a key if it is free, and runs a shell line
+// with the selection filled in. The same file holds theme: and background:
+// (see the theme package).
 //
+//	theme: nord
 //	commands:
 //	  - id: cherry-pick
 //	    key: C
@@ -47,15 +50,88 @@ type Command struct {
 
 type file struct {
 	Commands []Command `yaml:"commands"`
+	// The other settings of config.yaml (theme, background, …) belong to
+	// other packages; commands themselves are still read strictly.
+	Other map[string]any `yaml:",inline"`
 }
 
-// Path is <user config dir>/<app>/commands.yaml, or "" when there is none.
+// Path is <user config dir>/<app>/config.yaml, or "" when there is none.
 func Path(app string) string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, app, "commands.yaml")
+	return filepath.Join(dir, app, "config.yaml")
+}
+
+// Old is the file commands lived in before they moved into config.yaml.
+const Old = "commands.yaml"
+
+// Migrate moves <dir>/commands.yaml into path (config.yaml next to it):
+// renamed when there is no config.yaml yet, which keeps its comments, else
+// appended when config.yaml has no commands yet. The old file stays as
+// commands.yaml.migrated. It reports what it did, "" for nothing.
+func Migrate(path string) (string, error) {
+	if path == "" || filepath.Base(path) != "config.yaml" {
+		return "", nil
+	}
+	old := filepath.Join(filepath.Dir(path), Old)
+	b, err := os.ReadFile(old)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	cur, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if err := os.Rename(old, path); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("moved %s to %s", old, path), nil
+	case err != nil:
+		return "", err
+	}
+	var f file
+	if err := yaml.Unmarshal(cur, &f); err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	if len(f.Commands) > 0 {
+		return "", nil // config.yaml already has its own commands
+	}
+	if bytes.Contains(cur, []byte("\ncommands:")) || bytes.HasPrefix(cur, []byte("commands:")) {
+		return "", nil // an empty commands: key; leave both files to the user
+	}
+	merged := append(bytes.TrimRight(cur, "\n"), '\n', '\n')
+	merged = append(merged, b...)
+	if err := writeFile(path, merged); err != nil {
+		return "", err
+	}
+	if err := os.Rename(old, old+".migrated"); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("added the commands of %s to %s (the old file is %s.migrated)", old, path, Old), nil
+}
+
+// writeFile replaces path through a temp file and a rename.
+func writeFile(path string, b []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // Spec is what an app accepts: its view names and its placeholders.
@@ -66,11 +142,15 @@ type Spec struct {
 
 var placeholderRe = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\}`)
 
-// Load reads path; a missing file is no commands. Unknown fields, bad views,
+// Load reads the commands of path, moving an old commands.yaml in first;
+// a missing file is no commands. Unknown fields of a command, bad views,
 // unknown placeholders and duplicate ids are errors naming the command.
 func Load(path string, s Spec) ([]Command, error) {
 	if path == "" {
 		return nil, nil
+	}
+	if _, err := Migrate(path); err != nil {
+		return nil, err
 	}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -265,14 +345,28 @@ func ClashMessage(clashes []Clash) string {
 	for _, c := range clashes {
 		parts = append(parts, fmt.Sprintf("%s (%s)", c.ID, c.Key))
 	}
-	return "commands.yaml: key already taken, palette only: " + strings.Join(parts, ", ")
+	return "config.yaml: key already taken, palette only: " + strings.Join(parts, ", ")
 }
 
-// Init writes starter to path when it is missing, and reports whether it
-// wrote. force replaces an existing file, kept first as path + ".bak".
+// themeLines go into a new config.yaml, so the theme setting is easy to find.
+const themeLines = `#
+# Colours (or pass --theme):
+#   theme       default, nord, gruvbox, solarized, high-contrast or mono
+#   background  auto, dark or light: which variant of the theme
+# theme: default
+# background: auto
+`
+
+// Init writes the starter commands (and the theme settings, commented out)
+// to path when it is missing, and reports whether it wrote. An old
+// commands.yaml is moved in first. force replaces an existing file, kept
+// first as path + ".bak".
 func Init(path string, starter []byte, force bool) (wrote bool, backup string, err error) {
 	if path == "" {
 		return false, "", errors.New("no config folder on this system")
+	}
+	if _, err := Migrate(path); err != nil {
+		return false, "", err
 	}
 	if _, err := os.Stat(path); err == nil {
 		if !force {
@@ -286,7 +380,19 @@ func Init(path string, starter []byte, force bool) (wrote bool, backup string, e
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, backup, err
 	}
-	return true, backup, os.WriteFile(path, starter, 0o644)
+	return true, backup, os.WriteFile(path, withThemeLines(starter), 0o644)
+}
+
+// withThemeLines puts themeLines after the starter's first comment block
+// line (the schema line), or first when it has none.
+func withThemeLines(starter []byte) []byte {
+	first, rest, ok := bytes.Cut(starter, []byte("\n"))
+	if !ok || !bytes.HasPrefix(first, []byte("# yaml-language-server")) {
+		return append([]byte(themeLines[2:]+"\n"), starter...)
+	}
+	out := append(append([]byte{}, first...), '\n')
+	out = append(out, themeLines...)
+	return append(out, rest...)
 }
 
 // Editor is $VISUAL, else $EDITOR, else vi (notepad on Windows), opening path.

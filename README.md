@@ -19,7 +19,7 @@ three, instead of being made three times.
 | `confirm` | Asking before acting: `y` or `enter` says yes, any other key cancels |
 | `list` | The left-hand list: the highlighted row wraps to show its whole text, with scrolling and mouse clicks that account for it |
 | `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<config dir>/<app>/split` |
-| `usercmd` | Your own commands from `<config dir>/<app>/commands.yaml`: palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
+| `usercmd` | Your own commands from `<config dir>/<app>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 
 ## Why textinput is vendored
 

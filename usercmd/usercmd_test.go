@@ -122,3 +122,87 @@ func TestLoadRefusesCtrlC(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestPathIsConfigYAML(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/cfg")
+	if got := Path("gitman"); got != "/cfg/gitman/config.yaml" {
+		t.Fatal(got)
+	}
+}
+
+func TestLoadAcceptsOtherSettingsButNotUnknownCommandFields(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(p, []byte("theme: nord\nbackground: dark\ncommands:\n  - {id: a, label: A, run: echo}\n"), 0o644)
+	if cs, err := Load(p, Spec{}); err != nil || len(cs) != 1 {
+		t.Fatalf("%v %v", cs, err)
+	}
+	os.WriteFile(p, []byte("theme: nord\ncommands:\n  - {id: a, label: A, run: echo, colour: red}\n"), 0o644)
+	if _, err := Load(p, Spec{}); err == nil {
+		t.Fatal("unknown command field accepted")
+	}
+}
+
+func TestMigrateRenamesWhenThereIsNoConfig(t *testing.T) {
+	dir := t.TempDir()
+	old := "# my comment\ncommands:\n  - {id: a, label: A, run: echo}\n"
+	os.WriteFile(filepath.Join(dir, "commands.yaml"), []byte(old), 0o644)
+	cs, err := Load(filepath.Join(dir, "config.yaml"), Spec{})
+	if err != nil || len(cs) != 1 {
+		t.Fatalf("%v %v", cs, err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if string(b) != old {
+		t.Fatalf("comments lost: %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "commands.yaml")); !os.IsNotExist(err) {
+		t.Fatal("old file still there")
+	}
+}
+
+func TestMigrateAppendsToAConfigWithoutCommands(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfg, []byte("theme: gruvbox\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "commands.yaml"), []byte("commands:\n  - {id: a, label: A, run: echo}\n"), 0o644)
+	did, err := Migrate(cfg)
+	if err != nil || did == "" {
+		t.Fatalf("%q %v", did, err)
+	}
+	b, _ := os.ReadFile(cfg)
+	if !strings.HasPrefix(string(b), "theme: gruvbox\n\ncommands:") {
+		t.Fatalf("merged: %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "commands.yaml.migrated")); err != nil {
+		t.Fatal("no .migrated copy")
+	}
+	if did, _ := Migrate(cfg); did != "" {
+		t.Fatalf("migrated twice: %s", did)
+	}
+}
+
+func TestMigrateLeavesAConfigWithCommandsAlone(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	mine := "commands:\n  - {id: mine, label: M, run: echo}\n"
+	os.WriteFile(cfg, []byte(mine), 0o644)
+	os.WriteFile(filepath.Join(dir, "commands.yaml"), []byte("commands:\n  - {id: old, label: O, run: echo}\n"), 0o644)
+	if did, err := Migrate(cfg); err != nil || did != "" {
+		t.Fatalf("%q %v", did, err)
+	}
+	if b, _ := os.ReadFile(cfg); string(b) != mine {
+		t.Fatalf("changed: %q", b)
+	}
+}
+
+func TestInitAddsThemeLinesAfterSchemaLine(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	starter := []byte("# yaml-language-server: $schema=x\n# about\ncommands: []\n")
+	if wrote, _, err := Init(p, starter, false); !wrote || err != nil {
+		t.Fatal(wrote, err)
+	}
+	b, _ := os.ReadFile(p)
+	s := string(b)
+	if !strings.HasPrefix(s, "# yaml-language-server: $schema=x\n#\n# Colours") || !strings.Contains(s, "# theme: default\n") || !strings.HasSuffix(s, "# about\ncommands: []\n") {
+		t.Fatalf("%q", s)
+	}
+}
