@@ -125,7 +125,9 @@ func TestLoadRefusesCtrlC(t *testing.T) {
 
 func TestPathIsConfigYAML(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/cfg")
-	if got := Path("gitman"); got != "/cfg/gitman/config.yaml" {
+	t.Setenv("HOME", t.TempDir())
+	dir, _ := os.UserConfigDir()
+	if got := Path("gitman"); got != filepath.Join(dir, "gitman", "config.yaml") || !strings.HasSuffix(got, filepath.Join("gitman", "config.yaml")) {
 		t.Fatal(got)
 	}
 }

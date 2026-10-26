@@ -19,7 +19,36 @@ three, instead of being made three times.
 | `confirm` | Asking before acting: `y` or `enter` says yes, any other key cancels |
 | `list` | The left-hand list: the highlighted row wraps to show its whole text, with scrolling and mouse clicks that account for it |
 | `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<config dir>/<app>/split` |
+| `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
 | `usercmd` | Your own commands from `<config dir>/<app>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
+
+## Settings
+
+`config.yaml` is the one file of each app a person edits. `settings` lists its
+keys, with the value in the file or the default, and changes one key at a
+time: a value the key does not allow is refused, naming the allowed ones, and
+an empty value puts the key back to its default. Only that key's line changes;
+every other byte of the file stays as it was. A value it cannot change in place
+(a block, a list, an anchor, a key written twice, a second document) is refused,
+to be changed by hand.
+
+```go
+keys := settings.Keys("hubman", settings.Key{Name: "github", Default: "https", Values: []string{"https", "ssh"}, Help: "how to reach GitHub"})
+cli.AddTo(root, keys, func() string { return settings.Path("hubman", "") })
+```
+
+```sh
+hubman get config            # KEY VALUE SOURCE HELP; -o json or -o yaml
+hubman set config theme nord
+hubman set config theme ""   # back to the default
+```
+
+`settings.Path(app, dir)` is `<dir>/<app>/config.yaml`, the user config dir
+when `dir` is empty; `theme.ResolveIn(path, flag, set)` reads the colours from
+any path, and `usercmd/cli.CommandAt` serves `<app> commands` for any path.
+`cli.AddToE` reports a clash with an existing `config` command or `-o` flag
+instead of working around it. `settings.Next` is the value after the current one, for a dashboard
+that changes a key with `enter`.
 
 ## Why textinput is vendored
 

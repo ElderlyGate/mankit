@@ -17,7 +17,11 @@ import (
 // Command builds `<app> commands`. starter is the file the app ships; taken
 // is the app's own keys per view, to report the ones a user command loses.
 func Command(app string, starter []byte, spec usercmd.Spec, taken func() map[string][]string) *cobra.Command {
-	path := usercmd.Path(app)
+	return CommandAt(app, func() string { return usercmd.Path(app) }, starter, spec, taken)
+}
+
+// CommandAt is Command for the config.yaml that path names, asked each time a command runs.
+func CommandAt(app string, path func() string, starter []byte, spec usercmd.Spec, taken func() map[string][]string) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "commands",
 		Short: "Your own palette commands: where the file is, recreate it, check it",
@@ -25,10 +29,10 @@ func Command(app string, starter []byte, spec usercmd.Spec, taken func() map[str
 %s,
 the one file of %s you edit (it also holds theme: and background:).
 They are read at start; a key the dashboard already uses is refused and
-the command stays in the palette. An old commands.yaml is moved in.`, path, app),
+the command stays in the palette. An old commands.yaml is moved in.`, path(), app),
 		Args: cobra.NoArgs,
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
-			if did, err := usercmd.Migrate(path); err == nil && did != "" {
+			if did, err := usercmd.Migrate(path()); err == nil && did != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), did)
 			}
 		},
@@ -38,8 +42,8 @@ the command stays in the palette. An old commands.yaml is moved in.`, path, app)
 		Short: "Print where the config file with the commands is",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), path)
-			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(cmd.OutOrStdout(), path())
+			if _, err := os.Stat(path()); errors.Is(err, os.ErrNotExist) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "it does not exist; `%s commands init` creates it\n", app)
 			}
 			return nil
@@ -51,18 +55,19 @@ the command stays in the palette. An old commands.yaml is moved in.`, path, app)
 		Short: "Write the starter config file when it is missing (--force replaces yours, kept as .bak)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			wrote, backup, err := usercmd.Init(path, starter, force)
+			p := path()
+			wrote, backup, err := usercmd.Init(p, starter, force)
 			if err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
 			switch {
 			case !wrote:
-				fmt.Fprintf(out, "kept your %s (--force replaces it with the starter one)\n", path)
+				fmt.Fprintf(out, "kept your %s (--force replaces it with the starter one)\n", p)
 			case backup != "":
-				fmt.Fprintf(out, "wrote the starter %s; yours is in %s\n", path, backup)
+				fmt.Fprintf(out, "wrote the starter %s; yours is in %s\n", p, backup)
 			default:
-				fmt.Fprintf(out, "wrote the starter %s\n", path)
+				fmt.Fprintf(out, "wrote the starter %s\n", p)
 			}
 			return nil
 		},
@@ -74,7 +79,7 @@ the command stays in the palette. An old commands.yaml is moved in.`, path, app)
 		Short: "Check the commands in the config file and list what they add",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return check(cmd.OutOrStdout(), app, path, spec, taken())
+			return check(cmd.OutOrStdout(), app, path(), spec, taken())
 		},
 	})
 	root.AddCommand(&cobra.Command{
@@ -82,15 +87,16 @@ the command stays in the palette. An old commands.yaml is moved in.`, path, app)
 		Short: "Open the config file in $VISUAL or $EDITOR, writing the starter one first if it is missing",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if _, _, err := usercmd.Init(path, starter, false); err != nil {
+			p := path()
+			if _, _, err := usercmd.Init(p, starter, false); err != nil {
 				return err
 			}
-			ed := usercmd.Editor(path)
+			ed := usercmd.Editor(p)
 			ed.Stdin, ed.Stdout, ed.Stderr = os.Stdin, os.Stdout, os.Stderr
 			if err := ed.Run(); err != nil {
 				return err
 			}
-			return check(cmd.OutOrStdout(), app, path, spec, taken())
+			return check(cmd.OutOrStdout(), app, p, spec, taken())
 		},
 	})
 	return root

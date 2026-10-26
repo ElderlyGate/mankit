@@ -58,3 +58,18 @@ func TestInitPathCheck(t *testing.T) {
 		t.Fatal(path)
 	}
 }
+
+func TestCommandAtUsesThePathGiven(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app", "config.yaml")
+	c := CommandAt("testapp", func() string { return path }, []byte(starter), spec, func() map[string][]string { return nil })
+	var out bytes.Buffer
+	c.SetOut(&out)
+	c.SetErr(&out)
+	c.SetArgs([]string{"init"})
+	if err := c.Execute(); err != nil || !strings.Contains(out.String(), path) {
+		t.Fatalf("%q %v", out.String(), err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+}

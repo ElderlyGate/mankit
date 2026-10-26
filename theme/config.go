@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"gopkg.in/yaml.v3"
+
+	"github.com/tugbayatilla/mankit/internal/configfile"
 )
 
 // Config is the colour part of an app's config.yaml:
@@ -22,13 +23,7 @@ type Config struct {
 }
 
 // ConfigPath is <config dir>/<app>/config.yaml.
-func ConfigPath(app string) (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, app, "config.yaml"), nil
-}
+func ConfigPath(app string) (string, error) { return configfile.Path(app, "") }
 
 // LoadConfig reads the colour settings from path; a missing file is fine.
 func LoadConfig(path string) (Config, error) {
@@ -94,8 +89,15 @@ var darkTerminal = lipgloss.HasDarkBackground
 // NO_COLOR, else theme and background from the app's config.yaml, else
 // default. flag is the --theme value, set whether it was given.
 func Resolve(app, flag string, set bool) (Choice, error) {
+	path, _ := ConfigPath(app) // "" without a config dir
+	return ResolveIn(path, flag, set)
+}
+
+// ResolveIn is Resolve with the config.yaml at path; "" reads none.
+func ResolveIn(path, flag string, set bool) (Choice, error) {
 	var cfg Config
-	if path, err := ConfigPath(app); err == nil {
+	if path != "" {
+		var err error
 		if cfg, err = LoadConfig(path); err != nil {
 			return Choice{}, err
 		}

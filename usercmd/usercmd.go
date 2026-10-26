@@ -34,6 +34,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/tugbayatilla/mankit/internal/configfile"
 )
 
 // Command is one entry of the commands file.
@@ -57,11 +59,11 @@ type file struct {
 
 // Path is <user config dir>/<app>/config.yaml, or "" when there is none.
 func Path(app string) string {
-	dir, err := os.UserConfigDir()
+	path, err := configfile.Path(app, "")
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, app, "config.yaml")
+	return path
 }
 
 // Old is the file commands lived in before they moved into config.yaml.

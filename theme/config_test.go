@@ -51,9 +51,11 @@ func TestEveryPaletteIsComplete(t *testing.T) {
 func TestResolveOrder(t *testing.T) {
 	darkTerminal = func() bool { return true }
 	defer func() { darkTerminal = lipgloss.HasDarkBackground }()
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("NO_COLOR", "")
+	path, _ := ConfigPath("app")
+	dir := filepath.Dir(filepath.Dir(path))
 	if ch, _ := Resolve("app", "", false); ch.Base.Name != "default" {
 		t.Fatalf("no config: %s", ch.Base.Name)
 	}
