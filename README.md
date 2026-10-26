@@ -11,6 +11,7 @@ three, instead of being made three times.
 | `textinput` | bubbles' text input, with paste through `desktop` |
 | `selection` | Drag with the mouse to select text on the screen and copy it |
 | `light` | The header's traffic light: 🟢 focused, 🟡 refreshing in the background, 🔴 not updating |
+| `notice` | The status line's latest message, put first for a few seconds so "copied 2 lines" shows even over a search or a running action |
 | `search` | Search the pane: every hit marked, `n`/`N` between them, the status line |
 | `theme` | The shared colours (`default`, `light`, `mono`); an app's theme embeds `theme.Base` and adds its own |
 | `header` | Pieces of the top line: `Location` shortens a path from the left |
