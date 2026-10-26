@@ -13,7 +13,7 @@ three, instead of being made three times.
 | `light` | The header's traffic light: 🟢 focused, 🟡 refreshing in the background, 🔴 not updating |
 | `notice` | The status line's latest message, put first for a few seconds so "copied 2 lines" shows even over a search or a running action |
 | `search` | Search the pane: every hit marked, `n`/`N` between them, the status line |
-| `theme` | The shared colours (`default`, `light`, `mono`), from one palette (`theme.Dark`, `theme.LightColors`, the same as hubman's design); an app's theme embeds `theme.Base` and builds its own colours from that palette |
+| `theme` | The shared colours: five palettes (`default`, `nord`, `gruvbox`, `solarized`, `high-contrast`), each with a dark- and a light-terminal variant, plus `mono`. `theme.Resolve(app, flag, set)` picks one from `--theme`, then `NO_COLOR`, then `theme:` and `background:` (auto, dark, light) in `<config dir>/<app>/config.yaml`. An app's theme embeds `theme.Base` and builds its own colours from the chosen `Colors` |
 | `header` | Pieces of the top line: `Location` shortens a path from the left |
 | `palette` | The command palette (`:` or `ctrl+p`) over the app's own command type, and the footer's favorites |
 | `confirm` | Asking before acting: `y` or `enter` says yes, any other key cancels |

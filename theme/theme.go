@@ -1,7 +1,10 @@
 // Package theme is the colour set every dashboard shares. An app's Theme
-// embeds Base and adds its own colours, so t.Dim and t.Error read the same
-// in each of them. An app takes its own colours from Dark or LightColors,
-// so a "good" green or a "warning" yellow is the same in every app.
+// embeds Base and adds its own colours, built from the same Colors, so a
+// "good" green or a "warning" yellow is the same in every app.
+//
+// A theme is a named Palette (default, nord, gruvbox, solarized,
+// high-contrast) in its dark-terminal or light-terminal variant, or mono.
+// Resolve picks it from --theme, NO_COLOR and the app's config.yaml.
 package theme
 
 import (
@@ -23,8 +26,8 @@ type Base struct {
 	CurMatch lipgloss.Style // the hit n/N moved to
 }
 
-// Colors is the shared palette, as hex strings, the same one as the hubman
-// design. Apps build their own styles from it.
+// Colors is one palette variant, as hex strings. Apps build their own
+// styles from it.
 type Colors struct {
 	Text      string // text on Selection and on search hits
 	Accent    string // focus, keys, links
@@ -40,42 +43,19 @@ type Colors struct {
 	CurHit    string // background of the current search hit
 }
 
-// Dark suits dark terminals, LightColors light ones.
+// Dark and LightColors are the default palette (the hubman design), kept
+// under their old names.
 var (
-	Dark = Colors{
-		Text:      "#e3e8e5",
-		Accent:    "#7cc4ad",
-		Dim:       "#7f8e87",
-		Border:    "#4b5b54",
-		Good:      "#7ed39b",
-		Warn:      "#f0c86a",
-		Bad:       "#f08a7a",
-		Info:      "#73d0c9",
-		Blue:      "#7fb2ff",
-		Selection: "#2a3a34",
-		Hit:       "#f0c86a",
-		CurHit:    "#7cc4ad",
-	}
-	LightColors = Colors{
-		Text:      "#1d2421",
-		Accent:    "#2f6f5e",
-		Dim:       "#5d6862",
-		Border:    "#b9c1bb",
-		Good:      "#2e7d4f",
-		Warn:      "#9a6a00",
-		Bad:       "#b3412f",
-		Info:      "#1f6f8b",
-		Blue:      "#2f5fb3",
-		Selection: "#e1ede8",
-		Hit:       "#f6e3a8",
-		CurHit:    "#b9dccf",
-	}
+	Dark        = DefaultPalette.Dark
+	LightColors = DefaultPalette.Light
 )
 
 // Fg is a style in colour c.
 func Fg(c string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(c)) }
 
-func base(name string, c Colors) Base {
+// NewBase builds the shared styles from one palette variant. onHit is the
+// text colour on search hits, which are always light.
+func NewBase(name string, c Colors, onHit string) Base {
 	return Base{
 		Name:     name,
 		Border:   Fg(c.Border),
@@ -85,15 +65,15 @@ func base(name string, c Colors) Base {
 		Dim:      Fg(c.Dim),
 		Error:    Fg(c.Bad).Bold(true),
 		Key:      Fg(c.Accent).Bold(true),
-		Match:    Fg(LightColors.Text).Background(lipgloss.Color(c.Hit)),
-		CurMatch: Fg(LightColors.Text).Background(lipgloss.Color(c.CurHit)).Bold(true),
+		Match:    Fg(onHit).Background(lipgloss.Color(c.Hit)),
+		CurMatch: Fg(onHit).Background(lipgloss.Color(c.CurHit)).Bold(true),
 	}
 }
 
 // Default suits dark terminals, Light light ones; Mono has no colour at all.
 var (
-	Default = base("default", Dark)
-	Light   = base("light", LightColors)
+	Default = NewBase("default", DefaultPalette.Dark, DefaultPalette.Light.Text)
+	Light   = NewBase("light", DefaultPalette.Light, DefaultPalette.Light.Text)
 	Mono    = Base{
 		Name:     "mono",
 		Border:   lipgloss.NewStyle(),
