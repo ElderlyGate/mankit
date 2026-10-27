@@ -21,6 +21,7 @@ three, instead of being made three times.
 | `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<config dir>/<app>/split` |
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
 | `usercmd` | Your own commands from `<config dir>/<app>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
+| `helpout` | The one layout for `<app> help` and `<app> --help`: what the app is, how to start it, its commands, the repository |
 
 ## Settings
 
@@ -49,6 +50,40 @@ any path, and `usercmd/cli.CommandAt` serves `<app> commands` for any path.
 `cli.AddToE` reports a clash with an existing `config` command or `-o` flag
 instead of working around it. `settings.Next` is the value after the current one, for a dashboard
 that changes a key with `enter`.
+
+## Help
+
+Every app answers `<app> help` and `<app> --help` in one layout. The app says
+what it is, how to start it and where its repository is; the commands and
+their one-line help come from cobra, hidden and deprecated ones left out. A
+`Flags:` section lists the root's own flags, when it has any. A mistake
+(`<app> help nope`, an unknown flag) shows the same layout. `<app> help <verb>`
+and `<app> <verb> --help` keep cobra's full help.
+
+```go
+helpout.Apply(root, helpout.Info{
+	What:  "a git dashboard for the terminal",
+	Start: []string{"gitman", "run it inside a git repository"},
+	More:  "https://github.com/tugbayatilla/gitman",
+})
+```
+
+```
+gitman: a git dashboard for the terminal
+
+Start:
+  gitman
+  run it inside a git repository
+
+Commands:
+  help      Help about any command
+  version   Print the version
+
+Flags:
+      --theme string   the colours: default, nord, gruvbox, solarized, high-contrast, mono
+
+More: https://github.com/tugbayatilla/gitman
+```
 
 ## Why textinput is vendored
 
