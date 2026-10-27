@@ -126,3 +126,7 @@ go work init ./mankit ./gitman ./dcman ./checkman
 
 To release, tag mankit (`git tag v0.x.y && git push --tags`), then in each app
 `go get github.com/tugbayatilla/mankit@v0.x.y && go mod tidy`. The module path stays `github.com/tugbayatilla/mankit` until a later migration moves it with the org rename; the repository itself lives at `github.com/ElderlyGate/mankit`.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
