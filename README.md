@@ -1,8 +1,8 @@
 # mankit
 
-What the `-man` dashboards share: [gitman](https://github.com/tugbayatilla/gitman),
-[dcman](https://github.com/tugbayatilla/dcman) and
-[checkman](https://github.com/tugbayatilla/checkman). A change here reaches all
+What the `-man` dashboards share: [gitman](https://github.com/ElderlyGate/gitman),
+[dcman](https://github.com/ElderlyGate/dcman) and
+[checkman](https://github.com/ElderlyGate/checkman). A change here reaches all
 three, instead of being made three times.
 
 | Package | What it is |
@@ -63,7 +63,7 @@ and `<app> <verb> --help` keep cobra's full help.
 helpout.Apply(root, helpout.Info{
 	What:  "a git dashboard for the terminal",
 	Start: []string{"gitman", "run it inside a git repository"},
-	More:  "https://github.com/tugbayatilla/gitman",
+	More:  "https://github.com/ElderlyGate/gitman",
 })
 ```
 
@@ -81,7 +81,7 @@ Commands:
 Flags:
       --theme string   the colours: default, nord, gruvbox, solarized, high-contrast, mono
 
-More: https://github.com/tugbayatilla/gitman
+More: https://github.com/ElderlyGate/gitman
 ```
 
 A usage mistake prints `error: <msg>`, then the layout, both to stderr, and
@@ -125,4 +125,4 @@ go work init ./mankit ./gitman ./dcman ./checkman
 ```
 
 To release, tag mankit (`git tag v0.x.y && git push --tags`), then in each app
-`go get github.com/tugbayatilla/mankit@v0.x.y && go mod tidy`.
+`go get github.com/tugbayatilla/mankit@v0.x.y && go mod tidy`. The module path stays `github.com/tugbayatilla/mankit` until a later migration moves it with the org rename; the repository itself lives at `github.com/ElderlyGate/mankit`.

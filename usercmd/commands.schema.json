@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/tugbayatilla/mankit/main/usercmd/commands.schema.json",
+  "$id": "https://raw.githubusercontent.com/ElderlyGate/mankit/main/usercmd/commands.schema.json",
   "title": "config.yaml of a -man dashboard (gitman, dcman, checkman, hubman)",
   "description": "<config dir>/<app>/config.yaml: the colours and your own commands. Each command gets a palette entry, a key when it is free, and runs a shell line with the selection filled in.",
   "type": "object",
