@@ -95,7 +95,7 @@ The same in every project (x-man apps, mankit, hubman, e-designer, fleet).
 
 The same in every project (x-man apps, mankit, hubman, e-designer, fleet).
 
-- **H-1** Every product answers `<app> help` (and `<app> --help`) in one layout: a first line `<app>: <what it is>`; `Start:` how to start it and where to run it; `Commands:` one line per verb; `More:` the repository URL.
+- **H-1** Every product answers `<app> help` (and `<app> --help`) in one layout: a first line `<app>: <what it is>`; `Start:` how to start it and where to run it; `Commands:` one line per verb; `Flags:` its own options, when it has any; `More:` the repository URL. A mistake (an unknown verb or flag) shows the same layout.
 - **H-2** The help is the reference for how to use the product. Docs point to it instead of repeating it, and it changes in the same commit as the commands.
 - **H-3** hubman shows a product's help by running the command its catalog names (`help:`, default `<command> help`). A product needs no extra file for it.
 - **H-4** A product whose commands run elsewhere (a container) still answers `<app> help` on the host, without a running service when it can.
