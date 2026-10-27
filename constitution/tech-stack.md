@@ -77,3 +77,16 @@ The same in every project.
 
 - **G-WRITE-1** Docs and text use simple, short, clear words. No jargon.
 - **G-WRITE-2** A project's own words are listed in a Words table in `mission.md`, and each means one thing.
+
+## Versions and releases
+
+The same in every project (x-man apps, mankit, hubman, e-designer, fleet).
+
+- **V-1** A version is a semver tag `vX.Y.Z` on `main`. The tag is the source of truth.
+- **V-2** Every release is one annotated tag, pushed. A pushed tag is never moved or deleted.
+- **V-3** MAJOR for a breaking change (`feat!`), MINOR for `feat`, PATCH for `fix`. Docs or chore alone: no release.
+- **V-4** Only `vX.Y.Z` is a version. Snapshots are branches; no other tag may look like `v<digits>.`.
+- **V-5** `<app> --version` prints the tag it was built from: stamped at build, else build info, else `dev-<commit>[-dirty]`.
+- **V-6** A file that repeats the version (`VERSION`, `package.json`) equals the tag; CI checks it.
+- **V-7** Pushing a `vX.Y.Z` tag runs the release workflow; the release exists once it succeeds.
+- **V-8** Pre-releases are `vX.Y.Z-rc.N`; hubman never installs them as latest.
