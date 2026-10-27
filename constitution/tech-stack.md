@@ -90,3 +90,12 @@ The same in every project (x-man apps, mankit, hubman, e-designer, fleet).
 - **V-6** A file that repeats the version (`VERSION`, `package.json`) equals the tag; CI checks it.
 - **V-7** Pushing a `vX.Y.Z` tag runs the release workflow; the release exists once it succeeds.
 - **V-8** Pre-releases are `vX.Y.Z-rc.N`; hubman never installs them as latest.
+
+## Help
+
+The same in every project (x-man apps, mankit, hubman, e-designer, fleet).
+
+- **H-1** Every product answers `<app> help` (and `<app> --help`) in one layout: a first line `<app>: <what it is>`; `Start:` how to start it and where to run it; `Commands:` one line per verb; `More:` the repository URL.
+- **H-2** The help is the reference for how to use the product. Docs point to it instead of repeating it, and it changes in the same commit as the commands.
+- **H-3** hubman shows a product's help by running the command its catalog names (`help:`, default `<command> help`). A product needs no extra file for it.
+- **H-4** A product whose commands run elsewhere (a container) still answers `<app> help` on the host, without a running service when it can.
