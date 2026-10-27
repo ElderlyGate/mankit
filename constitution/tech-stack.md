@@ -67,7 +67,7 @@ The same in every project.
 
 ### Commits and pull requests
 
-- **G-GIT-1** Commits follow Conventional Commits, as a one-line subject. No co-author lines.
+- **G-GIT-1** Commits follow Conventional Commits, as a one-line subject. Work done with an AI agent is committed by the agent's account (`elderlygate-ai`) with one trailer, `Co-Authored-By: Tugbay Atilla <tugbayatilla@gmail.com>`; work the owner does alone has no co-author line.
 - **G-GIT-2** Pull requests are short and easy to read.
 - **G-GIT-3** All code is approved by the project owner before it reaches `main`.
 - **G-GIT-4** For now, the owner reviews the branch locally before it is merged.
