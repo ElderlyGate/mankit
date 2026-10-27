@@ -21,7 +21,7 @@ three, instead of being made three times.
 | `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<config dir>/<app>/split` |
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
 | `usercmd` | Your own commands from `<config dir>/<app>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
-| `helpout` | The one layout for `<app> help` and `<app> --help`: what the app is, how to start it, its commands, the repository |
+| `helpout` | The one layout for `<app> help`, `<app> --help` and a usage mistake: what the app is, how to start it, its commands, the repository |
 
 ## Settings
 
@@ -56,8 +56,7 @@ that changes a key with `enter`.
 Every app answers `<app> help` and `<app> --help` in one layout. The app says
 what it is, how to start it and where its repository is; the commands and
 their one-line help come from cobra, hidden and deprecated ones left out. A
-`Flags:` section lists the root's own flags, when it has any. A mistake
-(`<app> help nope`, an unknown flag) shows the same layout. `<app> help <verb>`
+`Flags:` section lists the root's own flags, when it has any. `<app> help <verb>`
 and `<app> <verb> --help` keep cobra's full help.
 
 ```go
@@ -83,6 +82,25 @@ Flags:
       --theme string   the colours: default, nord, gruvbox, solarized, high-contrast, mono
 
 More: https://github.com/tugbayatilla/gitman
+```
+
+A usage mistake prints `error: <msg>`, then the layout, both to stderr, and
+exits 2: an unknown flag, an unknown verb, `<app> help <unknown topic>` and a
+wrong number of arguments. A mistake on a verb shows that verb's usage instead
+of the layout. A command with verbs and no `Args`, the root or a group, takes
+no other word (`<app> remote nope` is a mistake on `remote`); an app that wants
+positional arguments sets `Args`. A command with verbs and no `Run` gets one
+that shows its help, so its `PersistentPreRun` hooks run first. A run-time error (whatever a `RunE`
+returns) never shows the layout: it comes back untouched, for the app to print
+with its own message and exit code. `Execute` owns the root's flag error func
+and silences cobra's own error and usage printing.
+
+```go
+code, err := helpout.Execute(ctx, root) // 0, 2 after a mistake, 1 with err
+if err != nil {
+	code = report(os.Stderr, err) // the app's own message and exit code
+}
+os.Exit(code)
 ```
 
 ## Why textinput is vendored
