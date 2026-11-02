@@ -6,16 +6,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/tugbayatilla/mankit/home"
 )
 
-// Path is <dir>/<app>/config.yaml; an empty dir is the user config dir.
+// Path is <dir>/<app>/config.yaml; an empty dir is the app's folder in the org's config folder (home.File).
 func Path(app, dir string) (string, error) {
 	if dir == "" {
-		d, err := os.UserConfigDir()
-		if err != nil {
-			return "", err
-		}
-		dir = d
+		return home.File(app, "config.yaml")
 	}
 	return filepath.Join(dir, app, "config.yaml"), nil
 }

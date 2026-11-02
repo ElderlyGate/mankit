@@ -57,7 +57,7 @@ type file struct {
 	Other map[string]any `yaml:",inline"`
 }
 
-// Path is <user config dir>/<app>/config.yaml, or "" when there is none.
+// Path is the app's config.yaml in the org's config folder (home.File), or "" when there is none.
 func Path(app string) string {
 	path, err := configfile.Path(app, "")
 	if err != nil {
