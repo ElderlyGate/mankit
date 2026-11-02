@@ -11,6 +11,8 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/tugbayatilla/mankit/ask"
 )
 
 // Info is what an app says about itself; the commands and flags come from cobra.
@@ -47,7 +49,7 @@ type mistake struct {
 
 func (m *mistake) Error() string { return m.err.Error() }
 
-// Execute runs root: 0 when it went well, 2 after printing a usage mistake and its usage to stderr, 1 and the run-time error untouched otherwise.
+// Execute runs root: 0 when it went well, 2 after printing a usage mistake and its usage to stderr, 3 and the error for an ask refusal, 1 and the run-time error untouched otherwise.
 func Execute(ctx context.Context, root *cobra.Command) (code int, err error) {
 	root.SilenceErrors, root.SilenceUsage = true, true
 	root.InitDefaultHelpCmd()
@@ -63,6 +65,8 @@ func Execute(ctx context.Context, root *cobra.Command) (code int, err error) {
 		return 0, nil
 	case errors.As(err, &m):
 		cmd = m.cmd
+	case errors.Is(err, ask.ErrRefused):
+		return 3, err
 	case cmd != root || !root.TraverseChildren || !isFlagError(err):
 		return 1, err
 	}
