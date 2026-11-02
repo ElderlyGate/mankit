@@ -120,7 +120,7 @@ func Set(path string, keys []Key, key, value string) error {
 	if b == nil && len(out) == 0 {
 		return nil // removing a key from a missing file
 	}
-	return writeFile(path, out)
+	return configfile.WriteFile(path, out)
 }
 
 // Next is the value after current in k's allowed values, wrapping around; free text keeps current.
