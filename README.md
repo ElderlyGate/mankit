@@ -22,7 +22,7 @@ three, instead of being made three times.
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
 | `usercmd` | Your own commands from `<config dir>/<app>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 | `helpout` | The one layout for `<app> help`, `<app> --help` and a usage mistake: what the app is, how to start it, its commands, the repository |
-| `ask` | Asking before a CLI verb changes anything: `y/N` in a terminal, refused without `--yes` elsewhere |
+| `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 
 ## Settings
 
@@ -107,26 +107,50 @@ os.Exit(code)
 ## Ask before a change
 
 Reading never asks; a verb that changes something asks first and shows what it
-will change. `ask.Flag` adds `--yes`, the same help text in every app.
-`ask.Change` does the rest:
+will change. How it asks is the user's choice, per type of change.
+
+Every change has one **type**: `create`, `edit`, `move`, `focus`, `archive`,
+`close`, `delete`, `settings`, `connect` or `run` (`ask.Create` … `ask.Run`).
+Each type has a **style**:
+
+| Style | In a terminal |
+|---|---|
+| `name` | `Type <name> to go ahead (add ! to stop asking for <type>): `: the exact name says yes |
+| `yes-no` | `Proceed? [y/N/a] `: `y` or `yes` says yes, `a` or `always` says yes and stop asking |
+| `never` | no question |
+
+`delete` asks for the name unless the user chose otherwise, every other type
+asks yes-no (`ask.Default`). The app keeps the user's choice in its own config,
+for example `confirm: {delete: name, move: never}`; `ask.ValidType` and
+`ask.ParseStyle` check what is written there, and `ask.Types` lists the types
+for a settings page.
+
+`ask.Flag` adds `--yes`, the same help text in every app. `ask.Change` does the
+rest:
 
 - with `--yes` the change goes ahead without a question;
-- when stdin and stderr are a terminal, it prints what will change and asks
-  `Proceed? [y/N] `: only `y` or `yes` (any case) says yes; anything else,
-  an empty line or the end of input, says no;
-- with no terminal (a script, a pipe, an agent) the change is refused:
-  `refused: <what>; pass --yes to make the change`.
+- with no terminal on stdin and stderr (a script, a pipe, an agent) the change is
+  refused, whatever the style: `refused: <what>; pass --yes to make the change`;
+- otherwise it asks in the style. Any other answer, an empty line or the end
+  of input says no: `refused: <what>`.
 
 A refusal wraps `ask.ErrRefused`, and `helpout.Execute` exits 3 on it, so a
-caller can tell a refusal from a failure (1).
+caller can tell a refusal from a failure (1). When the answer has `Remember`,
+the user asked to stop asking for that type: the app saves `never` for it in
+its config. `ask` never writes a config.
 
 ```go
 archive := &cobra.Command{
 	Use:  "archive <card>",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := ask.Change(cmd, "archive card "+args[0]); err != nil {
+		action := ask.Action{Type: ask.Archive, What: "archive card " + args[0], Name: args[0]}
+		answer, err := ask.Change(cmd, action, cfg.Confirm[ask.Archive])
+		if err != nil {
 			return err
+		}
+		if answer.Remember {
+			cfg.SetConfirm(ask.Archive, ask.Never)
 		}
 		return board.Archive(args[0])
 	},
@@ -134,9 +158,12 @@ archive := &cobra.Command{
 ask.Flag(archive)
 ```
 
+An empty or unknown style is the type's default, and `name` with no `Name`
+asks yes-no.
+
 ```sh
 app archive 7          # archive card 7
-                       # Proceed? [y/N]
+                       # Proceed? [y/N/a]
 app archive 7 --yes    # no question
 app archive 7 < /dev/null; echo $?   # refused: archive card 7; pass --yes to make the change
                                      # 3
