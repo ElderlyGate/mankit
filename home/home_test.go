@@ -20,25 +20,36 @@ func env(t *testing.T, xdg string) string {
 func TestPaths(t *testing.T) {
 	xdg := t.TempDir()
 	tests := []struct {
-		name string
-		xdg  string
-		base func(home string) string
+		name, configEnv, dataEnv string
+		config, data             func(home string) string
 	}{
-		{"XDG_CONFIG_HOME", xdg, func(string) string { return filepath.Join(xdg, "elderlygate") }},
-		{"no XDG_CONFIG_HOME", "", func(h string) string { return filepath.Join(h, ".config", "elderlygate") }},
-		{"relative XDG_CONFIG_HOME is ignored", "rel", func(h string) string { return filepath.Join(h, ".config", "elderlygate") }},
+		{"XDG folders", filepath.Join(xdg, "config"), filepath.Join(xdg, "data"),
+			func(string) string { return filepath.Join(xdg, "config", "elderlygate") },
+			func(string) string { return filepath.Join(xdg, "data", "elderlygate") }},
+		{"no XDG folders", "", "",
+			func(h string) string { return filepath.Join(h, ".config", "elderlygate") },
+			func(h string) string { return filepath.Join(h, ".local", "share", "elderlygate") }},
+		{"relative XDG folders are ignored", "rel", "rel",
+			func(h string) string { return filepath.Join(h, ".config", "elderlygate") },
+			func(h string) string { return filepath.Join(h, ".local", "share", "elderlygate") }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			base := tt.base(env(t, tt.xdg))
+			h := env(t, tt.configEnv)
+			t.Setenv("XDG_DATA_HOME", tt.dataEnv)
+			config, data := tt.config(h), tt.data(h)
 			dir, _ := home.Dir()
 			global, _ := home.Global()
 			product, _ := home.Product("gitman")
 			file, _ := home.File("gitman", "split")
-			want := []string{base, filepath.Join(base, "global-config.yaml"), filepath.Join(base, "gitman"), filepath.Join(base, "gitman", "split")}
-			for i, got := range []string{dir, global, product, file} {
-				if got != want[i] {
-					t.Errorf("got %q, want %q", got, want[i])
+			dataDir, _ := home.Data()
+			productData, _ := home.ProductData("control-room")
+			got := []string{dir, global, product, file, dataDir, productData}
+			want := []string{config, filepath.Join(config, "global-config.yaml"), filepath.Join(config, "gitman"),
+				filepath.Join(config, "gitman", "split"), data, filepath.Join(data, "control-room")}
+			for i := range got {
+				if got[i] != want[i] {
+					t.Errorf("got %q, want %q", got[i], want[i])
 				}
 			}
 		})
@@ -103,5 +114,77 @@ func TestFileWithNoOldFileMakesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("a file was made: %v", err)
+	}
+}
+
+// tree writes files (path: body) under dir.
+func tree(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, body := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestCopyOnceCopiesAFileAndKeepsTheOld(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old/github.json": "{}"})
+	to := filepath.Join(dir, "new", "control-room", "github.json")
+	if err := home.CopyOnce(filepath.Join(dir, "old", "github.json"), to); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, to) != "{}" || read(t, filepath.Join(dir, "old", "github.json")) != "{}" {
+		t.Fatal("the file was not copied, or the old one changed")
+	}
+}
+
+func TestCopyOnceCopiesAFolder(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old/github.json": "{}", "old/cache/a": "1"})
+	if err := os.Symlink("github.json", filepath.Join(dir, "old", "link")); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(dir, "new", "control-room")
+	if err := home.CopyOnce(filepath.Join(dir, "old"), to); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(to, "github.json")) != "{}" || read(t, filepath.Join(to, "cache", "a")) != "1" {
+		t.Fatal("the folder was not copied whole")
+	}
+	if link, err := os.Readlink(filepath.Join(to, "link")); err != nil || link != "github.json" {
+		t.Errorf("link = %q, %v", link, err)
+	}
+	if read(t, filepath.Join(dir, "old", "cache", "a")) != "1" {
+		t.Error("the old folder changed")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(dir, "new")); len(entries) != 1 {
+		t.Errorf("left %d entries beside the copy, want none", len(entries)-1)
+	}
+}
+
+func TestCopyOnceLeavesAnExistingTarget(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old": "old", "new": "new"})
+	if err := home.CopyOnce(filepath.Join(dir, "old"), filepath.Join(dir, "new")); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(dir, "new")) != "new" {
+		t.Fatal("an existing file was replaced")
+	}
+}
+
+func TestCopyOnceWithNothingToCopy(t *testing.T) {
+	dir := t.TempDir()
+	to := filepath.Join(dir, "new")
+	if err := home.CopyOnce(filepath.Join(dir, "missing"), to); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(to); !os.IsNotExist(err) {
+		t.Fatalf("something was made: %v", err)
 	}
 }
