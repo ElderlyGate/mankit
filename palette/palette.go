@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/tugbayatilla/mankit/home"
 	"github.com/tugbayatilla/mankit/textinput"
 )
 
@@ -169,13 +170,13 @@ type Favorites struct {
 	File string // "" keeps them in memory only
 }
 
-// File is <user config dir>/<app>/favorites, or "" when there is none.
+// File is the app's favorites file in the org's config folder (home.File), or "" when there is none.
 func File(app string) string {
-	dir, err := os.UserConfigDir()
+	path, err := home.File(app, "favorites")
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, app, "favorites")
+	return path
 }
 
 // LoadFavorites reads file, or starts from defaults when it is missing.
