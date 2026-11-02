@@ -58,3 +58,24 @@ func Default(t Type) Style {
 	}
 	return YesNo
 }
+
+// Source says where the style in use comes from.
+type Source string
+
+// The sources, strongest first.
+const (
+	FromProduct Source = "product"
+	FromGlobal  Source = "global"
+	FromDefault Source = "default"
+)
+
+// Resolve is the style in use for t and where it comes from: the product's value, else the global one, else Default(t); an unknown style counts as not set.
+func Resolve(t Type, product, global map[Type]Style) (Style, Source) {
+	if s, ok := product[t]; ok && slices.Contains(styles, s) {
+		return s, FromProduct
+	}
+	if s, ok := global[t]; ok && slices.Contains(styles, s) {
+		return s, FromGlobal
+	}
+	return Default(t), FromDefault
+}

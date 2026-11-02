@@ -49,3 +49,26 @@ func TestParseStyle(t *testing.T) {
 		}
 	}
 }
+
+func TestResolve(t *testing.T) {
+	tests := []struct {
+		name       string
+		typ        Type
+		product    map[Type]Style
+		global     map[Type]Style
+		wantStyle  Style
+		wantSource Source
+	}{
+		{"product wins", Move, map[Type]Style{Move: Never}, map[Type]Style{Move: Name}, Never, FromProduct},
+		{"global when the product has none", Move, map[Type]Style{Delete: Never}, map[Type]Style{Move: Name}, Name, FromGlobal},
+		{"default for delete", Delete, nil, nil, Name, FromDefault},
+		{"default for the rest", Move, nil, map[Type]Style{Delete: Never}, YesNo, FromDefault},
+		{"unknown product style is not set", Move, map[Type]Style{Move: "always"}, map[Type]Style{Move: Never}, Never, FromGlobal},
+		{"unknown global style is not set", Move, nil, map[Type]Style{Move: ""}, YesNo, FromDefault},
+	}
+	for _, tt := range tests {
+		if s, src := Resolve(tt.typ, tt.product, tt.global); s != tt.wantStyle || src != tt.wantSource {
+			t.Errorf("%s: Resolve = %s, %s; want %s, %s", tt.name, s, src, tt.wantStyle, tt.wantSource)
+		}
+	}
+}
