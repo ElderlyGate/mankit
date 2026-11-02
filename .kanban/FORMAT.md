@@ -1,12 +1,14 @@
-<!-- kanban-format-version: 1 -->
+<!-- kanban-format-version: 4 -->
 
 # This board is just files
 
 A kanban board this app can read is a directory containing:
 
     manifest.json   the columns, their limits, and the policies
-    cards/          one Markdown file per card
+    cards/          one file per card: Markdown (.md) or YAML (.yml), mixed
     archive/        cards swept out of Done
+
+The manifest's card_format names only the format a new card is written in.
 
 Nothing else. You can read it, grep it, diff it, and edit it by hand.
 
@@ -76,13 +78,19 @@ an effective value shows the manifest's original beside it:
 Policies are named in `manifest.json`, along with the message each one gives
 when it refuses. That file is the list; read it rather than this one.
 
-A blocked move reports the manifest's own message. `--yes` proceeds anyway. A
-card carrying one of the manifest's `policy_bypass_tags` skips every check.
+A blocked move reports the manifest's own message. `--override` proceeds anyway. A
+card carrying one of the manifest's `policy_bypass_tags` skips every check,
+except one every board with a done column (`column_stamps.done_at`) holds:
+an Epic card in the done column is closed, and is never moved out of it or made
+another kind without `--override`.
 
 ## Getting around
 
     kanban board                        the whole board
     kanban cards --column refined       find cards; --json for agents
     kanban show <id>                    one card, body included
+
+Every command that changes something asks first. With no terminal to answer,
+pass `--yes`; it skips the question and nothing else.
 
 `kanban --help` is the rest, and is always the current answer.
