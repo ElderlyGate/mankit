@@ -13,15 +13,16 @@ three, instead of being made three times.
 | `light` | The header's traffic light: 🟢 focused, 🟡 refreshing in the background, 🔴 not updating |
 | `notice` | The status line's latest message, put first for a few seconds so "copied 2 lines" shows even over a search or a running action |
 | `search` | Search the pane: every hit marked, `n`/`N` between them, the status line |
-| `theme` | The shared colours: five palettes (`default`, `nord`, `gruvbox`, `solarized`, `high-contrast`), each with a dark- and a light-terminal variant, plus `mono`. `theme.Resolve(app, flag, set)` picks one from `--theme`, then `NO_COLOR`, then `theme:` and `background:` (auto, dark, light) in `<config dir>/<app>/config.yaml`. An app's theme embeds `theme.Base` and builds its own colours from the chosen `Colors` |
+| `theme` | The shared colours: five palettes (`default`, `nord`, `gruvbox`, `solarized`, `high-contrast`), each with a dark- and a light-terminal variant, plus `mono`. `theme.Resolve(app, flag, set)` picks one from `--theme`, then `NO_COLOR`, then `theme:` and `background:` (auto, dark, light) in `<app folder>/config.yaml` (see [Where the files are](#where-the-files-are)). An app's theme embeds `theme.Base` and builds its own colours from the chosen `Colors` |
 | `header` | Pieces of the top line: `Location` shortens a path from the left |
 | `palette` | The command palette (`:` or `ctrl+p`) over the app's own command type, and the footer's favorites |
 | `confirm` | Asking before acting: `y` or `enter` says yes, any other key cancels |
 | `list` | The left-hand list: the highlighted row wraps to show its whole text, with scrolling and mouse clicks that account for it |
-| `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<config dir>/<app>/split` |
+| `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<app folder>/split` |
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
-| `usercmd` | Your own commands from `<config dir>/<app>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
+| `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 | `helpout` | The one layout for `<app> help`, `<app> --help` and a usage mistake: what the app is, how to start it, its commands, the repository |
+| `home` | Where the org's apps keep their files: the org's config and data folders, the global file, a folder per product, and `CopyOnce` to bring old files along |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 
 ## Settings
@@ -45,12 +46,48 @@ hubman set config theme nord
 hubman set config theme ""   # back to the default
 ```
 
-`settings.Path(app, dir)` is `<dir>/<app>/config.yaml`, the user config dir
-when `dir` is empty; `theme.ResolveIn(path, flag, set)` reads the colours from
+`settings.Path(app, dir)` is `<dir>/<app>/config.yaml`, the app folder
+(`home.File(app, "config.yaml")`) when `dir` is empty; `theme.ResolveIn(path, flag, set)` reads the colours from
 any path, and `usercmd/cli.CommandAt` serves `<app> commands` for any path.
 `cli.AddToE` reports a clash with an existing `config` command or `-o` flag
 instead of working around it. `settings.Next` is the value after the current one, for a dashboard
 that changes a key with `enter`.
+
+## Where the files are
+
+Every app of the org keeps its files in one place, the same on Linux and macOS
+(never `~/Library`):
+
+| What | Where | `home` |
+|---|---|---|
+| the org's config folder | `$XDG_CONFIG_HOME/elderlygate`, else `~/.config/elderlygate` | `home.Dir()` |
+| settings every app shares | `<config folder>/global-config.yaml` | `home.Global()` |
+| one app's config (the app folder) | `<config folder>/<product id>/` | `home.Product(id)` |
+| the org's data folder | `$XDG_DATA_HOME/elderlygate`, else `~/.local/share/elderlygate` | `home.Data()` |
+| one app's data | `<data folder>/<product id>/` | `home.ProductData(id)` |
+
+The folder name is the one constant `home.Org`, so the org's rename changes one
+line. A relative `XDG_*` value is ignored, as the XDG rules say.
+
+`home.File(id, name)` is `<app folder>/<name>`. The first time it is missing,
+the file the app kept before in the system's config folder
+(`~/.config/<app>/` on Linux, `~/Library/Application Support/<app>/` on macOS)
+is copied there. The old file stays as it was, so an older build of the app
+still finds it. `config.yaml`, `split` and `favorites` use it, so gitman, dcman,
+checkman and hubman keep their settings.
+
+`home.CopyOnce(from, to)` does the same for anything else: when `to` is missing
+and `from` exists, it copies the file or the whole folder, and leaves `from`
+as it was. A folder appears whole or not at all.
+
+```go
+dir, _ := home.ProductData("control-room")
+h, _ := os.UserHomeDir()
+old := filepath.Join(h, ".local", "share", "control-room", "github.json")
+if err := home.CopyOnce(old, filepath.Join(dir, "github.json")); err != nil {
+	return err
+}
+```
 
 ## Help
 
@@ -119,11 +156,20 @@ Each type has a **style**:
 | `yes-no` | `Proceed? [y/N/a] `: `y` or `yes` says yes, `a` or `always` says yes and stop asking |
 | `never` | no question |
 
-`delete` asks for the name unless the user chose otherwise, every other type
-asks yes-no (`ask.Default`). The app keeps the user's choice in its own config,
-for example `confirm: {delete: name, move: never}`; `ask.ValidType` and
-`ask.ParseStyle` check what is written there, and `ask.Types` lists the types
-for a settings page.
+The style comes from two places, both as `confirm: {delete: name, move: never}`:
+
+- the global file (`home.Global()`), which every app reads: `ask.Global()`
+  reads its styles, `ask.SetGlobal(t, s)` and `ask.ClearGlobal(t)` change one
+  type and keep every other key, section and comment of the file (its indent
+  may be tidied to two spaces). A settings
+  page or a CLI verb sets them there;
+- the app's own config, which overrides the global file per type.
+
+`ask.Resolve(t, product, global)` gives the style in use and where it comes
+from, to show beside it: `product`, `global` or `default`. The default is
+`name` for `delete` and `yes-no` for the rest (`ask.Default`). `ask.ValidType`
+and `ask.ParseStyle` check what a config holds, and `ask.Types` lists the
+types for a settings page.
 
 `ask.Flag` adds `--yes`, the same help text in every app. `ask.Change` does the
 rest:
@@ -137,7 +183,8 @@ rest:
 A refusal wraps `ask.ErrRefused`, and `helpout.Execute` exits 3 on it, so a
 caller can tell a refusal from a failure (1). When the answer has `Remember`,
 the user asked to stop asking for that type: the app saves `never` for it in
-its config. `ask` never writes a config.
+its own config, as a product value, never in the global file. `ask.Change`
+writes no file.
 
 ```go
 archive := &cobra.Command{
@@ -145,7 +192,12 @@ archive := &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		action := ask.Action{Type: ask.Archive, What: "archive card " + args[0], Name: args[0]}
-		answer, err := ask.Change(cmd, action, cfg.Confirm[ask.Archive])
+		global, err := ask.Global()
+		if err != nil {
+			return err
+		}
+		style, _ := ask.Resolve(ask.Archive, cfg.Confirm, global)
+		answer, err := ask.Change(cmd, action, style)
 		if err != nil {
 			return err
 		}
