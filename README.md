@@ -16,7 +16,7 @@ three, instead of being made three times.
 | `theme` | The shared colours: five palettes (`default`, `nord`, `gruvbox`, `solarized`, `high-contrast`), each with a dark- and a light-terminal variant, plus `mono`. `theme.Resolve(app, flag, set)` picks one from `--theme`, then `NO_COLOR`, then `theme:` and `background:` (auto, dark, light) in `<config dir>/<app>/config.yaml`. An app's theme embeds `theme.Base` and builds its own colours from the chosen `Colors` |
 | `header` | Pieces of the top line: `Location` shortens a path from the left |
 | `palette` | The command palette (`:` or `ctrl+p`) over the app's own command type, and the footer's favorites |
-| `confirm` | Asking before acting: `y` or `enter` says yes, any other key cancels |
+| `confirm` | Asking before acting in a dashboard: `y` says yes, any other key, `enter` too, cancels |
 | `list` | The left-hand list: the highlighted row wraps to show its whole text, with scrolling and mouse clicks that account for it |
 | `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<config dir>/<app>/split` |
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
