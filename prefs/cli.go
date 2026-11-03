@@ -22,6 +22,7 @@ type Options struct {
 	App    string
 	Config func() string // the app's config.yaml
 	Types  []ask.Type    // the types the app's changes use, in the order they are shown
+	System []ask.Type    // the types some verb of which changes the system itself (System: true); nil for none
 	Asker  Asker
 	Extra  func() []Location // places the app keeps besides its config and data; nil for none
 }
@@ -72,7 +73,7 @@ func confirmCmd(o Options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path := o.Asker.read()
-			rows, err := Rows(path, o.Types)
+			rows, err := Rows(path, o.Types, o.System)
 			if err != nil {
 				return err
 			}
@@ -80,7 +81,7 @@ func confirmCmd(o Options) *cobra.Command {
 				fmt.Fprintf(tw, "file: %s\n", path)
 				fmt.Fprintln(tw, "TYPE\tSTYLE\tSOURCE")
 				for _, r := range rows {
-					fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Type, r.Style, r.Source)
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Type, r.text(), r.Source)
 				}
 			})
 		},
@@ -126,11 +127,11 @@ Types: ` + typeNames(o.Types) + `.`
 		if err := ask.Set(o.Config(), ask.Type(t), style); err != nil {
 			return err
 		}
-		rows, err := Rows(o.Config(), []ask.Type{ask.Type(t)})
+		rows, err := Rows(o.Config(), []ask.Type{ask.Type(t)}, o.System)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (%s)\n", key, rows[0].Style, rows[0].Source)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (%s)\n", key, rows[0].text(), rows[0].Source)
 		return nil
 	}
 }

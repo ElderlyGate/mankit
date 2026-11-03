@@ -3,6 +3,7 @@ package prefs
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -73,24 +74,46 @@ func (k Asker) read() string {
 	return k.Config()
 }
 
-// Row is one type's style in use and where it comes from.
+// Row is one type's style in use, where it comes from, and how a change to the system itself of that type asks, when it differs.
 type Row struct {
 	Type   ask.Type   `json:"type" yaml:"type"`
 	Style  ask.Style  `json:"style" yaml:"style"`
 	Source ask.Source `json:"source" yaml:"source"`
+	Note   string     `json:"note,omitempty" yaml:"note,omitempty"`
 }
 
-// Rows is the style in use for each of types: the app's config at path, else the default.
-func Rows(path string, types []ask.Type) ([]Row, error) {
+// Rows is the style in use for each of types: the app's config at path, else the default; system are the types some verb of which changes the system itself.
+func Rows(path string, types, system []ask.Type) ([]Row, error) {
 	rows := make([]Row, 0, len(types))
 	for _, t := range types {
 		s, src, err := resolve(path, ask.Action{Type: t})
 		if err != nil {
 			return nil, err
 		}
-		rows = append(rows, Row{t, s, src})
+		rows = append(rows, Row{Type: t, Style: s, Source: src, Note: systemNote(slices.Contains(system, t), s, src)})
 	}
 	return rows, nil
+}
+
+// systemNote is how a change to the system itself asks when the type's style does not hold for it: by default, and over a never.
+func systemNote(system bool, s ask.Style, src ask.Source) string {
+	switch {
+	case !system:
+		return ""
+	case s == ask.Never:
+		return "a change to the system itself still asks for the name"
+	case src == ask.FromDefault:
+		return "a change to the system itself asks for the name"
+	}
+	return ""
+}
+
+// text is the style as a table shows it, with its note.
+func (r Row) text() string {
+	if r.Note == "" {
+		return string(r.Style)
+	}
+	return string(r.Style) + " — " + r.Note
 }
 
 // resolve is the style in use for a and where it comes from.

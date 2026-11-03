@@ -46,15 +46,44 @@ func readFile(t *testing.T, path string) string {
 func TestTheAppsStyleWinsOverTheDefaultWhichIsYesNoDeleteIncluded(t *testing.T) {
 	config := sandbox(t)
 	writeFile(t, config, "theme: nord\nconfirm:\n  delete: never\n")
-	rows, err := Rows(config, []ask.Type{ask.Delete, ask.Edit, ask.Create})
+	rows, err := Rows(config, []ask.Type{ask.Delete, ask.Edit, ask.Create}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Row{{ask.Delete, ask.Never, ask.FromProduct}, {ask.Edit, ask.YesNo, ask.FromDefault}, {ask.Create, ask.YesNo, ask.FromDefault}}
+	want := []Row{{ask.Delete, ask.Never, ask.FromProduct, ""}, {ask.Edit, ask.YesNo, ask.FromDefault, ""}, {ask.Create, ask.YesNo, ask.FromDefault, ""}}
 	for i, w := range want {
 		if rows[i] != w {
 			t.Errorf("row %d = %+v, want %+v", i, rows[i], w)
 		}
+	}
+}
+
+func TestATypeWithChangesToTheSystemSaysTheyAskForTheName(t *testing.T) {
+	config := sandbox(t)
+	system := []ask.Type{ask.Delete}
+	for _, tt := range []struct{ file, note string }{
+		{"", "a change to the system itself asks for the name"},
+		{"confirm:\n  delete: never\n", "a change to the system itself still asks for the name"},
+		{"confirm:\n  delete: yes-no\n", ""},
+	} {
+		writeFile(t, config, tt.file)
+		rows, err := Rows(config, []ask.Type{ask.Delete, ask.Edit}, system)
+		if err != nil || rows[0].Note != tt.note || rows[1].Note != "" {
+			t.Errorf("%q: notes %q, %q (%v), want %q", tt.file, rows[0].Note, rows[1].Note, err, tt.note)
+		}
+	}
+	root := &cobra.Command{Use: "app"}
+	settingscli.AddTo(root, nil, func() string { return config })
+	if err := AddTo(root, Options{App: "app", Config: func() string { return config }, Types: []ask.Type{ask.Delete}, System: system,
+		Asker: Asker{Config: func() string { return config }}}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, config, "confirm:\n  delete: never\n")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"get", "confirm"})
+	if err := root.Execute(); err != nil || !strings.Contains(out.String(), "never — a change to the system itself still asks for the name") {
+		t.Fatalf("get confirm (%v):\n%s", err, out.String())
 	}
 }
 
@@ -249,7 +278,7 @@ func TestSetConfigWritesTheAppsConfig(t *testing.T) {
 	}
 	var rows []Row
 	out, _ := cli(t, config, "get", "confirm", "-o", "json")
-	if err := json.Unmarshal([]byte(out), &rows); err != nil || rows[0] != (Row{ask.Delete, ask.YesNo, ask.FromDefault}) || rows[1].Source != ask.FromDefault {
+	if err := json.Unmarshal([]byte(out), &rows); err != nil || rows[0] != (Row{ask.Delete, ask.YesNo, ask.FromDefault, ""}) || rows[1].Source != ask.FromDefault {
 		t.Fatalf("default falls back to the default: %v\n%s", err, out)
 	}
 }
