@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	deleteCard = Action{Type: Delete, What: "delete card 20261102-ab12", Name: "20261102-ab12"}
-	moveCard   = Action{Type: Move, What: "move card 7 to review"}
+	deleteCard  = Action{Type: Delete, What: "delete card 20261102-ab12", Name: "20261102-ab12"}
+	deleteBoard = Action{Type: Delete, What: deleteCard.What, Name: deleteCard.Name, System: true}
+	moveCard    = Action{Type: Move, What: "move card 7 to review"}
 )
 
 const (
@@ -97,9 +98,11 @@ func TestChange(t *testing.T) {
 		{"name a", true, deleteCard, Name, "a\n", nil, askName, false, refusedNo},
 		{"name EOF", true, deleteCard, Name, "", nil, askName + "\n", false, refusedNo},
 
-		{"no style, delete asks the name", true, deleteCard, "", "20261102-ab12\n", nil, askName, false, ""},
+		{"no style, delete asks yes-no", true, deleteCard, "", "y\n", nil, askDel, false, ""},
 		{"no style, move asks yes-no", true, moveCard, "", "y\n", nil, askMove, false, ""},
-		{"unknown style is the default", true, deleteCard, "always", "20261102-ab12\n", nil, askName, false, ""},
+		{"no style, a system change asks the name", true, deleteBoard, "", "20261102-ab12\n", nil, askName, false, ""},
+		{"a system change in yes-no asks yes-no", true, deleteBoard, YesNo, "y\n", nil, askDel, false, ""},
+		{"unknown style is the default", true, deleteBoard, "always", "20261102-ab12\n", nil, askName, false, ""},
 		{"name with no Name asks yes-no", true, moveCard, Name, "n\n", nil, askMove, false, refusedMv},
 	}
 	for _, tt := range tests {

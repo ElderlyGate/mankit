@@ -51,9 +51,9 @@ func ParseStyle(s string) (Style, error) {
 	return "", fmt.Errorf("unknown style %q: use name, yes-no or never", s)
 }
 
-// Default is the style of a type the user has not chosen: name for delete, yes-no for the rest.
-func Default(t Type) Style {
-	if t == Delete {
+// Default is the style of an action whose type the user has not chosen: name for a change to the system itself (a.System), yes-no for every other, delete included.
+func Default(a Action) Style {
+	if a.System {
 		return Name
 	}
 	return YesNo
@@ -68,10 +68,10 @@ const (
 	FromDefault Source = "default"
 )
 
-// Resolve is the style in use for t and where it comes from: the product's value, else Default(t); an unknown style counts as not set.
-func Resolve(t Type, product map[Type]Style) (Style, Source) {
-	if s, ok := product[t]; ok && slices.Contains(styles, s) {
+// Resolve is the style in use for a and where it comes from: the product's value for a.Type, else Default(a); an unknown style counts as not set.
+func Resolve(a Action, product map[Type]Style) (Style, Source) {
+	if s, ok := product[a.Type]; ok && slices.Contains(styles, s) {
 		return s, FromProduct
 	}
-	return Default(t), FromDefault
+	return Default(a), FromDefault
 }
