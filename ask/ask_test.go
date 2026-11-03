@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -140,6 +141,16 @@ func TestAVerbThatAsksTwiceReadsEachAnswer(t *testing.T) {
 	}
 	if _, err := Change(cmd, deleteCard, Name); err != nil {
 		t.Fatalf("second: %v, want the second line read", err)
+	}
+}
+
+func TestStdinThatIsNotAFileIsRefused(t *testing.T) {
+	cmd := &cobra.Command{Use: "change"}
+	Flag(cmd)
+	cmd.SetIn(strings.NewReader("y\n"))
+	cmd.SetErr(os.Stderr)
+	if _, err := Change(cmd, deleteCard, YesNo); !errors.Is(err, ErrRefused) {
+		t.Fatalf("err = %v, want a refusal: a reader that is not a file is no terminal", err)
 	}
 }
 
