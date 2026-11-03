@@ -76,7 +76,7 @@ func touch(path string) error {
 }
 
 // CopyOnce copies the file or folder from to to when to is missing and from exists, and leaves from as it was; otherwise it does nothing.
-// A folder appears whole or not at all.
+// A folder appears whole or not at all, and a to made meanwhile by someone else is kept, never overwritten.
 func CopyOnce(from, to string) error {
 	if _, err := os.Lstat(to); !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -105,7 +105,15 @@ func CopyOnce(from, to string) error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(staged, to)
+	if fi.IsDir() {
+		err = renameNoReplace(staged, to)
+	} else {
+		err = os.Link(staged, to)
+	}
+	if errors.Is(err, fs.ErrExist) {
+		return nil // made meanwhile: the newer one stays
+	}
+	return err
 }
 
 // copyTree copies the folder from to the new folder to: folders, regular files and symlinks, each with its mode.

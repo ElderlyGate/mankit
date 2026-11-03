@@ -92,7 +92,8 @@ if err := home.Migrate("gitman", "config.yaml", "split", "favorites"); err != ni
 
 `home.CopyOnce(from, to)` does the same for anything else: when `to` is missing
 and `from` exists, it copies the file or the whole folder, and leaves `from`
-as it was. A folder appears whole or not at all.
+as it was. A folder appears whole or not at all, and a `to` another process
+made while the copy ran is kept: the copy is placed only where nothing is.
 
 ```go
 dir, _ := home.ProductData("control-room")
