@@ -20,6 +20,8 @@ var (
 const (
 	yesNo     = "Proceed? [y/N/a] "
 	typeName  = "Type 20261102-ab12 to go ahead (add ! to stop asking for delete): "
+	sysYesNo  = "Proceed? [y/N] "
+	sysName   = "Type 20261102-ab12 to go ahead: "
 	refusedNo = "refused: delete card 20261102-ab12"
 	refusedMv = "refused: move card 7 to review"
 	noTermDel = refusedNo + "; pass --yes to make the change"
@@ -56,6 +58,8 @@ func TestChange(t *testing.T) {
 	askDel := deleteCard.What + "\n" + yesNo
 	askName := deleteCard.What + "\n" + typeName
 	askMove := moveCard.What + "\n" + yesNo
+	askSysDel := deleteBoard.What + "\n" + sysYesNo
+	askSysName := deleteBoard.What + "\n" + sysName
 	tests := []struct {
 		name         string
 		onTerminal   bool
@@ -101,12 +105,15 @@ func TestChange(t *testing.T) {
 
 		{"no style, delete asks yes-no", true, deleteCard, "", "y\n", nil, askDel, false, ""},
 		{"no style, move asks yes-no", true, moveCard, "", "y\n", nil, askMove, false, ""},
-		{"no style, a system change asks the name", true, deleteBoard, "", "20261102-ab12\n", nil, askName, false, ""},
-		{"a system change in yes-no asks yes-no", true, deleteBoard, YesNo, "y\n", nil, askDel, false, ""},
-		{"a system change in never still asks the name", true, deleteBoard, Never, "20261102-ab12\n", nil, askName, false, ""},
+		{"no style, a system change asks the name", true, deleteBoard, "", "20261102-ab12\n", nil, askSysName, false, ""},
+		{"a system change takes no !", true, deleteBoard, Name, "20261102-ab12!\n", nil, askSysName, false, refusedNo},
+		{"a system change in yes-no asks yes-no", true, deleteBoard, YesNo, "y\n", nil, askSysDel, false, ""},
+		{"a system change in yes-no takes no a", true, deleteBoard, YesNo, "a\n", nil, askSysDel, false, refusedNo},
+		{"a system change in yes-no takes no always", true, deleteBoard, YesNo, "always\n", nil, askSysDel, false, refusedNo},
+		{"a system change in never still asks the name", true, deleteBoard, Never, "20261102-ab12\n", nil, askSysName, false, ""},
 		{"a system change in never, --yes", true, deleteBoard, Never, "", []string{"--yes"}, "", false, ""},
 		{"a system change in never, no terminal", false, deleteBoard, Never, "", nil, "", false, noTermDel},
-		{"unknown style is the default", true, deleteBoard, "always", "20261102-ab12\n", nil, askName, false, ""},
+		{"unknown style is the default", true, deleteBoard, "always", "20261102-ab12\n", nil, askSysName, false, ""},
 		{"name with no Name asks yes-no", true, moveCard, Name, "n\n", nil, askMove, false, refusedMv},
 	}
 	for _, tt := range tests {

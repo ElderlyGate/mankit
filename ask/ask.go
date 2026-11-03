@@ -96,23 +96,29 @@ func (a Action) style(s Style) Style {
 	return s
 }
 
+// question offers to stop asking only where a remembered answer counts: never on a change to the system itself.
 func (a Action) question(s Style) string {
-	if s == Name {
+	switch {
+	case s == Name && a.System:
+		return fmt.Sprintf("Type %s to go ahead: ", a.Name)
+	case s == Name:
 		return fmt.Sprintf("Type %s to go ahead (add ! to stop asking for %s): ", a.Name, a.Type)
+	case a.System:
+		return "Proceed? [y/N] "
 	}
 	return "Proceed? [y/N/a] "
 }
 
-// answer reads reply: whether it says yes, and whether it asks to stop asking.
+// answer reads reply: whether it says yes, and whether it asks to stop asking, which a change to the system itself does not accept.
 func (a Action) answer(s Style, reply string) (Answer, bool) {
 	if s == Name {
-		return Answer{Remember: reply == a.Name+"!"}, reply == a.Name || reply == a.Name+"!"
+		return Answer{Remember: reply == a.Name+"!"}, reply == a.Name || reply == a.Name+"!" && !a.System
 	}
 	switch strings.ToLower(reply) {
 	case "y", "yes":
 		return Answer{}, true
 	case "a", "always":
-		return Answer{Remember: true}, true
+		return Answer{Remember: true}, !a.System
 	}
 	return Answer{}, false
 }
