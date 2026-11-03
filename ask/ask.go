@@ -49,8 +49,13 @@ func Flag(cmd *cobra.Command) {
 }
 
 // Change asks before cmd makes a in style (empty or unknown: Default(a), name without a Name: yes-no); a no is an ErrRefused.
+// A cmd without --yes (Flag) is an error of the app, never a question.
 func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
-	if f := cmd.Flag(yesFlag); f != nil && f.Value.String() == "true" {
+	f := cmd.Flag(yesFlag)
+	if f == nil {
+		return Answer{}, fmt.Errorf("%s has no --yes flag: the app must call ask.Flag on it", cmd.CommandPath())
+	}
+	if f.Value.String() == "true" {
 		return Answer{}, nil
 	}
 	in, out := cmd.InOrStdin(), cmd.ErrOrStderr()

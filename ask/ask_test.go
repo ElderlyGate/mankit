@@ -124,6 +124,14 @@ func TestChange(t *testing.T) {
 	}
 }
 
+func TestChangeWithoutTheYesFlagIsAnErrorOfTheApp(t *testing.T) {
+	cmd := &cobra.Command{Use: "change"}
+	_, err := Change(cmd, deleteCard, YesNo)
+	if err == nil || errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "ask.Flag") {
+		t.Fatalf("err = %v, want an error naming ask.Flag, not a refusal", err)
+	}
+}
+
 func TestFlagHelp(t *testing.T) {
 	cmd := &cobra.Command{Use: "x"}
 	Flag(cmd)
