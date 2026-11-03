@@ -260,8 +260,14 @@ type's style and whether it is the app's or the default), `get locations`
 (the app's config, its data and the app's `Extra` places) and makes
 `set config` ask first and take `confirm.<type>`.
 
+Nothing is copied or written before the yes. Until the first change the styles
+are read from `Read`, the old file in place (`home.Current`), so `get confirm`
+shows the style in use; a no, or no terminal without `--yes`, writes nothing.
+`Migrate` runs only after the yes, before the change is made.
+
 ```go
-asker := prefs.Asker{Config: configFile, Migrate: migrate}
+read := func() string { p, _ := home.Current("gitman", "config.yaml"); return p }
+asker := prefs.Asker{Config: configFile, Read: read, Migrate: migrate}
 err := prefs.AddTo(root, prefs.Options{App: "gitman", Config: configFile, Types: confirmTypes, Asker: asker})
 // in a verb:
 if err := asker.Ask(cmd, ask.Action{Type: ask.Delete, What: "delete branch x", Name: "x"}); err != nil {

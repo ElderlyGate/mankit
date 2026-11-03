@@ -14,20 +14,15 @@ const UseDefault = "default"
 
 // Asker asks before a change, in the style resolved for its type, and saves never in the app's config when the user asks to stop asking.
 type Asker struct {
-	Config  func() string                                                   // the app's config.yaml
+	Config  func() string                                                   // the app's config.yaml, where a remembered answer is saved
+	Read    func() string                                                   // where the styles are read until Migrate ran, e.g. home.Current; nil is Config
 	Change  func(*cobra.Command, ask.Action, ask.Style) (ask.Answer, error) // nil is ask.Change
-	Migrate func() error                                                    // copies the app's old files once, before its first change; nil for none
+	Migrate func() error                                                    // copies the app's old files once, after the yes and before anything is written; nil for none
 }
 
-// Ask asks before cmd makes a: the app's style for its type, else a's default; a no is an ask.ErrRefused.
+// Ask asks before cmd makes a: the app's style for its type, else a's default; a no is an ask.ErrRefused and writes nothing.
 func (k Asker) Ask(cmd *cobra.Command, a ask.Action) error {
-	if k.Migrate != nil {
-		if err := k.Migrate(); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "warning: old files not copied: %v\n", err)
-		}
-	}
-	path := k.Config()
-	style, _, err := resolve(path, a)
+	style, _, err := resolve(k.read(), a)
 	if err != nil {
 		return err
 	}
@@ -36,9 +31,18 @@ func (k Asker) Ask(cmd *cobra.Command, a ask.Action) error {
 		change = ask.Change
 	}
 	answer, err := change(cmd, a, style)
-	if err != nil || !answer.Remember {
+	if err != nil {
 		return err
 	}
+	if k.Migrate != nil {
+		if err := k.Migrate(); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: old files not copied: %v\n", err)
+		}
+	}
+	if !answer.Remember {
+		return nil
+	}
+	path := k.Config()
 	if err := ask.Remember(path, a.Type); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s will still ask: %v\n", a.Type, err)
 		return nil
@@ -49,6 +53,14 @@ func (k Asker) Ask(cmd *cobra.Command, a ask.Action) error {
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "%s no longer asks (set in %s)\n", a.Type, path)
 	return nil
+}
+
+// read is the file the styles are read from now.
+func (k Asker) read() string {
+	if k.Read != nil {
+		return k.Read()
+	}
+	return k.Config()
 }
 
 // Row is one type's style in use and where it comes from.

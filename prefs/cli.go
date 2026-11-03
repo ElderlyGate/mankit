@@ -71,7 +71,7 @@ func confirmCmd(o Options) *cobra.Command {
 		Short: "Show how each type of change asks, and whether the style is " + o.App + "'s or the default",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path := o.Config()
+			path := o.Asker.read()
 			rows, err := Rows(path, o.Types)
 			if err != nil {
 				return err

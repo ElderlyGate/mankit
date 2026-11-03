@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/tugbayatilla/mankit/ask"
+	"github.com/tugbayatilla/mankit/home"
 	settingscli "github.com/tugbayatilla/mankit/settings/cli"
 )
 
@@ -104,19 +106,69 @@ func TestAChangeToTheSystemAsksForTheNameUnlessTheAppSetsItsType(t *testing.T) {
 	}
 }
 
-func TestAskCopiesTheOldFilesBeforeItReadsTheStyle(t *testing.T) {
-	config := sandbox(t)
-	var asked ask.Style
-	k := Asker{
+// oldConfig writes body to the app's config.yaml where it was kept before the org's folder: <system config dir>/app/config.yaml.
+func oldConfig(t *testing.T, body string) string {
+	t.Helper()
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "app", "config.yaml")
+	writeFile(t, path, body)
+	return path
+}
+
+// homeAsker reads the styles where home.Current says and copies the old config with home.Migrate after the yes.
+func homeAsker(config string) Asker {
+	return Asker{
 		Config:  func() string { return config },
-		Migrate: func() error { writeFile(t, config, "confirm:\n  edit: never\n"); return nil },
-		Change: func(_ *cobra.Command, _ ask.Action, s ask.Style) (ask.Answer, error) {
-			asked = s
-			return ask.Answer{}, nil
-		},
+		Read:    func() string { p, _ := home.Current("app", "config.yaml"); return p },
+		Migrate: func() error { return home.Migrate("app", "config.yaml") },
+	}
+}
+
+func TestARefusedChangeCopiesNothingAndWritesNothing(t *testing.T) {
+	config := sandbox(t)
+	oldConfig(t, "confirm:\n  edit: never\n")
+	k := homeAsker(config)
+	if err := k.Ask(command(""), ask.Action{Type: ask.Edit, What: "edit x"}); !errors.Is(err, ask.ErrRefused) {
+		t.Fatalf("no terminal: %v, want refused", err)
+	}
+	k.Change = func(*cobra.Command, ask.Action, ask.Style) (ask.Answer, error) {
+		return ask.Answer{}, fmt.Errorf("%w: edit x", ask.ErrRefused)
+	}
+	if err := k.Ask(command("n\n"), ask.Action{Type: ask.Edit, What: "edit x"}); !errors.Is(err, ask.ErrRefused) {
+		t.Fatalf("a no: %v, want refused", err)
+	}
+	if _, err := os.Stat(filepath.Dir(config)); !os.IsNotExist(err) {
+		t.Fatalf("a refused change wrote into the app's folder: %v", err)
+	}
+	dir, _ := home.Dir()
+	if _, err := os.Stat(filepath.Join(dir, ".migrated")); !os.IsNotExist(err) {
+		t.Fatalf("a refused change left a mark: %v", err)
+	}
+}
+
+func TestTheOldStyleHoldsUntilTheYesThenTheOldFileIsCopied(t *testing.T) {
+	config := sandbox(t)
+	oldConfig(t, "confirm:\n  edit: never\n")
+	if out, err := cliWith(t, config, homeAsker(config), "get", "confirm"); err != nil || !strings.Contains(out, "never") {
+		t.Fatalf("get confirm before the first change shows the old style (%v):\n%s", err, out)
+	}
+	var asked ask.Style
+	k := homeAsker(config)
+	k.Change = func(_ *cobra.Command, _ ask.Action, s ask.Style) (ask.Answer, error) {
+		if _, err := os.Stat(config); !os.IsNotExist(err) {
+			t.Errorf("copied before the yes: %v", err)
+		}
+		asked = s
+		return ask.Answer{}, nil
 	}
 	if err := k.Ask(command(""), ask.Action{Type: ask.Edit, What: "edit x"}); err != nil || asked != ask.Never {
-		t.Fatalf("asked in %q (%v), want the copied never", asked, err)
+		t.Fatalf("asked in %q (%v), want the old never", asked, err)
+	}
+	if got := readFile(t, config); got != "confirm:\n  edit: never\n" {
+		t.Fatalf("after the yes the old file is copied; app config:\n%s", got)
 	}
 }
 
@@ -137,10 +189,16 @@ func TestWithoutATerminalAChangeIsRefusedUnlessYes(t *testing.T) {
 // cli is a root with mankit's settings verbs and AddTo, run with args and no terminal.
 func cli(t *testing.T, config string, args ...string) (string, error) {
 	t.Helper()
+	return cliWith(t, config, Asker{Config: func() string { return config }}, args...)
+}
+
+// cliWith is cli with asker.
+func cliWith(t *testing.T, config string, asker Asker, args ...string) (string, error) {
+	t.Helper()
 	root := &cobra.Command{Use: "app"}
 	settingscli.AddTo(root, nil, func() string { return config })
 	if err := AddTo(root, Options{App: "app", Config: func() string { return config }, Types: []ask.Type{ask.Delete, ask.Edit},
-		Asker: Asker{Config: func() string { return config }}}); err != nil {
+		Asker: asker}); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
