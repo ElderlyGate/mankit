@@ -1,6 +1,7 @@
 package palette
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,8 +128,8 @@ func TestEverySettingIsACommandFoundByItsHelp(t *testing.T) {
 func TestASettingIsNeverStarred(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "favorites")
 	f := LoadFavorites(file, nil)
-	if err := f.Toggle(SettingPrefix+"theme", []string{"quit"}); err != nil {
-		t.Fatal(err)
+	if err := f.Toggle(SettingPrefix+"theme", []string{"quit"}); !errors.Is(err, ErrSetting) || err.Error() != "settings can't be starred" {
+		t.Fatalf("err = %v, want the notice that settings can't be starred", err)
 	}
 	if f.IDs[SettingPrefix+"theme"] {
 		t.Fatal("a setting stays off the footer")

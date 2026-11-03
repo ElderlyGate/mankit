@@ -4,6 +4,7 @@
 package palette
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -229,10 +230,13 @@ func LoadFavorites(file string, defaults []string) Favorites {
 	return f
 }
 
-// Toggle stars or unstars id and saves the favorites in order, the order of all ids; a setting is never starred.
+// ErrSetting is Toggle's answer for a setting: not a failure, a short notice to show instead of doing nothing.
+var ErrSetting = errors.New("settings can't be starred")
+
+// Toggle stars or unstars id and saves the favorites in order, the order of all ids; a setting is never starred (ErrSetting).
 func (f Favorites) Toggle(id string, order []string) error {
 	if _, ok := SettingKey(id); ok {
-		return nil
+		return ErrSetting
 	}
 	f.IDs[id] = !f.IDs[id]
 	if f.File == "" {
