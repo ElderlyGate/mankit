@@ -172,6 +172,11 @@ Each type has a **style**:
 | `never` | no question |
 
 The style lives in the app's own config only, as `confirm: {delete: name, move: never}`.
+`ask.Load(path)` reads it, `ask.Set(path, type, style)` writes one type (`""`
+puts it back to its default) and `ask.Remember(path, type)` saves `never` after
+"Remember my answer"; each keeps the rest of the file. `<app> set config
+confirm.delete never` does the same from the command line and refuses a style
+that is not one of the three.
 
 By default every type asks `yes-no`, `delete` included. A change to the system
 itself (uninstalling, removing a token, dropping data, deleting a board) asks
@@ -206,13 +211,20 @@ archive := &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		action := ask.Action{Type: ask.Archive, What: "archive card " + args[0], Name: args[0]}
-		style, _ := ask.Resolve(action, cfg.Confirm)
+		path := settings.Path("app", "")
+		styles, err := ask.Load(path)
+		if err != nil {
+			return err
+		}
+		style, _ := ask.Resolve(action, styles)
 		answer, err := ask.Change(cmd, action, style)
 		if err != nil {
 			return err
 		}
 		if answer.Remember {
-			cfg.SetConfirm(ask.Archive, ask.Never)
+			if err := ask.Remember(path, ask.Archive); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: archive will still ask:", err)
+			}
 		}
 		return board.Archive(args[0])
 	},

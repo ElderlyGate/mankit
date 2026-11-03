@@ -120,16 +120,12 @@ func setConfig(keys []settings.Key, path func() string, short string) *cobra.Com
 			if err := settings.Set(p, keys, args[0], args[1]); err != nil {
 				return err
 			}
-			rows, err := settings.Load(p, keys)
+			k, _ := settings.Find(keys, args[0])
+			rows, err := settings.Load(p, []settings.Key{k})
 			if err != nil {
 				return err
 			}
-			for _, r := range rows {
-				if r.Key == args[0] {
-					return write(cmd.OutOrStdout(), format, p, []settings.Row{r})
-				}
-			}
-			return nil
+			return write(cmd.OutOrStdout(), format, p, rows)
 		},
 	}
 	c.Flags().StringVarP(&format, "output", short, "table", "output format: table, json or yaml")
