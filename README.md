@@ -264,6 +264,8 @@ Nothing is copied or written before the yes. Until the first change the styles
 are read from `Read`, the old file in place (`home.Current`), so `get confirm`
 shows the style in use; a no, or no terminal without `--yes`, writes nothing.
 `Migrate` runs only after the yes, before the change is made.
+A command run with `--dry-run` asks nothing and writes nothing: no copy, no
+mark, no remembered answer, and `set config` only says what it would change.
 
 ```go
 read := func() string { p, _ := home.Current("gitman", "config.yaml"); return p }

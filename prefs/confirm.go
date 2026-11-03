@@ -21,7 +21,11 @@ type Asker struct {
 }
 
 // Ask asks before cmd makes a: the app's style for its type, else a's default; a no is an ask.ErrRefused and writes nothing.
+// A dry run (--dry-run) asks nothing and writes nothing, as the change it is about is not made.
 func (k Asker) Ask(cmd *cobra.Command, a ask.Action) error {
+	if dryRun(cmd) {
+		return nil
+	}
 	style, _, err := resolve(k.read(), a)
 	if err != nil {
 		return err
@@ -53,6 +57,12 @@ func (k Asker) Ask(cmd *cobra.Command, a ask.Action) error {
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "%s no longer asks (set in %s)\n", a.Type, path)
 	return nil
+}
+
+// dryRun reports whether cmd runs with --dry-run, so it changes nothing.
+func dryRun(cmd *cobra.Command) bool {
+	f := cmd.Flag("dry-run")
+	return f != nil && f.Value.String() == "true"
 }
 
 // read is the file the styles are read from now.

@@ -112,6 +112,10 @@ Types: ` + typeNames(o.Types) + `.`
 		if err := o.Asker.Ask(cmd, ask.Action{Type: ask.Settings, What: what}); err != nil {
 			return err
 		}
+		if dryRun(cmd) {
+			fmt.Fprintf(cmd.OutOrStdout(), "dry run, nothing changed: %s\n", what)
+			return nil
+		}
 		if !isConfirm {
 			return write(cmd, args)
 		}

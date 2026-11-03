@@ -172,6 +172,28 @@ func TestTheOldStyleHoldsUntilTheYesThenTheOldFileIsCopied(t *testing.T) {
 	}
 }
 
+func TestADryRunAsksNothingAndWritesNothing(t *testing.T) {
+	config := sandbox(t)
+	oldConfig(t, "confirm:\n  edit: name\n")
+	k := homeAsker(config)
+	k.Change = func(*cobra.Command, ask.Action, ask.Style) (ask.Answer, error) {
+		t.Error("a dry run asked")
+		return ask.Answer{Remember: true}, nil
+	}
+	c := command("")
+	c.Flags().Bool("dry-run", true, "")
+	if err := k.Ask(c, ask.Action{Type: ask.Edit, What: "edit x"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := cliWith(t, config, homeAsker(config), "set", "config", "confirm.delete", "never", "--yes", "--dry-run"); err != nil || !strings.Contains(out, "dry run") {
+		t.Fatalf("set config --dry-run (%v):\n%s", err, out)
+	}
+	dir, _ := home.Dir()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("a dry run wrote into the org's config folder: %v", err)
+	}
+}
+
 func TestWithoutATerminalAChangeIsRefusedUnlessYes(t *testing.T) {
 	config := sandbox(t)
 	writeFile(t, config, "confirm:\n  edit: never\n")
@@ -196,6 +218,7 @@ func cli(t *testing.T, config string, args ...string) (string, error) {
 func cliWith(t *testing.T, config string, asker Asker, args ...string) (string, error) {
 	t.Helper()
 	root := &cobra.Command{Use: "app"}
+	root.PersistentFlags().Bool("dry-run", false, "change nothing")
 	settingscli.AddTo(root, nil, func() string { return config })
 	if err := AddTo(root, Options{App: "app", Config: func() string { return config }, Types: []ask.Type{ask.Delete, ask.Edit},
 		Asker: asker}); err != nil {
