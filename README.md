@@ -15,7 +15,7 @@ three, instead of being made three times.
 | `search` | Search the pane: every hit marked, `n`/`N` between them, the status line |
 | `theme` | The shared colours: five palettes (`default`, `nord`, `gruvbox`, `solarized`, `high-contrast`), each with a dark- and a light-terminal variant, plus `mono`. `theme.Resolve(app, flag, set)` picks one from `--theme`, then `NO_COLOR`, then `theme:` and `background:` (auto, dark, light) in `<app folder>/config.yaml` (see [Where the files are](#where-the-files-are)). An app's theme embeds `theme.Base` and builds its own colours from the chosen `Colors` |
 | `header` | Pieces of the top line: `Location` shortens a path from the left |
-| `palette` | The command palette (`:` or `ctrl+p`) over the app's own command type, and the footer's favorites |
+| `palette` | The command palette (`:` or `ctrl+p`) over the app's own command type, and the footer's favorites. `palette.Settings(rows)` makes a command of every setting (`setting:<key>`, labelled `key: value`, found by its help with `SettingHelp`); running one opens the Settings view on that row (`SettingKey`), and a setting is never starred |
 | `confirm` | Asking before acting: `y` or `enter` says yes, any other key cancels |
 | `list` | The left-hand list: the highlighted row wraps to show its whole text, with scrolling and mouse clicks that account for it |
 | `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<app folder>/split` |
