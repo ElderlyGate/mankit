@@ -81,8 +81,8 @@ changes nothing. mankit's own files are
 keep their settings. The old file stays as it was, so an older build of the
 app still finds it. Each copy runs once: when it is done, Migrate leaves a mark
 in `<config folder>/.migrated/<app>/`, so a file the user deletes afterwards
-never comes back. A copy that fails leaves no mark and is tried again next
-time.
+never comes back. A name with no old file, or a copy that fails, leaves no
+mark and is tried again next time.
 
 ```go
 if err := home.Migrate("gitman", "config.yaml", "split", "favorites"); err != nil {

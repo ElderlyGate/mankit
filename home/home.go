@@ -34,7 +34,7 @@ func File(id, name string) (string, error) {
 }
 
 // Migrate copies each named file the app kept before in the system's config folder (<config dir>/<id>/<name>) to File(id, name), once per file:
-// a done copy leaves a mark in <Dir>/.migrated/<id>/, so a file the user deletes later never comes back. A copy that fails is tried again next time.
+// a done copy leaves a mark in <Dir>/.migrated/<id>/, so a file the user deletes later never comes back. A missing old file or a copy that fails leaves no mark.
 func Migrate(id string, names ...string) error {
 	old, err := os.UserConfigDir()
 	if err != nil {
@@ -47,13 +47,13 @@ func Migrate(id string, names ...string) error {
 	marks := filepath.Join(dir, ".migrated", id)
 	var errs []error
 	for _, name := range names {
-		mark := filepath.Join(marks, name)
-		if _, err := os.Lstat(mark); err == nil {
+		mark, from := filepath.Join(marks, name), filepath.Join(old, id, name)
+		if exists(mark) || !exists(from) {
 			continue
 		}
 		to, err := File(id, name)
 		if err == nil {
-			err = CopyOnce(filepath.Join(old, id, name), to)
+			err = CopyOnce(from, to)
 		}
 		if err == nil {
 			err = touch(mark)
@@ -61,6 +61,12 @@ func Migrate(id string, names ...string) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// exists reports whether something is at path.
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 // touch makes the empty file path and its folders.
