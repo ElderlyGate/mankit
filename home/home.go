@@ -1,4 +1,4 @@
-// Package home is where the org's apps keep their files: one config folder and one data folder for the org, a global file every app reads, and a folder per product in each.
+// Package home is where the org's apps keep their files: one config folder and one data folder for the org, and a folder per product in each.
 package home
 
 import (
@@ -17,9 +17,6 @@ func Dir() (string, error) { return base("XDG_CONFIG_HOME", ".config") }
 
 // Data is the data folder: $XDG_DATA_HOME/<Org>, else ~/.local/share/<Org>, the same on Linux and macOS.
 func Data() (string, error) { return base("XDG_DATA_HOME", filepath.Join(".local", "share")) }
-
-// Global is <Dir>/global-config.yaml, the settings every app shares.
-func Global() (string, error) { return under(Dir, "global-config.yaml") }
 
 // Product is <Dir>/<id>, the config folder of the product with that ID.
 func Product(id string) (string, error) { return under(Dir, id) }
