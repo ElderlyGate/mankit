@@ -52,10 +52,6 @@ func (k Asker) Ask(cmd *cobra.Command, a ask.Action) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s will still ask: %v\n", a.Type, err)
 		return nil
 	}
-	if a.System {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s no longer asks, but a change to the system itself still does (set in %s)\n", a.Type, path)
-		return nil
-	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "%s no longer asks (set in %s)\n", a.Type, path)
 	return nil
 }
