@@ -19,14 +19,16 @@ var ErrRefused = errors.New("refused")
 // yesFlag is the flag that makes a change without asking.
 const yesFlag = "yes"
 
-// Action is one change: its type, what it will change, and the name a name question asks to type.
+// Action is one change: its type, what it will change, the name a name question asks to type, and whether it changes the system itself.
 type Action struct {
 	Type Type
 	What string
 	Name string
+	// System marks a change to the system itself (uninstalling, removing a token, dropping data, deleting a board): its default style is name.
+	System bool
 }
 
-// Answer is a yes; Remember means the user asked to stop asking for this type: the caller saves never for it as the product's own value, never in the global file.
+// Answer is a yes; Remember means the user asked to stop asking for this type: the caller saves never for it in the product's own config.
 type Answer struct {
 	Remember bool
 }
@@ -46,7 +48,7 @@ func Flag(cmd *cobra.Command) {
 	cmd.Flags().Bool(yesFlag, false, "make the change without asking")
 }
 
-// Change asks before cmd makes a in style (empty or unknown: the type's default, name without a Name: yes-no); a no is an ErrRefused.
+// Change asks before cmd makes a in style (empty or unknown: Default(a), name without a Name: yes-no); a no is an ErrRefused.
 func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
 	if f := cmd.Flag(yesFlag); f != nil && f.Value.String() == "true" {
 		return Answer{}, nil
@@ -69,10 +71,10 @@ func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
 	return Answer{}, fmt.Errorf("%w: %s", ErrRefused, a.What)
 }
 
-// style is the style the question takes: the type's default for an empty or unknown one, yes-no for name when there is no name to type.
+// style is the style the question takes: Default(a) for an empty or unknown one, yes-no for name when there is no name to type.
 func (a Action) style(s Style) Style {
 	if _, err := ParseStyle(string(s)); err != nil {
-		s = Default(a.Type)
+		s = Default(a)
 	}
 	if s == Name && a.Name == "" {
 		return YesNo

@@ -39,13 +39,12 @@ func TestPaths(t *testing.T) {
 			t.Setenv("XDG_DATA_HOME", tt.dataEnv)
 			config, data := tt.config(h), tt.data(h)
 			dir, _ := home.Dir()
-			global, _ := home.Global()
 			product, _ := home.Product("gitman")
 			file, _ := home.File("gitman", "split")
 			dataDir, _ := home.Data()
 			productData, _ := home.ProductData("control-room")
-			got := []string{dir, global, product, file, dataDir, productData}
-			want := []string{config, filepath.Join(config, "global-config.yaml"), filepath.Join(config, "gitman"),
+			got := []string{dir, product, file, dataDir, productData}
+			want := []string{config, filepath.Join(config, "gitman"),
 				filepath.Join(config, "gitman", "split"), data, filepath.Join(data, "control-room")}
 			for i := range got {
 				if got[i] != want[i] {

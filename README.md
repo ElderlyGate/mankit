@@ -22,7 +22,7 @@ three, instead of being made three times.
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
 | `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 | `helpout` | The one layout for `<app> help`, `<app> --help` and a usage mistake: what the app is, how to start it, its commands, the repository |
-| `home` | Where the org's apps keep their files: the org's config and data folders, the global file, a folder per product, and `CopyOnce` to bring old files along |
+| `home` | Where the org's apps keep their files: the org's config and data folders, a folder per product, and `CopyOnce` to bring old files along |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 
 ## Settings
@@ -61,7 +61,6 @@ Every app of the org keeps its files in one place, the same on Linux and macOS
 | What | Where | `home` |
 |---|---|---|
 | the org's config folder | `$XDG_CONFIG_HOME/elderlygate`, else `~/.config/elderlygate` | `home.Dir()` |
-| settings every app shares | `<config folder>/global-config.yaml` | `home.Global()` |
 | one app's config (the app folder) | `<config folder>/<product id>/` | `home.Product(id)` |
 | the org's data folder | `$XDG_DATA_HOME/elderlygate`, else `~/.local/share/elderlygate` | `home.Data()` |
 | one app's data | `<data folder>/<product id>/` | `home.ProductData(id)` |
@@ -156,18 +155,17 @@ Each type has a **style**:
 | `yes-no` | `Proceed? [y/N/a] `: `y` or `yes` says yes, `a` or `always` says yes and stop asking |
 | `never` | no question |
 
-The style comes from two places, both as `confirm: {delete: name, move: never}`:
+The style lives in the app's own config only, as `confirm: {delete: name, move: never}`.
 
-- the global file (`home.Global()`), which every app reads: `ask.Global()`
-  reads its styles, `ask.SetGlobal(t, s)` and `ask.ClearGlobal(t)` change one
-  type and keep every other key, section and comment of the file (its indent
-  may be tidied to two spaces). A settings
-  page or a CLI verb sets them there;
-- the app's own config, which overrides the global file per type.
+By default every type asks `yes-no`, `delete` included. A change to the system
+itself (uninstalling, removing a token, dropping data, deleting a board) asks
+for the name instead: the app marks those verbs with `System: true` on their
+`ask.Action`, and the user can still pick another style for the type
+(`ask.Default`).
 
-`ask.Resolve(t, product, global)` gives the style in use and where it comes
-from, to show beside it: `product`, `global` or `default`. The default is
-`name` for `delete` and `yes-no` for the rest (`ask.Default`). `ask.ValidType`
+`ask.Resolve(action, product)` gives the style in use for the action and where
+it comes from, to show beside it: `product` or `default`. A settings page asks
+it per type with `ask.Action{Type: t}`. `ask.ValidType`
 and `ask.ParseStyle` check what a config holds, and `ask.Types` lists the
 types for a settings page.
 
@@ -183,7 +181,7 @@ rest:
 A refusal wraps `ask.ErrRefused`, and `helpout.Execute` exits 3 on it, so a
 caller can tell a refusal from a failure (1). When the answer has `Remember`,
 the user asked to stop asking for that type: the app saves `never` for it in
-its own config, as a product value, never in the global file. `ask.Change`
+its own config. `ask.Change`
 writes no file.
 
 ```go
@@ -192,11 +190,7 @@ archive := &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		action := ask.Action{Type: ask.Archive, What: "archive card " + args[0], Name: args[0]}
-		global, err := ask.Global()
-		if err != nil {
-			return err
-		}
-		style, _ := ask.Resolve(ask.Archive, cfg.Confirm, global)
+		style, _ := ask.Resolve(action, cfg.Confirm)
 		answer, err := ask.Change(cmd, action, style)
 		if err != nil {
 			return err
@@ -210,7 +204,7 @@ archive := &cobra.Command{
 ask.Flag(archive)
 ```
 
-An empty or unknown style is the type's default, and `name` with no `Name`
+An empty or unknown style is `ask.Default(action)`, and `name` with no `Name`
 asks yes-no.
 
 ```sh
