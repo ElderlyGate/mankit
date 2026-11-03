@@ -11,6 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/tugbayatilla/mankit/ask"
 )
 
 var info = Info{
@@ -282,6 +284,17 @@ func TestHelpStillCompletesVerbs(t *testing.T) {
 	out, _, code, err := execute(sample(true), "__complete", "help", "s")
 	if !strings.HasPrefix(out, "status\tShow the state\n") || code != 0 || err != nil {
 		t.Errorf("code %d, err %v, stdout:\n%s", code, err, out)
+	}
+}
+
+func TestARefusalExitsThree(t *testing.T) {
+	root := sample(true)
+	refused := fmt.Errorf("%w: delete card 7", ask.ErrRefused)
+	up, _, _ := root.Find([]string{"up"})
+	up.Run, up.RunE = nil, func(*cobra.Command, []string) error { return refused }
+	out, errOut, code, err := execute(root, "up")
+	if out != "" || errOut != "" || code != 3 || err != refused {
+		t.Errorf("code %d, err %v, stdout %q, stderr %q", code, err, out, errOut)
 	}
 }
 

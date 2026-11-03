@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/tugbayatilla/mankit/home"
 )
 
 const (
@@ -24,13 +26,13 @@ type Split struct {
 	dragging bool
 }
 
-// File is <user config dir>/<app>/split, or "" when there is none.
+// File is the app's split file in the org's config folder (home.File), or "" when there is none.
 func File(app string) string {
-	dir, err := os.UserConfigDir()
+	path, err := home.File(app, "split")
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, app, "split")
+	return path
 }
 
 // Load reads the saved width; a missing or broken file leaves the app's own.

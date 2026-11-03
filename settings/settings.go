@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/tugbayatilla/mankit/ask"
 	"github.com/tugbayatilla/mankit/internal/configfile"
 	"github.com/tugbayatilla/mankit/theme"
 )
@@ -65,6 +66,23 @@ func Keys(app string, own ...Key) []Key {
 	return keys
 }
 
+// Confirm is the key confirm.<t>, how a change of type t asks; Set and Find know it without being in an app's keys.
+func Confirm(t ask.Type) Key {
+	return Key{Name: ask.Section + "." + string(t), Default: string(ask.YesNo), Values: []string{string(ask.Name), string(ask.YesNo), string(ask.Never)},
+		Help: "how a " + string(t) + " asks (a change to the system itself asks the name unless set)"}
+}
+
+// Find is the key named name: one of keys, or confirm.<type>.
+func Find(keys []Key, name string) (Key, bool) {
+	if i := slices.IndexFunc(keys, func(k Key) bool { return k.Name == name }); i >= 0 {
+		return keys[i], true
+	}
+	if t, ok := strings.CutPrefix(name, ask.Section+"."); ok && ask.ValidType(t) {
+		return Confirm(ask.Type(t)), true
+	}
+	return Key{}, false
+}
+
 // Load reads path into one row per key; a missing file is all defaults.
 func Load(path string, keys []Key) ([]Row, error) {
 	doc, err := read(path)
@@ -96,12 +114,15 @@ func Set(path string, keys []Key, key, value string) error {
 	if path == "" {
 		return errors.New("no config folder on this system")
 	}
-	i := slices.IndexFunc(keys, func(k Key) bool { return k.Name == key })
-	if i < 0 {
-		return fmt.Errorf("unknown key %q (have: %s)", key, strings.Join(names(keys), ", "))
+	k, ok := Find(keys, key)
+	if !ok {
+		return fmt.Errorf("unknown key %q (have: %s, %s.<type>)", key, strings.Join(names(keys), ", "), ask.Section)
 	}
-	if err := check(keys[i], value); err != nil {
+	if err := check(k, value); err != nil {
 		return err
+	}
+	if t, ok := strings.CutPrefix(key, ask.Section+"."); ok {
+		return ask.Set(path, ask.Type(t), ask.Style(value))
 	}
 	b, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -120,7 +141,7 @@ func Set(path string, keys []Key, key, value string) error {
 	if b == nil && len(out) == 0 {
 		return nil // removing a key from a missing file
 	}
-	return writeFile(path, out)
+	return configfile.WriteFile(path, out)
 }
 
 // Next is the value after current in k's allowed values, wrapping around; free text keeps current.
@@ -186,12 +207,23 @@ func read(path string) (*yaml.Node, error) {
 	return &doc, nil
 }
 
-// value is the node of key, nil when the file does not have it.
+// value is the node of key, nil when the file does not have it; confirm.<type> is <type> inside confirm:.
 func value(doc *yaml.Node, key string) *yaml.Node {
 	if doc == nil {
 		return nil
 	}
 	m := doc.Content[0]
+	if t, ok := strings.CutPrefix(key, ask.Section+"."); ok {
+		if m = child(m, ask.Section); m == nil || m.Kind != yaml.MappingNode {
+			return nil
+		}
+		key = t
+	}
+	return child(m, key)
+}
+
+// child is the value of key in mapping m, nil when m does not have it.
+func child(m *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		if m.Content[i].Value == key {
 			return m.Content[i+1]

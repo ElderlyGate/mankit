@@ -90,3 +90,12 @@ func TestKeyMsgPressesTheKey(t *testing.T) {
 		}
 	}
 }
+
+func TestFileIsInTheOrgConfigFolder(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("HOME", t.TempDir())
+	if got := File("gitman"); got != filepath.Join(xdg, "elderlygate", "gitman", "favorites") {
+		t.Fatal(got)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tugbayatilla/mankit/home"
 	"github.com/tugbayatilla/mankit/settings"
 	"github.com/tugbayatilla/mankit/theme"
 )
@@ -33,9 +34,32 @@ func TestPathTakesADirOverride(t *testing.T) {
 	if got := settings.Path("app", "/x"); got != filepath.Join("/x", "app", "config.yaml") {
 		t.Fatal(got)
 	}
-	dir, _ := os.UserConfigDir()
-	if got := settings.Path("app", ""); got != filepath.Join(dir, "app", "config.yaml") {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("HOME", t.TempDir())
+	if got := settings.Path("app", ""); got != filepath.Join(xdg, "elderlygate", "app", "config.yaml") {
 		t.Fatal(got)
+	}
+}
+
+func TestPathCopiesNothingMigrateTakesTheOldConfigAlong(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	old, _ := os.UserConfigDir()
+	old = filepath.Join(old, "app", "config.yaml")
+	os.MkdirAll(filepath.Dir(old), 0o755)
+	os.WriteFile(old, []byte("theme: nord\n"), 0o644)
+	if got := row(t, settings.Path("app", ""), "theme"); got.Set {
+		t.Fatalf("theme = %+v before Migrate, want the default", got)
+	}
+	if err := home.Migrate("app", "config.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if got := row(t, settings.Path("app", ""), "theme"); got.Value != "nord" || !got.Set {
+		t.Fatalf("theme = %+v, want nord from the old file", got)
+	}
+	if b, _ := os.ReadFile(old); string(b) != "theme: nord\n" {
+		t.Fatalf("old file changed: %q", b)
 	}
 }
 

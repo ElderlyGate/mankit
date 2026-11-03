@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/tugbayatilla/mankit/ask"
 	"github.com/tugbayatilla/mankit/settings"
 	"github.com/tugbayatilla/mankit/settings/cli"
 )
@@ -96,5 +97,28 @@ func TestAddToLeavesOutATakenShorthand(t *testing.T) {
 	out, err := run(t, root, "get", "config", "--output", "json")
 	if err != nil || !strings.HasPrefix(out, "[") {
 		t.Fatalf("%q %v", out, err)
+	}
+}
+
+func TestSetConfigConfirmTypeWritesTheStyle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app", "config.yaml")
+	out, err := run(t, app(path), "set", "config", "confirm.delete", "never")
+	if err != nil || !strings.Contains(out, "confirm.delete") || !strings.Contains(out, "never") {
+		t.Fatalf("set: %q %v", out, err)
+	}
+	if got, err := ask.Load(path); err != nil || got[ask.Delete] != ask.Never {
+		t.Fatalf("Load = %v, %v; want delete: never", got, err)
+	}
+	if _, err := run(t, app(path), "set", "config", "confirm.delete", "always"); err == nil || !strings.Contains(err.Error(), "name, yes-no, never") {
+		t.Fatalf("a bad style: %v", err)
+	}
+	if _, err := run(t, app(path), "set", "config", "confirm.drop", "never"); err == nil || !strings.Contains(err.Error(), "confirm.<type>") {
+		t.Fatalf("a bad type: %v", err)
+	}
+	if _, err := run(t, app(path), "set", "config", "confirm.delete", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ask.Load(path); len(got) != 0 {
+		t.Fatalf("Load = %v after \"\", want nothing set", got)
 	}
 }

@@ -84,3 +84,12 @@ func TestDraggingTheBorder(t *testing.T) {
 		t.Fatal("the border is only grabbed between the boxes' rows")
 	}
 }
+
+func TestFileIsInTheOrgConfigFolder(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("HOME", t.TempDir())
+	if got := File("gitman"); got != filepath.Join(xdg, "elderlygate", "gitman", "split") {
+		t.Fatal(got)
+	}
+}
