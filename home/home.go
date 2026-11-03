@@ -24,18 +24,55 @@ func Product(id string) (string, error) { return under(Dir, id) }
 // ProductData is <Data>/<id>, the data folder of the product with that ID.
 func ProductData(id string) (string, error) { return under(Data, id) }
 
-// File is <Product(id)>/<name>; when it is missing, the file kept before in the system's config folder (<config dir>/<id>/<name>) is copied there first (CopyOnce).
-// A copy that fails is tried again next time.
+// File is <Product(id)>/<name>; it only names the path and never touches a file (Migrate copies the old ones).
 func File(id, name string) (string, error) {
 	dir, err := Product(id)
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, name)
-	if old, err := os.UserConfigDir(); err == nil {
-		_ = CopyOnce(filepath.Join(old, id, name), path)
+	return filepath.Join(dir, name), nil
+}
+
+// Migrate copies each named file the app kept before in the system's config folder (<config dir>/<id>/<name>) to File(id, name), once per file:
+// a done copy leaves a mark in <Dir>/.migrated/<id>/, so a file the user deletes later never comes back. A copy that fails is tried again next time.
+func Migrate(id string, names ...string) error {
+	old, err := os.UserConfigDir()
+	if err != nil {
+		return nil // no old folder to copy from
 	}
-	return path, nil
+	dir, err := Dir()
+	if err != nil {
+		return err
+	}
+	marks := filepath.Join(dir, ".migrated", id)
+	var errs []error
+	for _, name := range names {
+		mark := filepath.Join(marks, name)
+		if _, err := os.Lstat(mark); err == nil {
+			continue
+		}
+		to, err := File(id, name)
+		if err == nil {
+			err = CopyOnce(filepath.Join(old, id, name), to)
+		}
+		if err == nil {
+			err = touch(mark)
+		}
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// touch makes the empty file path and its folders.
+func touch(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // CopyOnce copies the file or folder from to to when to is missing and from exists, and leaves from as it was; otherwise it does nothing.

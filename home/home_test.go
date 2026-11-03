@@ -81,13 +81,25 @@ func read(t *testing.T, path string) string {
 	return string(b)
 }
 
-func TestFileCopiesTheOldFileOnceAndKeepsIt(t *testing.T) {
+func TestFileOnlyNamesThePath(t *testing.T) {
 	env(t, t.TempDir())
-	old := oldFile(t, "gitman", "config.yaml", "theme: nord\n")
+	oldFile(t, "gitman", "config.yaml", "theme: nord\n")
 	path, err := home.File("gitman", "config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("File copied or made a file: %v", err)
+	}
+}
+
+func TestMigrateCopiesTheOldFileOnceAndKeepsIt(t *testing.T) {
+	env(t, t.TempDir())
+	old := oldFile(t, "gitman", "config.yaml", "theme: nord\n")
+	if err := home.Migrate("gitman", "config.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := home.File("gitman", "config.yaml")
 	if got := read(t, path); got != "theme: nord\n" {
 		t.Fatalf("new file = %q", got)
 	}
@@ -100,17 +112,35 @@ func TestFileCopiesTheOldFileOnceAndKeepsIt(t *testing.T) {
 	if err := os.WriteFile(old, []byte("theme: mono\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if path, _ = home.File("gitman", "config.yaml"); read(t, path) != "theme: nord\n" {
-		t.Error("the old file was copied again over the new one")
+	if err := home.Migrate("gitman", "config.yaml"); err != nil || read(t, path) != "theme: nord\n" {
+		t.Errorf("the old file was copied again over the new one (%v)", err)
 	}
 }
 
-func TestFileWithNoOldFileMakesNothing(t *testing.T) {
+func TestMigrateNeverBringsBackADeletedFile(t *testing.T) {
 	env(t, t.TempDir())
-	path, err := home.File("gitman", "split")
-	if err != nil {
+	oldFile(t, "gitman", "split", "40\n")
+	if err := home.Migrate("gitman", "split"); err != nil {
 		t.Fatal(err)
 	}
+	path, _ := home.File("gitman", "split")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.Migrate("gitman", "split"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the deleted file came back: %v", err)
+	}
+}
+
+func TestMigrateWithNoOldFileMakesNothing(t *testing.T) {
+	env(t, t.TempDir())
+	if err := home.Migrate("gitman", "split"); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := home.File("gitman", "split")
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("a file was made: %v", err)
 	}

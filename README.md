@@ -68,12 +68,27 @@ Every app of the org keeps its files in one place, the same on Linux and macOS
 The folder name is the one constant `home.Org`, so the org's rename changes one
 line. A relative `XDG_*` value is ignored, as the XDG rules say.
 
-`home.File(id, name)` is `<app folder>/<name>`. The first time it is missing,
-the file the app kept before in the system's config folder
-(`~/.config/<app>/` on Linux, `~/Library/Application Support/<app>/` on macOS)
-is copied there. The old file stays as it was, so an older build of the app
-still finds it. `config.yaml`, `split` and `favorites` use it, so gitman, dcman,
-checkman and hubman keep their settings.
+`home.File(id, name)` is `<app folder>/<name>`, a path and nothing more: it
+never copies or makes a file, so a read-only verb changes nothing.
+
+`home.Migrate(id, names...)` brings each named file the app kept before in the
+system's config folder (`~/.config/<app>/` on Linux,
+`~/Library/Application Support/<app>/` on macOS) into the app folder. The app
+calls it in one explicit step before its first write: in a verb that changes
+something, or when its TUI starts; a read-only verb never calls it, so it
+changes nothing. mankit's own files are
+`config.yaml`, `split` and `favorites`, so gitman, dcman, checkman and hubman
+keep their settings. The old file stays as it was, so an older build of the
+app still finds it. Each copy runs once: when it is done, Migrate leaves a mark
+in `<config folder>/.migrated/<app>/`, so a file the user deletes afterwards
+never comes back. A copy that fails leaves no mark and is tried again next
+time.
+
+```go
+if err := home.Migrate("gitman", "config.yaml", "split", "favorites"); err != nil {
+	fmt.Fprintln(os.Stderr, "warning: old settings not copied:", err)
+}
+```
 
 `home.CopyOnce(from, to)` does the same for anything else: when `to` is missing
 and `from` exists, it copies the file or the whole folder, and leaves `from`
