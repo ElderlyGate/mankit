@@ -124,3 +124,16 @@ func TestEverySettingIsACommandFoundByItsHelp(t *testing.T) {
 	}
 }
 
+func TestASettingIsNeverStarred(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "favorites")
+	f := LoadFavorites(file, nil)
+	if err := f.Toggle(SettingPrefix+"theme", []string{"quit"}); err != nil {
+		t.Fatal(err)
+	}
+	if f.IDs[SettingPrefix+"theme"] {
+		t.Fatal("a setting stays off the footer")
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("nothing is saved: %v", err)
+	}
+}

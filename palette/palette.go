@@ -229,8 +229,11 @@ func LoadFavorites(file string, defaults []string) Favorites {
 	return f
 }
 
-// Toggle stars or unstars id and saves the favorites in order, the order of all ids.
+// Toggle stars or unstars id and saves the favorites in order, the order of all ids; a setting is never starred.
 func (f Favorites) Toggle(id string, order []string) error {
+	if _, ok := SettingKey(id); ok {
+		return nil
+	}
 	f.IDs[id] = !f.IDs[id]
 	if f.File == "" {
 		return nil
