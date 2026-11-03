@@ -1,5 +1,5 @@
 // Package palette is the command palette (`:` or ctrl+p): type to search
-// every command, ↑/↓ to pick, enter to run, space to star it as a favorite
+// every command and setting, ↑/↓ to pick, enter to run, space to star it as a favorite
 // for the footer. An app keeps its own command type and what running means.
 package palette
 
@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/tugbayatilla/mankit/home"
+	"github.com/tugbayatilla/mankit/settings"
 	"github.com/tugbayatilla/mankit/textinput"
 )
 
@@ -162,6 +163,40 @@ func KeyMsg(k string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+}
+
+// SettingPrefix opens the id of a setting's command, so none clashes with an app's own ids.
+const SettingPrefix = "setting:"
+
+// Setting is one row of the app's Settings view as a command; running it opens that row.
+type Setting struct {
+	ID    string // SettingPrefix and the key
+	Label string // "key: value"
+}
+
+// Settings is a command for each of rows, in their order.
+func Settings(rows []settings.Row) []Setting {
+	out := make([]Setting, len(rows))
+	for i, r := range rows {
+		out[i] = Setting{ID: SettingPrefix + r.Key, Label: r.Key + ": " + r.Value}
+	}
+	return out
+}
+
+// SettingKey is the key a setting command opens; ok is false for any other id.
+func SettingKey(id string) (key string, ok bool) {
+	return strings.CutPrefix(id, SettingPrefix)
+}
+
+// SettingHelp is the help of the row a setting command opens, so the palette finds it by that too; "" for any other id.
+func SettingHelp(rows []settings.Row, id string) string {
+	key, ok := SettingKey(id)
+	for _, r := range rows {
+		if ok && r.Key == key {
+			return r.Help
+		}
+	}
+	return ""
 }
 
 // Favorites are the commands the footer shows; the file holds one id per line.
