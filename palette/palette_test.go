@@ -1,6 +1,7 @@
 package palette
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/tugbayatilla/mankit/settings"
 )
 
 type cmd struct{ id, key, label string }
@@ -97,5 +100,41 @@ func TestFileIsInTheOrgConfigFolder(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	if got := File("gitman"); got != filepath.Join(xdg, "elderlygate", "gitman", "favorites") {
 		t.Fatal(got)
+	}
+}
+
+func TestEverySettingIsACommandFoundByItsHelp(t *testing.T) {
+	rows := []settings.Row{
+		{Key: "theme", Value: "nord", Help: "the colours (--theme wins)"},
+		{Key: "background", Value: "auto", Help: "which variant of the theme"},
+	}
+	all := append(Settings(rows), Setting{ID: "quit", Label: "quit"})
+	p, _ := Open[Setting]()
+	for _, r := range "colours" {
+		p.Key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	p.Filter(all, func(s Setting) string { return s.Label + " " + SettingHelp(rows, s.ID) })
+	if s, ok := p.Selected(); !ok || len(p.Matches) != 1 || s.Label != "theme: nord" {
+		t.Fatalf("colours finds the theme by its help: %v", p.Matches)
+	}
+	if key, ok := SettingKey(p.Matches[0].ID); !ok || key != "theme" {
+		t.Fatalf("the command opens theme: %q %v", key, ok)
+	}
+	if _, ok := SettingKey("quit"); ok {
+		t.Fatal("an app's own command is not a setting")
+	}
+}
+
+func TestASettingIsNeverStarred(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "favorites")
+	f := LoadFavorites(file, nil)
+	if err := f.Toggle(SettingPrefix+"theme", []string{"quit"}); !errors.Is(err, ErrSetting) || err.Error() != "settings can't be starred" {
+		t.Fatalf("err = %v, want the notice that settings can't be starred", err)
+	}
+	if f.IDs[SettingPrefix+"theme"] {
+		t.Fatal("a setting stays off the footer")
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("nothing is saved: %v", err)
 	}
 }
