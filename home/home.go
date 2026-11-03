@@ -33,8 +33,25 @@ func File(id, name string) (string, error) {
 	return filepath.Join(dir, name), nil
 }
 
+// Current is the file to read id's name from now: File(id, name), or the old file in the system's config folder, read in place,
+// while File is missing, Migrate has not copied it and the old one exists. It never touches a file.
+func Current(id, name string) (string, error) {
+	to, err := File(id, name)
+	if err != nil || exists(to) {
+		return to, err
+	}
+	dir, err := Dir()
+	if err != nil || exists(filepath.Join(dir, ".migrated", id, name)) {
+		return to, err
+	}
+	if old, err := os.UserConfigDir(); err == nil && exists(filepath.Join(old, id, name)) {
+		return filepath.Join(old, id, name), nil
+	}
+	return to, nil
+}
+
 // Migrate copies each named file the app kept before in the system's config folder (<config dir>/<id>/<name>) to File(id, name), once per file:
-// a done copy leaves a mark in <Dir>/.migrated/<id>/, so a file the user deletes later never comes back. A copy that fails is tried again next time.
+// a done copy leaves a mark in <Dir>/.migrated/<id>/, so a file the user deletes later never comes back. A missing old file or a copy that fails leaves no mark.
 func Migrate(id string, names ...string) error {
 	old, err := os.UserConfigDir()
 	if err != nil {
@@ -47,13 +64,13 @@ func Migrate(id string, names ...string) error {
 	marks := filepath.Join(dir, ".migrated", id)
 	var errs []error
 	for _, name := range names {
-		mark := filepath.Join(marks, name)
-		if _, err := os.Lstat(mark); err == nil {
+		mark, from := filepath.Join(marks, name), filepath.Join(old, id, name)
+		if exists(mark) || !exists(from) {
 			continue
 		}
 		to, err := File(id, name)
 		if err == nil {
-			err = CopyOnce(filepath.Join(old, id, name), to)
+			err = CopyOnce(from, to)
 		}
 		if err == nil {
 			err = touch(mark)
@@ -61,6 +78,12 @@ func Migrate(id string, names ...string) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// exists reports whether something is at path.
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 // touch makes the empty file path and its folders.

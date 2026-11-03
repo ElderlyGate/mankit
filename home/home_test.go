@@ -144,6 +144,14 @@ func TestMigrateWithNoOldFileMakesNothing(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("a file was made: %v", err)
 	}
+	dir, _ := home.Dir()
+	if _, err := os.Stat(filepath.Join(dir, ".migrated", "gitman", "split")); !os.IsNotExist(err) {
+		t.Fatalf("a file that was never there is marked as copied: %v", err)
+	}
+	oldFile(t, "gitman", "split", "40\n")
+	if err := home.Migrate("gitman", "split"); err != nil || read(t, path) != "40\n" {
+		t.Fatalf("an old file found later is not copied (%v)", err)
+	}
 }
 
 // tree writes files (path: body) under dir.
@@ -215,5 +223,32 @@ func TestCopyOnceWithNothingToCopy(t *testing.T) {
 	}
 	if _, err := os.Lstat(to); !os.IsNotExist(err) {
 		t.Fatalf("something was made: %v", err)
+	}
+}
+
+func TestCurrentReadsTheOldFileInPlaceUntilMigrateCopiedIt(t *testing.T) {
+	env(t, t.TempDir())
+	path, _ := home.File("gitman", "config.yaml")
+	if got, err := home.Current("gitman", "config.yaml"); err != nil || got != path {
+		t.Fatalf("no old file: Current = %q (%v), want %q", got, err, path)
+	}
+	old := oldFile(t, "gitman", "config.yaml", "theme: nord\n")
+	if got, _ := home.Current("gitman", "config.yaml"); got != old {
+		t.Fatalf("before Migrate: Current = %q, want the old %q", got, old)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Current made a file: %v", err)
+	}
+	if err := home.Migrate("gitman", "config.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := home.Current("gitman", "config.yaml"); got != path {
+		t.Fatalf("after Migrate: Current = %q, want %q", got, path)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := home.Current("gitman", "config.yaml"); got != path {
+		t.Fatalf("a deleted new file brings back the old one: %q", got)
 	}
 }

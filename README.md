@@ -24,6 +24,7 @@ three, instead of being made three times.
 | `helpout` | The one layout for `<app> help`, `<app> --help` and a usage mistake: what the app is, how to start it, its commands, the repository |
 | `home` | Where the org's apps keep their files: the org's config and data folders, a folder per product, and `CopyOnce` to bring old files along |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
+| `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 
 ## Settings
 
@@ -81,14 +82,19 @@ changes nothing. mankit's own files are
 keep their settings. The old file stays as it was, so an older build of the
 app still finds it. Each copy runs once: when it is done, Migrate leaves a mark
 in `<config folder>/.migrated/<app>/`, so a file the user deletes afterwards
-never comes back. A copy that fails leaves no mark and is tried again next
-time.
+never comes back. A name with no old file, or a copy that fails, leaves no
+mark and is tried again next time.
 
 ```go
 if err := home.Migrate("gitman", "config.yaml", "split", "favorites"); err != nil {
 	fmt.Fprintln(os.Stderr, "warning: old settings not copied:", err)
 }
 ```
+
+Until then a read finds the old file where it is: `home.Current(id, name)` is
+`home.File(id, name)`, or the old file while the new one is missing, Migrate has
+not copied it and the old one exists. It never touches a file, so a read-only
+verb shows the value in use before the first change.
 
 `home.CopyOnce(from, to)` does the same for anything else: when `to` is missing
 and `from` exists, it copies the file or the whole folder, and leaves `from`
@@ -243,6 +249,37 @@ app archive 7          # archive card 7
 app archive 7 --yes    # no question
 app archive 7 < /dev/null; echo $?   # refused: archive card 7; pass --yes to make the change
                                      # 3
+```
+
+### prefs: the same asking in every app
+
+`prefs.Asker` is the example above, done once: it resolves the style from the
+app's config, asks with `ask.Change`, and saves `never` when the user asks to
+stop asking. `prefs.AddTo` (after `settings/cli`) adds `get confirm` (each
+type's style and whether it is the app's or the default), `get locations`
+(the app's config, its data and the app's `Extra` places) and makes
+`set config` ask first and take `confirm.<type>`.
+
+Nothing is copied or written before the yes. Until the first change the styles
+are read from `Read`, the old file in place (`home.Current`), so `get confirm`
+shows the style in use; a no, or no terminal without `--yes`, writes nothing.
+`Migrate` runs only after the yes, before the change is made.
+`Options.System` names the types some verb of which changes the system
+itself (`System: true`, such as `delete` for an uninstall): `get confirm` then
+says how that change asks where the type's style does not hold for it, e.g.
+`never — a change to the system itself still asks for the name`.
+
+A command run with `--dry-run` asks nothing and writes nothing: no copy, no
+mark, no remembered answer, and `set config` only says what it would change.
+
+```go
+read := func() string { p, _ := home.Current("gitman", "config.yaml"); return p }
+asker := prefs.Asker{Config: configFile, Read: read, Migrate: migrate}
+err := prefs.AddTo(root, prefs.Options{App: "gitman", Config: configFile, Types: confirmTypes, Asker: asker})
+// in a verb:
+if err := asker.Ask(cmd, ask.Action{Type: ask.Delete, What: "delete branch x", Name: "x"}); err != nil {
+	return err
+}
 ```
 
 ## Why textinput is vendored
