@@ -48,7 +48,7 @@ func Flag(cmd *cobra.Command) {
 	cmd.Flags().Bool(yesFlag, false, "make the change without asking")
 }
 
-// Change asks before cmd makes a in style (empty or unknown: Default(a), name without a Name: yes-no); a no is an ErrRefused.
+// Change asks before cmd makes a in style (empty or unknown: Default(a), name without a Name: yes-no, never on a.System: Default(a)); a no is an ErrRefused.
 // A cmd without --yes (Flag) is an error of the app, never a question.
 func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
 	f := cmd.Flag(yesFlag)
@@ -76,9 +76,9 @@ func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
 	return Answer{}, fmt.Errorf("%w: %s", ErrRefused, a.What)
 }
 
-// style is the style the question takes: Default(a) for an empty or unknown one, yes-no for name when there is no name to type.
+// style is the style the question takes: Default(a) for an empty or unknown one or a never on a system change, yes-no for name when there is no name to type.
 func (a Action) style(s Style) Style {
-	if _, err := ParseStyle(string(s)); err != nil {
+	if _, err := ParseStyle(string(s)); err != nil || a.System && s == Never {
 		s = Default(a)
 	}
 	if s == Name && a.Name == "" {

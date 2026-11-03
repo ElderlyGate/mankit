@@ -102,6 +102,9 @@ func TestChange(t *testing.T) {
 		{"no style, move asks yes-no", true, moveCard, "", "y\n", nil, askMove, false, ""},
 		{"no style, a system change asks the name", true, deleteBoard, "", "20261102-ab12\n", nil, askName, false, ""},
 		{"a system change in yes-no asks yes-no", true, deleteBoard, YesNo, "y\n", nil, askDel, false, ""},
+		{"a system change in never still asks the name", true, deleteBoard, Never, "20261102-ab12\n", nil, askName, false, ""},
+		{"a system change in never, --yes", true, deleteBoard, Never, "", []string{"--yes"}, "", false, ""},
+		{"a system change in never, no terminal", false, deleteBoard, Never, "", nil, "", false, noTermDel},
 		{"unknown style is the default", true, deleteBoard, "always", "20261102-ab12\n", nil, askName, false, ""},
 		{"name with no Name asks yes-no", true, moveCard, Name, "n\n", nil, askMove, false, refusedMv},
 	}

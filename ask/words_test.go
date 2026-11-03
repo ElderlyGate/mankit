@@ -62,6 +62,8 @@ func TestResolve(t *testing.T) {
 		{"default for delete", Action{Type: Delete}, nil, YesNo, FromDefault},
 		{"default for a system change", Action{Type: Delete, System: true}, nil, Name, FromDefault},
 		{"product value for a system change", Action{Type: Delete, System: true}, map[Type]Style{Delete: YesNo}, YesNo, FromProduct},
+		{"a remembered never does not silence a system change", Action{Type: Delete, System: true}, map[Type]Style{Delete: Never}, Name, FromDefault},
+		{"a never still silences the type's other changes", Action{Type: Delete}, map[Type]Style{Delete: Never}, Never, FromProduct},
 		{"unknown product style is not set", Action{Type: Move}, map[Type]Style{Move: "always"}, YesNo, FromDefault},
 	}
 	for _, tt := range tests {

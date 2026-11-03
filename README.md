@@ -182,7 +182,9 @@ By default every type asks `yes-no`, `delete` included. A change to the system
 itself (uninstalling, removing a token, dropping data, deleting a board) asks
 for the name instead: the app marks those verbs with `System: true` on their
 `ask.Action`, and the user can still pick another style for the type
-(`ask.Default`).
+(`ask.Default`): a stored `name` or `yes-no` holds for it. A `never` does not:
+"Remember my answer" stops the type's everyday questions, but a change to the
+system still asks for the name, and only `--yes` skips it.
 
 `ask.Resolve(action, product)` gives the style in use for the action and where
 it comes from, to show beside it: `product` or `default`. A settings page asks
