@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -43,6 +44,14 @@ func terminal(stream any) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
+// readers is one reader per command, so a verb that asks twice loses no typed line to a buffer.
+var readers sync.Map // *cobra.Command -> *bufio.Reader
+
+func reader(cmd *cobra.Command) *bufio.Reader {
+	r, _ := readers.LoadOrStore(cmd, bufio.NewReader(cmd.InOrStdin()))
+	return r.(*bufio.Reader)
+}
+
 // Flag adds --yes to cmd, the one way to make a change without being asked.
 func Flag(cmd *cobra.Command) {
 	cmd.Flags().Bool(yesFlag, false, "make the change without asking")
@@ -67,7 +76,7 @@ func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
 		return Answer{}, nil
 	}
 	fmt.Fprintf(out, "%s\n%s", a.What, a.question(style))
-	reply, err := bufio.NewReader(in).ReadString('\n')
+	reply, err := reader(cmd).ReadString('\n')
 	if err != nil {
 		fmt.Fprintln(out)
 	} else if answer, yes := a.answer(style, strings.TrimSpace(reply)); yes {

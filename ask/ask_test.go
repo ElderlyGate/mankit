@@ -127,6 +127,22 @@ func TestChange(t *testing.T) {
 	}
 }
 
+func TestAVerbThatAsksTwiceReadsEachAnswer(t *testing.T) {
+	was := isTerminal
+	isTerminal = func(io.Reader, io.Writer) bool { return true }
+	t.Cleanup(func() { isTerminal = was })
+	cmd := &cobra.Command{Use: "change"}
+	Flag(cmd)
+	cmd.SetIn(strings.NewReader("y\n20261102-ab12\n"))
+	cmd.SetErr(io.Discard)
+	if _, err := Change(cmd, moveCard, YesNo); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, err := Change(cmd, deleteCard, Name); err != nil {
+		t.Fatalf("second: %v, want the second line read", err)
+	}
+}
+
 func TestChangeWithoutTheYesFlagIsAnErrorOfTheApp(t *testing.T) {
 	cmd := &cobra.Command{Use: "change"}
 	_, err := Change(cmd, deleteCard, YesNo)
