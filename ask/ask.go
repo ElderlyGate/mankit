@@ -26,7 +26,7 @@ type Action struct {
 	Name string
 }
 
-// Answer is a yes; Remember means the user asked to stop asking for this type: the caller saves never for it as the product's own value, never in the global file.
+// Answer is a yes; Remember means the user asked to stop asking for this type: the caller saves never for it in the product's own config.
 type Answer struct {
 	Remember bool
 }
