@@ -24,6 +24,7 @@ three, instead of being made three times.
 | `helpout` | The one layout for `<app> help`, `<app> --help` and a usage mistake: what the app is, how to start it, its commands, the repository |
 | `home` | Where the org's apps keep their files: the org's config and data folders, a folder per product, and `CopyOnce` to bring old files along |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
+| `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 
 ## Settings
 
@@ -248,6 +249,24 @@ app archive 7          # archive card 7
 app archive 7 --yes    # no question
 app archive 7 < /dev/null; echo $?   # refused: archive card 7; pass --yes to make the change
                                      # 3
+```
+
+### prefs: the same asking in every app
+
+`prefs.Asker` is the example above, done once: it resolves the style from the
+app's config, asks with `ask.Change`, and saves `never` when the user asks to
+stop asking. `prefs.AddTo` (after `settings/cli`) adds `get confirm` (each
+type's style and whether it is the app's or the default), `get locations`
+(the app's config, its data and the app's `Extra` places) and makes
+`set config` ask first and take `confirm.<type>`.
+
+```go
+asker := prefs.Asker{Config: configFile, Migrate: migrate}
+err := prefs.AddTo(root, prefs.Options{App: "gitman", Config: configFile, Types: confirmTypes, Asker: asker})
+// in a verb:
+if err := asker.Ask(cmd, ask.Action{Type: ask.Delete, What: "delete branch x", Name: "x"}); err != nil {
+	return err
+}
 ```
 
 ## Why textinput is vendored
