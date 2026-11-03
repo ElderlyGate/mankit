@@ -33,6 +33,23 @@ func File(id, name string) (string, error) {
 	return filepath.Join(dir, name), nil
 }
 
+// Current is the file to read id's name from now: File(id, name), or the old file in the system's config folder, read in place,
+// while File is missing, Migrate has not copied it and the old one exists. It never touches a file.
+func Current(id, name string) (string, error) {
+	to, err := File(id, name)
+	if err != nil || exists(to) {
+		return to, err
+	}
+	dir, err := Dir()
+	if err != nil || exists(filepath.Join(dir, ".migrated", id, name)) {
+		return to, err
+	}
+	if old, err := os.UserConfigDir(); err == nil && exists(filepath.Join(old, id, name)) {
+		return filepath.Join(old, id, name), nil
+	}
+	return to, nil
+}
+
 // Migrate copies each named file the app kept before in the system's config folder (<config dir>/<id>/<name>) to File(id, name), once per file:
 // a done copy leaves a mark in <Dir>/.migrated/<id>/, so a file the user deletes later never comes back. A missing old file or a copy that fails leaves no mark.
 func Migrate(id string, names ...string) error {

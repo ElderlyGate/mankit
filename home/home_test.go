@@ -225,3 +225,30 @@ func TestCopyOnceWithNothingToCopy(t *testing.T) {
 		t.Fatalf("something was made: %v", err)
 	}
 }
+
+func TestCurrentReadsTheOldFileInPlaceUntilMigrateCopiedIt(t *testing.T) {
+	env(t, t.TempDir())
+	path, _ := home.File("gitman", "config.yaml")
+	if got, err := home.Current("gitman", "config.yaml"); err != nil || got != path {
+		t.Fatalf("no old file: Current = %q (%v), want %q", got, err, path)
+	}
+	old := oldFile(t, "gitman", "config.yaml", "theme: nord\n")
+	if got, _ := home.Current("gitman", "config.yaml"); got != old {
+		t.Fatalf("before Migrate: Current = %q, want the old %q", got, old)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Current made a file: %v", err)
+	}
+	if err := home.Migrate("gitman", "config.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := home.Current("gitman", "config.yaml"); got != path {
+		t.Fatalf("after Migrate: Current = %q, want %q", got, path)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := home.Current("gitman", "config.yaml"); got != path {
+		t.Fatalf("a deleted new file brings back the old one: %q", got)
+	}
+}

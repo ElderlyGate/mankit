@@ -90,6 +90,11 @@ if err := home.Migrate("gitman", "config.yaml", "split", "favorites"); err != ni
 }
 ```
 
+Until then a read finds the old file where it is: `home.Current(id, name)` is
+`home.File(id, name)`, or the old file while the new one is missing, Migrate has
+not copied it and the old one exists. It never touches a file, so a read-only
+verb shows the value in use before the first change.
+
 `home.CopyOnce(from, to)` does the same for anything else: when `to` is missing
 and `from` exists, it copies the file or the whole folder, and leaves `from`
 as it was. A folder appears whole or not at all, and a `to` another process
