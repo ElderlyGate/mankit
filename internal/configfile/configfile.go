@@ -10,7 +10,7 @@ import (
 	"github.com/tugbayatilla/mankit/home"
 )
 
-// Path is <dir>/<app>/config.yaml; an empty dir is the app's folder in the org's config folder (home.File).
+// Path is <dir>/<app>/config.yaml; an empty dir is the app's folder in the org's config folder (home.File, a path only).
 func Path(app, dir string) (string, error) {
 	if dir == "" {
 		return home.File(app, "config.yaml")

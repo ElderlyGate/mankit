@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -43,14 +44,27 @@ func terminal(stream any) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
+// readers is one reader per command, so a verb that asks twice loses no typed line to a buffer.
+var readers sync.Map // *cobra.Command -> *bufio.Reader
+
+func reader(cmd *cobra.Command) *bufio.Reader {
+	r, _ := readers.LoadOrStore(cmd, bufio.NewReader(cmd.InOrStdin()))
+	return r.(*bufio.Reader)
+}
+
 // Flag adds --yes to cmd, the one way to make a change without being asked.
 func Flag(cmd *cobra.Command) {
 	cmd.Flags().Bool(yesFlag, false, "make the change without asking")
 }
 
-// Change asks before cmd makes a in style (empty or unknown: Default(a), name without a Name: yes-no); a no is an ErrRefused.
+// Change asks before cmd makes a in style (empty or unknown: Default(a), name without a Name: yes-no, never on a.System: Default(a)); a no is an ErrRefused.
+// A cmd without --yes (Flag) is an error of the app, never a question.
 func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
-	if f := cmd.Flag(yesFlag); f != nil && f.Value.String() == "true" {
+	f := cmd.Flag(yesFlag)
+	if f == nil {
+		return Answer{}, fmt.Errorf("%s has no --yes flag: the app must call ask.Flag on it", cmd.CommandPath())
+	}
+	if f.Value.String() == "true" {
 		return Answer{}, nil
 	}
 	in, out := cmd.InOrStdin(), cmd.ErrOrStderr()
@@ -62,7 +76,7 @@ func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
 		return Answer{}, nil
 	}
 	fmt.Fprintf(out, "%s\n%s", a.What, a.question(style))
-	reply, err := bufio.NewReader(in).ReadString('\n')
+	reply, err := reader(cmd).ReadString('\n')
 	if err != nil {
 		fmt.Fprintln(out)
 	} else if answer, yes := a.answer(style, strings.TrimSpace(reply)); yes {
@@ -71,9 +85,9 @@ func Change(cmd *cobra.Command, a Action, style Style) (Answer, error) {
 	return Answer{}, fmt.Errorf("%w: %s", ErrRefused, a.What)
 }
 
-// style is the style the question takes: Default(a) for an empty or unknown one, yes-no for name when there is no name to type.
+// style is the style the question takes: Default(a) for an empty or unknown one or a never on a system change, yes-no for name when there is no name to type.
 func (a Action) style(s Style) Style {
-	if _, err := ParseStyle(string(s)); err != nil {
+	if _, err := ParseStyle(string(s)); err != nil || a.System && s == Never {
 		s = Default(a)
 	}
 	if s == Name && a.Name == "" {

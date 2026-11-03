@@ -69,8 +69,9 @@ const (
 )
 
 // Resolve is the style in use for a and where it comes from: the product's value for a.Type, else Default(a); an unknown style counts as not set.
+// A never does not count for a change to the system itself (a.System): a remembered answer never silences it, only --yes does.
 func Resolve(a Action, product map[Type]Style) (Style, Source) {
-	if s, ok := product[a.Type]; ok && slices.Contains(styles, s) {
+	if s, ok := product[a.Type]; ok && slices.Contains(styles, s) && !(a.System && s == Never) {
 		return s, FromProduct
 	}
 	return Default(a), FromDefault

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -102,6 +103,9 @@ func TestChange(t *testing.T) {
 		{"no style, move asks yes-no", true, moveCard, "", "y\n", nil, askMove, false, ""},
 		{"no style, a system change asks the name", true, deleteBoard, "", "20261102-ab12\n", nil, askName, false, ""},
 		{"a system change in yes-no asks yes-no", true, deleteBoard, YesNo, "y\n", nil, askDel, false, ""},
+		{"a system change in never still asks the name", true, deleteBoard, Never, "20261102-ab12\n", nil, askName, false, ""},
+		{"a system change in never, --yes", true, deleteBoard, Never, "", []string{"--yes"}, "", false, ""},
+		{"a system change in never, no terminal", false, deleteBoard, Never, "", nil, "", false, noTermDel},
 		{"unknown style is the default", true, deleteBoard, "always", "20261102-ab12\n", nil, askName, false, ""},
 		{"name with no Name asks yes-no", true, moveCard, Name, "n\n", nil, askMove, false, refusedMv},
 	}
@@ -121,6 +125,40 @@ func TestChange(t *testing.T) {
 				t.Fatalf("changed %v, err %v; want ErrRefused %q", changed, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestAVerbThatAsksTwiceReadsEachAnswer(t *testing.T) {
+	was := isTerminal
+	isTerminal = func(io.Reader, io.Writer) bool { return true }
+	t.Cleanup(func() { isTerminal = was })
+	cmd := &cobra.Command{Use: "change"}
+	Flag(cmd)
+	cmd.SetIn(strings.NewReader("y\n20261102-ab12\n"))
+	cmd.SetErr(io.Discard)
+	if _, err := Change(cmd, moveCard, YesNo); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, err := Change(cmd, deleteCard, Name); err != nil {
+		t.Fatalf("second: %v, want the second line read", err)
+	}
+}
+
+func TestStdinThatIsNotAFileIsRefused(t *testing.T) {
+	cmd := &cobra.Command{Use: "change"}
+	Flag(cmd)
+	cmd.SetIn(strings.NewReader("y\n"))
+	cmd.SetErr(os.Stderr)
+	if _, err := Change(cmd, deleteCard, YesNo); !errors.Is(err, ErrRefused) {
+		t.Fatalf("err = %v, want a refusal: a reader that is not a file is no terminal", err)
+	}
+}
+
+func TestChangeWithoutTheYesFlagIsAnErrorOfTheApp(t *testing.T) {
+	cmd := &cobra.Command{Use: "change"}
+	_, err := Change(cmd, deleteCard, YesNo)
+	if err == nil || errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "ask.Flag") {
+		t.Fatalf("err = %v, want an error naming ask.Flag, not a refusal", err)
 	}
 }
 

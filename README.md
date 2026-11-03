@@ -68,16 +68,32 @@ Every app of the org keeps its files in one place, the same on Linux and macOS
 The folder name is the one constant `home.Org`, so the org's rename changes one
 line. A relative `XDG_*` value is ignored, as the XDG rules say.
 
-`home.File(id, name)` is `<app folder>/<name>`. The first time it is missing,
-the file the app kept before in the system's config folder
-(`~/.config/<app>/` on Linux, `~/Library/Application Support/<app>/` on macOS)
-is copied there. The old file stays as it was, so an older build of the app
-still finds it. `config.yaml`, `split` and `favorites` use it, so gitman, dcman,
-checkman and hubman keep their settings.
+`home.File(id, name)` is `<app folder>/<name>`, a path and nothing more: it
+never copies or makes a file, so a read-only verb changes nothing.
+
+`home.Migrate(id, names...)` brings each named file the app kept before in the
+system's config folder (`~/.config/<app>/` on Linux,
+`~/Library/Application Support/<app>/` on macOS) into the app folder. The app
+calls it in one explicit step before its first write: in a verb that changes
+something, or when its TUI starts; a read-only verb never calls it, so it
+changes nothing. mankit's own files are
+`config.yaml`, `split` and `favorites`, so gitman, dcman, checkman and hubman
+keep their settings. The old file stays as it was, so an older build of the
+app still finds it. Each copy runs once: when it is done, Migrate leaves a mark
+in `<config folder>/.migrated/<app>/`, so a file the user deletes afterwards
+never comes back. A copy that fails leaves no mark and is tried again next
+time.
+
+```go
+if err := home.Migrate("gitman", "config.yaml", "split", "favorites"); err != nil {
+	fmt.Fprintln(os.Stderr, "warning: old settings not copied:", err)
+}
+```
 
 `home.CopyOnce(from, to)` does the same for anything else: when `to` is missing
 and `from` exists, it copies the file or the whole folder, and leaves `from`
-as it was. A folder appears whole or not at all.
+as it was. A folder appears whole or not at all, and a `to` another process
+made while the copy ran is kept: the copy is placed only where nothing is.
 
 ```go
 dir, _ := home.ProductData("control-room")
@@ -156,12 +172,19 @@ Each type has a **style**:
 | `never` | no question |
 
 The style lives in the app's own config only, as `confirm: {delete: name, move: never}`.
+`ask.Load(path)` reads it, `ask.Set(path, type, style)` writes one type (`""`
+puts it back to its default) and `ask.Remember(path, type)` saves `never` after
+"Remember my answer"; each keeps the rest of the file. `<app> set config
+confirm.delete never` does the same from the command line and refuses a style
+that is not one of the three.
 
 By default every type asks `yes-no`, `delete` included. A change to the system
 itself (uninstalling, removing a token, dropping data, deleting a board) asks
 for the name instead: the app marks those verbs with `System: true` on their
 `ask.Action`, and the user can still pick another style for the type
-(`ask.Default`).
+(`ask.Default`): a stored `name` or `yes-no` holds for it. A `never` does not:
+"Remember my answer" stops the type's everyday questions, but a change to the
+system still asks for the name, and only `--yes` skips it.
 
 `ask.Resolve(action, product)` gives the style in use for the action and where
 it comes from, to show beside it: `product` or `default`. A settings page asks
@@ -190,13 +213,20 @@ archive := &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		action := ask.Action{Type: ask.Archive, What: "archive card " + args[0], Name: args[0]}
-		style, _ := ask.Resolve(action, cfg.Confirm)
+		path := settings.Path("app", "")
+		styles, err := ask.Load(path)
+		if err != nil {
+			return err
+		}
+		style, _ := ask.Resolve(action, styles)
 		answer, err := ask.Change(cmd, action, style)
 		if err != nil {
 			return err
 		}
 		if answer.Remember {
-			cfg.SetConfirm(ask.Archive, ask.Never)
+			if err := ask.Remember(path, ask.Archive); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: archive will still ask:", err)
+			}
 		}
 		return board.Archive(args[0])
 	},
