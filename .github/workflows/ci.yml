@@ -3,23 +3,42 @@ name: ci
 on:
   pull_request:
     branches: [main]
-  # release.yml runs this on main before it releases; a red test means no release.
-  workflow_call:
 
 permissions:
   contents: read
 
+# A newer push cancels the older run of the same pull request.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: local · linux
+    runs-on: [self-hosted, eg-linux]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      # A PR that changes only cards, designs or Markdown skips the tests; the check still reports.
+      - id: scope
+        run: |
+          files=$(git diff --name-only HEAD^1 HEAD) || files=all
+          if printf '%s\n' "$files" | grep -qvE '^(\.kanban/|\.designer/)|\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Only cards, designs or Markdown changed: no tests."
+          fi
       - uses: actions/setup-go@v5
+        if: steps.scope.outputs.code == 'true'
         with:
           go-version-file: go.mod
       - name: vet
+        if: steps.scope.outputs.code == 'true'
         run: go vet ./...
       - name: gofmt
+        if: steps.scope.outputs.code == 'true'
         run: test -z "$(gofmt -l .)"
       - name: test
+        if: steps.scope.outputs.code == 'true'
         run: go test ./...

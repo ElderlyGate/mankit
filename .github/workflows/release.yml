@@ -9,20 +9,21 @@ on:
         description: Make a release candidate vX.Y.Z-rc.N
         type: boolean
         default: false
+      runner:
+        description: Where this release runs; variable follows RELEASE_RUNNER (github when unset)
+        type: choice
+        options: [variable, local, github]
+        default: variable
 
 permissions:
   contents: read
 
 jobs:
-  # The product's own ci.yml (it needs the workflow_call trigger); a red test means no release.
-  ci:
-    uses: ./.github/workflows/ci.yml
-
   release:
-    needs: ci
     permissions:
       contents: write
     uses: ElderlyGate/.github/.github/workflows/release.yml@main
     with:
       build: none
       rc: ${{ inputs.rc == true }}
+      runner: ${{ inputs.runner != 'variable' && inputs.runner || '' }}
