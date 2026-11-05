@@ -1,0 +1,17 @@
+# Copy to .github/workflows/rule-dates.yml in every repository with a constitution (G-CON-8).
+name: rule-dates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rule-dates:
+    uses: ElderlyGate/.github/.github/workflows/rule-dates.yml@main
+    # The org constitution keeps its rules in tech-stack.md at the root:
+    # with:
+    #   files: tech-stack.md
