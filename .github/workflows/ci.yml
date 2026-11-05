@@ -14,8 +14,9 @@ concurrency:
 
 jobs:
   check:
-    name: local · linux
-    runs-on: [self-hosted, eg-linux]
+    # A public repo: GitHub's machines cost it nothing, and an own runner would run any fork's PR on the owner's Mac.
+    name: github · linux
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
