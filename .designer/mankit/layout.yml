@@ -1,0 +1,179 @@
+version: 2
+views:
+  structure:
+    boxes:
+      CMP-APP:
+        x: 4408
+        y: 0
+      CMP-ASK:
+        x: 248
+        y: 608
+      CMP-CONFIGFILE:
+        x: 1372
+        y: 608
+      CMP-CONFIRM:
+        x: 2496
+        y: 608
+      CMP-DESKTOP:
+        x: 3620
+        y: 608
+      CMP-HEADER:
+        x: 2788
+        y: 608
+      CMP-HELPOUT:
+        x: 540
+        y: 608
+      CMP-HOME:
+        x: 1664
+        y: 608
+      CMP-LIGHT:
+        x: 3080
+        y: 608
+      CMP-LIST:
+        x: 2496
+        y: 855
+      CMP-NOTICE:
+        x: 2788
+        y: 855
+      CMP-PALETTE:
+        x: 3080
+        y: 855
+      CMP-PREFS:
+        x: 832
+        y: 608
+      CMP-SEARCH:
+        x: 2496
+        y: 1102
+      CMP-SELECTION:
+        x: 2788
+        y: 1102
+      CMP-SETTINGS:
+        x: 1956
+        y: 608
+      CMP-SETTINGSCLI:
+        x: 394
+        y: 842
+      CMP-SPLIT:
+        x: 3080
+        y: 1102
+      CMP-TEXTINPUT:
+        x: 2788
+        y: 1349
+      CMP-THEME:
+        x: 1518
+        y: 859
+      CMP-USERCMD:
+        x: 1810
+        y: 859
+      CMP-USERCMDCLI:
+        x: 686
+        y: 842
+      GRP-CLI:
+        x: 124
+        y: 304
+      GRP-CONFIG:
+        x: 1248
+        y: 304
+      GRP-MANKIT:
+        x: 0
+        y: 0
+      GRP-OS:
+        x: 3496
+        y: 304
+      GRP-TUI:
+        x: 2372
+        y: 304
+  context:
+    boxes:
+      CMP-CTX-BROWSER:
+        x: 124
+        y: 2269
+      CMP-CTX-CHECKMAN:
+        x: 124
+        y: 304
+      CMP-CTX-CLIP:
+        x: 416
+        y: 2269
+      CMP-CTX-CONTROLROOM:
+        x: 124
+        y: 1295
+      CMP-CTX-DCMAN:
+        x: 416
+        y: 304
+      CMP-CTX-DESIGNER:
+        x: 416
+        y: 1295
+      CMP-CTX-DEV:
+        x: 1080
+        y: 0
+      CMP-CTX-FILES:
+        x: 270
+        y: 2533
+      CMP-CTX-GITMAN:
+        x: 124
+        y: 517
+      CMP-CTX-GOMODS:
+        x: 1372
+        y: 0
+      CMP-CTX-HUBMAN:
+        x: 416
+        y: 517
+      CMP-CTX-KANBAN:
+        x: 270
+        y: 1508
+      CMP-MANKIT:
+        x: 1664
+        y: 0
+      GRP-CTX-APPS:
+        x: 0
+        y: 991
+      GRP-CTX-MACHINE:
+        x: 0
+        y: 1965
+      GRP-CTX-XMAN:
+        x: 0
+        y: 0
+  deployment:
+    boxes:
+      CMP-DEP-BUILD:
+        x: 1372
+        y: 0
+      CMP-DEP-CHECKMAN:
+        x: 124
+        y: 1137
+      CMP-DEP-CONTROLROOM:
+        x: 416
+        y: 1137
+      CMP-DEP-DCMAN:
+        x: 708
+        y: 1137
+      CMP-DEP-DESIGNER:
+        x: 248
+        y: 2114
+      CMP-DEP-FILES:
+        x: 124
+        y: 1350
+      CMP-DEP-GITMAN:
+        x: 416
+        y: 1350
+      CMP-DEP-HUBMAN:
+        x: 708
+        y: 1350
+      CMP-DEP-KANBAN:
+        x: 416
+        y: 1597
+      CMP-DEP-PROXY:
+        x: 1664
+        y: 0
+      CMP-DEP-REPO:
+        x: 124
+        y: 304
+      GRP-DEP-CONTAINER:
+        x: 124
+        y: 1810
+      GRP-DEP-GITHUB:
+        x: 0
+        y: 0
+      GRP-DEP-MACHINE:
+        x: 0
+        y: 833
