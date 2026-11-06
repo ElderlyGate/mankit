@@ -1,8 +1,0 @@
-apiVersion: core/design/v2
-kind: Connection
-metadata:
-  id: CMP-SEARCH--calls--CMP-TEXTINPUT
-spec:
-  from: CMP-SEARCH
-  to: CMP-TEXTINPUT
-  label: calls

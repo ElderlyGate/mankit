@@ -1,9 +1,0 @@
-apiVersion: core/design/v2
-kind: Group
-metadata:
-  id: GRP-CTX-MACHINE
-  title: On the person's machine
-spec:
-  order: 3
-  ui-design:
-    look: soft

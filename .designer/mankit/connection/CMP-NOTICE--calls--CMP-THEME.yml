@@ -1,8 +1,0 @@
-apiVersion: core/design/v2
-kind: Connection
-metadata:
-  id: CMP-NOTICE--calls--CMP-THEME
-spec:
-  from: CMP-NOTICE
-  to: CMP-THEME
-  label: calls

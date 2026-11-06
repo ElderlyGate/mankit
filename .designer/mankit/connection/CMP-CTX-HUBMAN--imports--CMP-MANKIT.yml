@@ -1,9 +1,0 @@
-apiVersion: core/design/v2
-kind: Connection
-metadata:
-  id: CMP-CTX-HUBMAN--imports--CMP-MANKIT
-spec:
-  from: CMP-CTX-HUBMAN
-  to: CMP-MANKIT
-  label: imports
-  sides: l-r

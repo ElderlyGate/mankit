@@ -1,8 +1,0 @@
-apiVersion: core/design/v2
-kind: Connection
-metadata:
-  id: CMP-SETTINGSCLI--calls--CMP-SETTINGS
-spec:
-  from: CMP-SETTINGSCLI
-  to: CMP-SETTINGS
-  label: calls

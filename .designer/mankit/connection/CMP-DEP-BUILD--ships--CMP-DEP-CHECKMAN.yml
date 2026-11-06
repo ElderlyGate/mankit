@@ -1,9 +1,0 @@
-apiVersion: core/design/v2
-kind: Connection
-metadata:
-  id: CMP-DEP-BUILD--ships--CMP-DEP-CHECKMAN
-spec:
-  from: CMP-DEP-BUILD
-  to: CMP-DEP-CHECKMAN
-  label: ships
-  sides: r-l

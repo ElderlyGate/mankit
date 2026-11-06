@@ -1,9 +1,0 @@
-apiVersion: core/design/v2
-kind: Group
-metadata:
-  id: GRP-DEP-GITHUB
-  title: GitHub
-spec:
-  order: 20
-  ui-design:
-    look: soft

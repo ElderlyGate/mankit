@@ -1,9 +1,0 @@
-apiVersion: core/design/v2
-kind: Connection
-metadata:
-  id: CMP-CTX-CHECKMAN--imports--CMP-MANKIT
-spec:
-  from: CMP-CTX-CHECKMAN
-  to: CMP-MANKIT
-  label: imports
-  sides: l-r
