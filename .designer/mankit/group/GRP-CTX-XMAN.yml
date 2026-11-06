@@ -1,0 +1,9 @@
+apiVersion: core/design/v2
+kind: Group
+metadata:
+  id: GRP-CTX-XMAN
+  title: The -man apps (x-man)
+spec:
+  order: 1
+  ui-design:
+    look: soft

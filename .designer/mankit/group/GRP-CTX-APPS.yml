@@ -1,0 +1,9 @@
+apiVersion: core/design/v2
+kind: Group
+metadata:
+  id: GRP-CTX-APPS
+  title: Other products that import it
+spec:
+  order: 2
+  ui-design:
+    look: soft

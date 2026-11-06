@@ -1,0 +1,18 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-PALETTE
+  title: "palette"
+spec:
+  place:
+    group: GRP-TUI
+  code:
+    implements: palette/palette.go
+  caption:
+    - "command palette (: or ctrl+p)"
+    - "favorites; every setting a command"
+  description: |
+    The command palette over the app's own command type, and the footer's
+    favorites (saved in <app folder>/favorites). Settings makes a command
+    of every setting row; running one opens the Settings view on that row;
+    a setting is never starred.

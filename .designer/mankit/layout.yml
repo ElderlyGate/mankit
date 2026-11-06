@@ -1,0 +1,261 @@
+version: 2
+views:
+  context:
+    boxes:
+      GRP-CTX-XMAN:
+        x: 1080
+        y: 0
+      CMP-CTX-GITMAN:
+        x: 1100
+        y: 60
+        w: 220
+        h: 80
+      CMP-CTX-DCMAN:
+        x: 1100
+        y: 165
+        w: 220
+        h: 80
+      CMP-CTX-CHECKMAN:
+        x: 1100
+        y: 270
+        w: 220
+        h: 90
+      CMP-CTX-HUBMAN:
+        x: 1100
+        y: 385
+        w: 220
+        h: 80
+      GRP-CTX-APPS:
+        x: 1080
+        y: 560
+      CMP-CTX-CONTROLROOM:
+        x: 1100
+        y: 650
+        w: 220
+        h: 80
+      CMP-CTX-KANBAN:
+        x: 1100
+        y: 755
+        w: 220
+        h: 80
+      CMP-CTX-DESIGNER:
+        x: 1100
+        y: 860
+        w: 220
+        h: 80
+      CMP-MANKIT:
+        x: 540
+        y: 390
+        w: 280
+        h: 110
+      CMP-CTX-GOMODS:
+        x: 570
+        y: 130
+        w: 220
+        h: 110
+      CMP-CTX-DEV:
+        x: 150
+        y: 395
+        w: 200
+        h: 110
+      GRP-CTX-MACHINE:
+        x: 180
+        y: 700
+      CMP-CTX-FILES:
+        x: 190
+        y: 780
+        w: 290
+        h: 110
+      CMP-CTX-CLIP:
+        x: 500
+        y: 780
+        w: 230
+        h: 120
+      CMP-CTX-BROWSER:
+        x: 760
+        y: 780
+        w: 190
+        h: 90
+  structure:
+    boxes:
+      CMP-APP:
+        x: 820
+        y: 0
+        w: 260
+        h: 90
+      GRP-MANKIT:
+        x: 0
+        y: 140
+      GRP-CLI:
+        x: 30
+        y: 200
+      CMP-HELPOUT:
+        x: 50
+        y: 260
+      CMP-PREFS:
+        x: 250
+        y: 260
+      CMP-SETTINGSCLI:
+        x: 450
+        y: 260
+      CMP-ASK:
+        x: 50
+        y: 640
+      CMP-USERCMDCLI:
+        x: 450
+        y: 460
+      GRP-CONFIG:
+        x: 690
+        y: 200
+      CMP-SETTINGS:
+        x: 710
+        y: 260
+      CMP-THEME:
+        x: 910
+        y: 260
+      CMP-USERCMD:
+        x: 710
+        y: 460
+      CMP-CONFIGFILE:
+        x: 910
+        y: 640
+      CMP-HOME:
+        x: 910
+        y: 840
+      GRP-TUI:
+        x: 1350
+        y: 200
+      CMP-NOTICE:
+        x: 1370
+        y: 260
+      CMP-LIGHT:
+        x: 1570
+        y: 260
+      CMP-HEADER:
+        x: 1770
+        y: 260
+      CMP-LIST:
+        x: 1370
+        y: 440
+      CMP-CONFIRM:
+        x: 1570
+        y: 440
+      CMP-SELECTION:
+        x: 1770
+        y: 440
+      CMP-PALETTE:
+        x: 1570
+        y: 640
+      CMP-SEARCH:
+        x: 1770
+        y: 640
+      CMP-SPLIT:
+        x: 1370
+        y: 840
+      CMP-TEXTINPUT:
+        x: 1670
+        y: 840
+      GRP-OS:
+        x: 1650
+        y: 1040
+      CMP-DESKTOP:
+        x: 1670
+        y: 1100
+    lines:
+      CMP-SETTINGS--calls--CMP-ASK:
+        bends:
+          - x: 680
+            y: 320
+          - x: 680
+            y: 610
+          - x: 135
+            y: 610
+  deployment:
+    boxes:
+      GRP-DEP-GITHUB:
+        x: 0
+        y: 80
+      CMP-DEP-REPO:
+        x: 20
+        y: 140
+        w: 260
+        h: 110
+      CMP-DEP-PROXY:
+        x: 60
+        y: 380
+        w: 180
+        h: 80
+      CMP-DEP-BUILD:
+        x: 20
+        y: 560
+        w: 260
+        h: 110
+      GRP-DEP-MACHINE:
+        x: 600
+        y: 40
+      CMP-DEP-GITMAN:
+        x: 640
+        y: 100
+        w: 220
+      CMP-DEP-DCMAN:
+        x: 640
+        y: 210
+        w: 220
+      CMP-DEP-CHECKMAN:
+        x: 640
+        y: 320
+        w: 220
+      CMP-DEP-HUBMAN:
+        x: 640
+        y: 430
+        w: 220
+      CMP-DEP-CONTROLROOM:
+        x: 640
+        y: 540
+        w: 220
+      CMP-DEP-KANBAN:
+        x: 640
+        y: 650
+        w: 220
+      GRP-DEP-CONTAINER:
+        x: 620
+        y: 790
+      CMP-DEP-DESIGNER:
+        x: 640
+        y: 860
+        w: 220
+      CMP-DEP-FILES:
+        x: 1000
+        y: 360
+        w: 270
+        h: 110
+  runtime:
+    boxes:
+      CMP-APP:
+        x: 0
+        y: 260
+        w: 220
+      CMP-HELPOUT:
+        x: 300
+        y: 40
+      CMP-PREFS:
+        x: 300
+        y: 260
+      CMP-ASK:
+        x: 560
+        y: 260
+      CMP-SETTINGSCLI:
+        x: 300
+        y: 460
+      CMP-SETTINGS:
+        x: 560
+        y: 460
+      CMP-CONFIGFILE:
+        x: 820
+        y: 460
+      CMP-HOME:
+        x: 1080
+        y: 460
+      CMP-THEME:
+        x: 560
+        y: 660

@@ -1,0 +1,13 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-DEP-GITMAN--data--CMP-DEP-FILES
+spec:
+  from: CMP-DEP-GITMAN
+  to: CMP-DEP-FILES
+  label: data
+  sides: r-l
+  badge:
+    text: "4"
+    description: |
+      Plain files read and written by mankit's code in the binary (temp file, sync, rename). No token; the person's own account.

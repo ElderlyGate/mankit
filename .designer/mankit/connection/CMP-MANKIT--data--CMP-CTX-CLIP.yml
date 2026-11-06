@@ -1,0 +1,13 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-MANKIT--data--CMP-CTX-CLIP
+spec:
+  from: CMP-MANKIT
+  to: CMP-CTX-CLIP
+  label: data
+  sides: b-t
+  badge:
+    text: "4"
+    description: |
+      Copied text out as OSC 52 on the terminal and to the system clipboard tool; pasted text back from that tool.

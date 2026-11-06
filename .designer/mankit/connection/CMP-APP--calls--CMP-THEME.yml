@@ -1,0 +1,10 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-APP--calls--CMP-THEME
+spec:
+  from: CMP-APP
+  to: CMP-THEME
+  label: calls
+  description: |
+    theme.Resolve(app, flag, set) at start (README, theme).

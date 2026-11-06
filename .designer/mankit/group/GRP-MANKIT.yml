@@ -1,0 +1,10 @@
+---
+apiVersion: core/design/v2
+kind: Group
+metadata:
+  id: GRP-MANKIT
+  title: mankit
+spec:
+  order: 10
+  ui-design:
+    look: accent

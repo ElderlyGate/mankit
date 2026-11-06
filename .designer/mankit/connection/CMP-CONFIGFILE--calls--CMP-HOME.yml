@@ -1,0 +1,10 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-CONFIGFILE--calls--CMP-HOME
+spec:
+  from: CMP-CONFIGFILE
+  to: CMP-HOME
+  label: calls
+  description: |
+    Path is home.File(app, "config.yaml") unless a folder is given.

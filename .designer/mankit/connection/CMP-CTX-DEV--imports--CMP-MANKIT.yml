@@ -1,0 +1,14 @@
+---
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-CTX-DEV--imports--CMP-MANKIT
+spec:
+  from: CMP-CTX-DEV
+  to: CMP-MANKIT
+  label: imports
+  sides: r-l
+  badge:
+    text: "1"
+    description: |
+      A tagged version, fetched with `go get` into an app's go.mod, or this checkout through a `go.work` while developing. Nothing proves who is talking beyond the Go module checksum (go.sum).

@@ -1,0 +1,14 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-DEP-CHECKMAN
+  title: "checkman"
+spec:
+  place:
+    views:
+      - deployment
+    group: GRP-DEP-MACHINE
+  caption:
+    - "binary, every mankit package"
+  description: |
+    The checkman binary, with mankit compiled in.

@@ -1,0 +1,16 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-TEXTINPUT
+  title: "textinput"
+spec:
+  place:
+    group: GRP-TUI
+  code:
+    implements: textinput/textinput.go
+  caption:
+    - "bubbles' text input"
+    - "paste through desktop"
+  description: |
+    bubbles' text input, vendored so atotto/clipboard stays out of the
+    Linux build; paste goes through desktop.

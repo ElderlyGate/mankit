@@ -1,0 +1,8 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-PALETTE--calls--CMP-TEXTINPUT
+spec:
+  from: CMP-PALETTE
+  to: CMP-TEXTINPUT
+  label: calls

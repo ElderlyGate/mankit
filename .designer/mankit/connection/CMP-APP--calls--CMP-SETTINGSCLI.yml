@@ -1,0 +1,10 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-APP--calls--CMP-SETTINGSCLI
+spec:
+  from: CMP-APP
+  to: CMP-SETTINGSCLI
+  label: calls
+  description: |
+    cli.AddTo(root, keys, path) (README, Settings).

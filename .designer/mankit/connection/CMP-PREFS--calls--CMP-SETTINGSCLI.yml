@@ -1,0 +1,10 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-PREFS--calls--CMP-SETTINGSCLI
+spec:
+  from: CMP-PREFS
+  to: CMP-SETTINGSCLI
+  label: calls
+  description: |
+    Not an import: AddTo finds settings/cli's set config command in the cobra tree, wraps its RunE, and calls it after the yes.

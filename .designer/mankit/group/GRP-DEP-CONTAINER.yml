@@ -1,0 +1,11 @@
+apiVersion: core/design/v2
+kind: Group
+metadata:
+  id: GRP-DEP-CONTAINER
+  title: "Container e-designer-<project>"
+spec:
+  order: 22
+  place:
+    group: GRP-DEP-MACHINE
+  ui-design:
+    look: soft

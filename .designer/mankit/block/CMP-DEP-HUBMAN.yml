@@ -1,0 +1,14 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-DEP-HUBMAN
+  title: "hubman"
+spec:
+  place:
+    views:
+      - deployment
+    group: GRP-DEP-MACHINE
+  caption:
+    - "binary, all but usercmd/cli"
+  description: |
+    The hubman binary, with mankit compiled in.

@@ -1,0 +1,19 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-PREFS
+  title: "prefs"
+spec:
+  place:
+    group: GRP-CLI
+  code:
+    implements: prefs/cli.go
+  caption:
+    - "get confirm, get locations"
+    - "Asker: ask, migrate, remember"
+  description: |
+    What every app adds beside settings/cli: get confirm, get locations,
+    and set config made to ask first and to take confirm.<type>. Asker
+    resolves the style, asks with ask.Change, runs the app's Migrate after
+    the yes, and saves never when the user asks to stop asking. --dry-run
+    asks and writes nothing.

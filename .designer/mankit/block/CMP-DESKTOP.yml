@@ -1,0 +1,17 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-DESKTOP
+  title: "desktop"
+spec:
+  place:
+    group: GRP-OS
+  code:
+    implements: desktop/clipboard.go
+  caption:
+    - "clipboard copy and paste, open a URL"
+    - "OSC 52, tmux, WSL, system tools"
+  description: |
+    Copy sends OSC 52 (through SSH and tmux) and to the system clipboard
+    where there is one; Paste reads the system clipboard; Open opens a URL
+    in the browser; IsWSL. The tools are looked up only when used.

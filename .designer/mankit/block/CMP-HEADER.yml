@@ -1,0 +1,15 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-HEADER
+  title: "header"
+spec:
+  place:
+    group: GRP-TUI
+  code:
+    implements: header/header.go
+  caption:
+    - "pieces of the top line"
+    - "Location shortens a path"
+  description: |
+    Pieces of the top line: Location shortens a path from the left.

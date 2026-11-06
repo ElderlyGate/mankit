@@ -1,0 +1,9 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-DEP-BUILD--ships--CMP-DEP-KANBAN
+spec:
+  from: CMP-DEP-BUILD
+  to: CMP-DEP-KANBAN
+  label: ships
+  sides: r-l

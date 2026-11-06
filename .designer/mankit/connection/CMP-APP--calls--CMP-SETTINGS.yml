@@ -1,0 +1,10 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-APP--calls--CMP-SETTINGS
+spec:
+  from: CMP-APP
+  to: CMP-SETTINGS
+  label: calls
+  description: |
+    settings.Keys and settings.Path (README, Settings).

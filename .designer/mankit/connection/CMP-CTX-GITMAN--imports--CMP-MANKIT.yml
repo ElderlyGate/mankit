@@ -1,0 +1,13 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-CTX-GITMAN--imports--CMP-MANKIT
+spec:
+  from: CMP-CTX-GITMAN
+  to: CMP-MANKIT
+  label: imports
+  sides: l-r
+  badge:
+    text: "2"
+    description: |
+      Each app imports mankit's packages as Go code at build time. No channel at run time: mankit runs inside the app.

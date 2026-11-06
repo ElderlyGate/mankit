@@ -1,0 +1,20 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-DEP-FILES
+  title: "The org's folders"
+spec:
+  place:
+    views:
+      - deployment
+    group: GRP-DEP-MACHINE
+  caption:
+    - "`~/.config/elderlygate/<product id>/`"
+    - "`~/.local/share/elderlygate/<product id>/`"
+  description: |
+    The one place every app keeps its files, written by mankit's code inside
+    each binary: config.yaml, split, favorites, and the app's data folder.
+    No server, no port: files under the person's own account.
+  source:
+    where:
+      - README.md#where-the-files-are

@@ -1,0 +1,16 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-LIST
+  title: "list"
+spec:
+  place:
+    group: GRP-TUI
+  code:
+    implements: list/list.go
+  caption:
+    - "the left-hand list"
+    - "highlighted row wraps"
+  description: |
+    The left-hand list: the highlighted row wraps to show its whole text,
+    with scrolling and mouse clicks that account for it.

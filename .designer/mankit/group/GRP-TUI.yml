@@ -1,0 +1,11 @@
+apiVersion: core/design/v2
+kind: Group
+metadata:
+  id: GRP-TUI
+  title: TUI parts (bubbletea)
+spec:
+  place:
+    group: GRP-MANKIT
+  order: 13
+  ui-design:
+    look: soft

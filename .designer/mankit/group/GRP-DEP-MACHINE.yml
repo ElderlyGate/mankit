@@ -1,0 +1,9 @@
+apiVersion: core/design/v2
+kind: Group
+metadata:
+  id: GRP-DEP-MACHINE
+  title: A person's machine (Linux or macOS)
+spec:
+  order: 21
+  ui-design:
+    look: accent

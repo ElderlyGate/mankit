@@ -1,0 +1,10 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-PREFS--calls--CMP-HOME
+spec:
+  from: CMP-PREFS
+  to: CMP-HOME
+  label: calls
+  description: |
+    Locations calls home.ProductData.

@@ -1,0 +1,14 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-DEP-KANBAN
+  title: "kanban"
+spec:
+  place:
+    views:
+      - deployment
+    group: GRP-DEP-MACHINE
+  caption:
+    - "binary: ask, helpout, home"
+  description: |
+    The kanban binary (repository kanban-app), with those mankit packages compiled in.

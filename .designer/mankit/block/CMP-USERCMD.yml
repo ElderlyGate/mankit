@@ -1,0 +1,18 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-USERCMD
+  title: "usercmd"
+spec:
+  place:
+    group: GRP-CONFIG
+  code:
+    implements: usercmd/usercmd.go
+  caption:
+    - "the user's own commands"
+    - "palette entry, key, shell line"
+  description: |
+    Reads the user's commands from the app's config.yaml (an old
+    commands.yaml is moved in on first load): a palette entry, an optional
+    key, a shell line with the selection filled in. One JSON schema for all
+    apps.

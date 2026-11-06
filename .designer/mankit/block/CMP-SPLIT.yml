@@ -1,0 +1,16 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-SPLIT
+  title: "split"
+spec:
+  place:
+    group: GRP-TUI
+  code:
+    implements: split/split.go
+  caption:
+    - "the border between list and pane"
+    - "saved in <app folder>/split"
+  description: |
+    [ widens the pane, ] the list, = resets, or drag the border; the list
+    keeps its width when the window grows.

@@ -1,0 +1,11 @@
+---
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-APP--calls--CMP-HELPOUT
+spec:
+  from: CMP-APP
+  to: CMP-HELPOUT
+  label: calls
+  description: |
+    helpout.Apply(root, Info) and helpout.Execute(ctx, root) (README, Help).

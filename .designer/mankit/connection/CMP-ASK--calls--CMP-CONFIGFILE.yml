@@ -1,0 +1,10 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-ASK--calls--CMP-CONFIGFILE
+spec:
+  from: CMP-ASK
+  to: CMP-CONFIGFILE
+  label: calls
+  description: |
+    Set writes the confirm: section with configfile.WriteFile.

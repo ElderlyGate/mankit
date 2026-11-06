@@ -1,0 +1,13 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-DEP-REPO--ships--CMP-DEP-PROXY
+spec:
+  from: CMP-DEP-REPO
+  to: CMP-DEP-PROXY
+  label: ships
+  sides: b-t
+  badge:
+    text: "1"
+    description: |
+      A version tag, fetched by module path. What proves it is the module's checksum, recorded in each app's go.sum.

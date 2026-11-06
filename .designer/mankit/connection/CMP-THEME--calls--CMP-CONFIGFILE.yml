@@ -1,0 +1,8 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-THEME--calls--CMP-CONFIGFILE
+spec:
+  from: CMP-THEME
+  to: CMP-CONFIGFILE
+  label: calls

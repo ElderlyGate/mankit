@@ -1,0 +1,23 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-CTX-GOMODS
+  title: Third-party Go modules
+spec:
+  place:
+    views:
+      - context
+  ui-design:
+    look: soft
+  caption:
+    - "bubbletea, bubbles, lipgloss, cobra"
+    - "yaml.v3, go-osc52, x/term, x/sys"
+  description: |
+    What mankit is built on (go.mod): Charm's bubbletea, bubbles and
+    lipgloss for the TUI parts, cobra for the CLI parts, yaml.v3 for
+    config.yaml, go-osc52 for copying, golang.org/x/term and x/sys.
+    `atotto/clipboard` is kept out of the Linux build (README "Why textinput
+    is vendored").
+  source:
+    where:
+      - go.mod

@@ -1,0 +1,9 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-CTX-KANBAN--imports--CMP-MANKIT
+spec:
+  from: CMP-CTX-KANBAN
+  to: CMP-MANKIT
+  label: imports
+  sides: l-r

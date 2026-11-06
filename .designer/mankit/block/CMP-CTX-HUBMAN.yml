@@ -1,0 +1,16 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-CTX-HUBMAN
+  title: hubman
+spec:
+  place:
+    views:
+      - context
+    group: GRP-CTX-XMAN
+  ui-design:
+    look: soft
+  caption:
+    - "installs and updates the products"
+  description: |
+    Imports every mankit package but usercmd/cli. Product ID hubman.

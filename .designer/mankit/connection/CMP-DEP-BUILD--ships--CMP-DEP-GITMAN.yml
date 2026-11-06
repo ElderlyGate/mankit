@@ -1,0 +1,13 @@
+apiVersion: core/design/v2
+kind: Connection
+metadata:
+  id: CMP-DEP-BUILD--ships--CMP-DEP-GITMAN
+spec:
+  from: CMP-DEP-BUILD
+  to: CMP-DEP-GITMAN
+  label: ships
+  sides: r-l
+  badge:
+    text: "3"
+    description: |
+      mankit compiled into the app's binary: no library file, no process of its own on the machine. A new mankit reaches an app only when the app is built again.

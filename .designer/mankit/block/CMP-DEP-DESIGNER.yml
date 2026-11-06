@@ -1,0 +1,14 @@
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-DEP-DESIGNER
+  title: "e-designer"
+spec:
+  place:
+    views:
+      - deployment
+    group: GRP-DEP-CONTAINER
+  caption:
+    - "binary: ask, home"
+  description: |
+    The e-designer binary, run in its project's container (one board per project, Docker only), with those mankit packages compiled in.
