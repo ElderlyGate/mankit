@@ -18,6 +18,12 @@ spec:
     things an app does with it; Deployment shows where it ends up: compiled
     into each app's binary.
   board:
+    display:
+      spacing:
+        members: 4
+        groups: 3
+        components: 3
+        tidy: 2
     links:
       calls:
         color: ink
