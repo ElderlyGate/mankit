@@ -210,11 +210,7 @@ func run(ctx context.Context, srv *http.Server, ln net.Listener) error {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	stopping := make(chan struct{})
-	srv.BaseContext = func(net.Listener) context.Context {
-		return context.WithValue(context.Background(), stoppingKey{}, stopping)
-	}
-	srv.RegisterOnShutdown(func() { close(stopping) })
+	StopOnShutdown(srv)
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

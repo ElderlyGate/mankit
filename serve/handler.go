@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -168,6 +169,15 @@ func answering(r *http.Request) state {
 }
 
 type stoppingKey struct{}
+
+// StopOnShutdown makes Stopping close when srv begins to shut down; serve does it for its own server, an app that runs its own http.Server calls it once before serving.
+func StopOnShutdown(srv *http.Server) {
+	stopping := make(chan struct{})
+	srv.BaseContext = func(net.Listener) context.Context {
+		return context.WithValue(context.Background(), stoppingKey{}, stopping)
+	}
+	srv.RegisterOnShutdown(func() { close(stopping) })
+}
 
 // Stopping is closed once the server begins to stop, so a long answer such as a stream ends instead of holding the server open; outside serve it never closes.
 func Stopping(r *http.Request) <-chan struct{} {
