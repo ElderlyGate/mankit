@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -223,10 +224,15 @@ func attached(list *features.List) ([]part, error) {
 	return out, nil
 }
 
-// feature serves next only while the feature id is on; off, the route answers as if it were not there.
+// feature serves next only while the feature id is on; off, the route answers as if it were not there, and broken, it names the values it misses.
 func (a App) feature(list *features.List, id string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		on, err := list.On(id)
+		var nv *features.NeedsValues
+		if errors.As(err, &nv) {
+			WriteError(w, r, http.StatusServiceUnavailable, Fail(features.CodeNeedsValues, nv.Error()))
+			return
+		}
 		if err != nil {
 			WriteError(w, r, http.StatusInternalServerError, Fail(CodeConfig, fmt.Sprintf("the feature %s cannot be read: %v", id, err)))
 			return

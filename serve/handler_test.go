@@ -495,6 +495,28 @@ func TestAModuleOffIsNotServedAndHearsOnlyThatItMissedAChange(t *testing.T) {
 	}
 }
 
+func TestAModuleMissingAValueAnswersWhatItNeedsAndTheRestRuns(t *testing.T) {
+	m := &recorder{}
+	list := features.New([]features.Feature{{ID: "hear", Needs: []features.Value{{Name: "HEAR_URL", Purpose: "where changes go"}}}},
+		features.Store{Switched: func() (map[string]bool, error) { return nil, nil }}, nil)
+	if err := list.Attach("hear", m); err != nil {
+		t.Fatal(err)
+	}
+	s := site(nil)
+	s.Features = list
+	h, err := app.Handler(s, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusServiceUnavailable, features.CodeNeedsValues)
+	if !strings.Contains(e.Message, "HEAR_URL (where changes go)") {
+		t.Fatalf("message %q does not name the missing value", e.Message)
+	}
+	if w := call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil); w.Code != http.StatusOK || len(m.heard) != 0 {
+		t.Fatalf("change answered %d, heard %+v, want the change served and the broken module not told", w.Code, m.heard)
+	}
+}
+
 func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
 	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Switched: func() (map[string]bool, error) { return nil, nil }}, nil)
 	if err := list.Attach("hear", "not a part"); err != nil {
