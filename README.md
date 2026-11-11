@@ -440,31 +440,53 @@ routes stay as they are, and `GET /api/events` answers 404.
 runs, servers, page clicks and other apps never change it at once. The line is
 kept in `<served folder>/<app folder>/.queue/`, which only this user may enter
 and which ignores itself in git. It holds tickets, never commands: each
-process runs its own change, and nothing in the folder is ever executed.
+process runs its own change, and nothing in the folder is ever executed. The
+rules every app sharing a queue follows on disk are fixed in contracts
+`mankit/v1`.
 
 ```go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
 q := queue.Queue{Folder: filepath.Join(repo, ".designer"), App: "designer", Version: version}
 err := q.Change(ctx, "add block shop", write, readBack)
 ```
+
+An app passes a context that ends on Ctrl-C (`signal.NotifyContext`), so the
+ticket leaves the line before the process does.
 
 - `Change` writes a ticket at the end of the line, waits until it is first and
   holds the turn, runs `write`, then `readBack`: the change is done only once
   it is read back. The ticket leaves the line whether the change ran or not.
   An error from `write` comes back as it is.
-- The turn is a lock on a file, so it holds across processes, and the system
-  gives it back when a process dies. A waiting or running ticket is touched
-  every quarter of `Stale`; one with no sign of life for `Stale` (30s), or one
-  that cannot be read or understood, is moved to `.queue/bad/`, said on
-  stderr with the file and why, and skipped.
+- The turn is a lock on a file, so it holds across processes; within one
+  process a lock in memory keeps changes apart as well. A ticket's own file
+  stays locked by its process while it waits and runs: when the process dies
+  the system gives the lock back, and the next reader removes the ticket and
+  says so. A ticket whose lock is held but whose file was not touched for 30s
+  (touched every 5s), or one that cannot be read or understood, is moved to
+  `.queue/bad/`, said on stderr with the file and why, and skipped. A change
+  still running when its ticket is set aside keeps the turn.
 - Errors carry codes (`serve.Error`): `queue_timeout` when the turn did not
   come within `Wait` (30s), `not_read_back` when the change ran but could not
-  be read back, `ticket_lost` when another process took the waiting ticket for
-  stale, `queue_unusable` when the folder cannot be made, read or written.
-- `List` is what `<app> queue` shows: the tickets in order, whether the first
-  one's change runs now, and the files in `bad/`. Answered as kind
-  `queue.ListKind` it meets contracts `mankit/v1/queue-list`; every ticket
-  meets `mankit/v1/ticket` (apiVersion `elderlygate/mankit/ticket/v1`, whose
-  header never changes, ADR-S15).
+  be read back, `ticket_lost` when another process set the waiting ticket
+  aside, `queue_unusable` when the folder cannot be made, read or written.
+- `List(ctx)` is what `<app> queue` shows: the tickets in order, which one's
+  change runs now, and the files in `bad/`. Answered as kind `queue.ListKind`
+  it meets contracts `mankit/v1/queue-list`; every ticket meets
+  `mankit/v1/ticket` (apiVersion `elderlygate/mankit/ticket/v1`, whose header
+  never changes, ADR-S15).
+
+What it holds for:
+
+- Local disks only, never a network file system: their locks cannot be trusted.
+- Every process sharing one served folder runs on one kernel: on one machine,
+  or all inside the same container. A lock does not cross from a container to
+  its host.
+- `git clean -fdX` while changes run is not safe: it removes the queue.
+- An app writes whole files (G-CODE-5): a process that dies mid-write gives
+  the turn back, and the next change must not find half a file.
+- 0700 keeps the folder to this user on Linux and macOS; Windows has no such
+  mode.
 
 ## Why textinput is vendored
 
