@@ -115,6 +115,14 @@ func answering(r *http.Request) state {
 	return state{app: App{ID: "unknown", Version: "unknown"}, contract: "v1"}
 }
 
+type stoppingKey struct{}
+
+// Stopping is closed once the server begins to stop, so a long answer such as a stream ends instead of holding the server open; outside serve it never closes.
+func Stopping(r *http.Request) <-chan struct{} {
+	ch, _ := r.Context().Value(stoppingKey{}).(chan struct{})
+	return ch
+}
+
 // choose picks the contract an API reader asked for, or answers 406 with the ones the app answers; the page gets the default.
 func (a App) choose(name string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

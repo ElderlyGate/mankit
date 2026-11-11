@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,6 +85,61 @@ func TestServeInTheForegroundLeavesARecordUntilItStops(t *testing.T) {
 	}
 	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
 		t.Fatalf("the record outlived the server: %v", recs)
+	}
+}
+
+func TestServeEndsALongAnswerWhenItStops(t *testing.T) {
+	machine(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	waiting := make(chan struct{})
+	open := func(*cobra.Command) (serve.Site, error) {
+		s := site(nil)
+		s.Routes = append(s.Routes, serve.Route{Pattern: "GET /api/wait", Handler: func(w http.ResponseWriter, r *http.Request) {
+			close(waiting)
+			<-serve.Stopping(r)
+			serve.Write(w, r, http.StatusOK, "Greeting", greeting{Text: "bye"})
+		}})
+		return s, nil
+	}
+	out := &syncBuffer{}
+	r := root(open)
+	r.SetOut(out)
+	r.SetArgs([]string{"serve"})
+	done := make(chan error, 1)
+	go func() { done <- r.ExecuteContext(ctx) }()
+	var addr string
+	for addr == "" && ctx.Err() == nil {
+		time.Sleep(20 * time.Millisecond)
+		if line, ok := strings.CutPrefix(out.String(), "e-designer serving on http://"); ok {
+			addr, _, _ = strings.Cut(line, "\n")
+		}
+	}
+	link, err := url.Parse(answer(t, "", "servers", "link", addr).Data.(map[string]any)["url"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqCtx, reqCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer reqCancel()
+	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, "http://"+addr+"/api/wait", nil)
+	req.Header.Set(app.TokenHeader(), link.Query().Get(serve.TokenParam))
+	status := make(chan int, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			status <- 0
+			return
+		}
+		resp.Body.Close()
+		status <- resp.StatusCode
+	}()
+	<-waiting
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("the server did not stop cleanly: %v", err)
+	}
+	if got := <-status; got != http.StatusOK {
+		t.Fatalf("the long answer ended with status %d", got)
 	}
 }
 
