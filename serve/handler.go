@@ -144,6 +144,7 @@ func (a App) gate(site Site, rt Route) http.Handler {
 			}
 			styles = read
 		}
+		// G-STACK-13: the user may pick "not at all" for a type; Resolve never gives that for a change to the system itself.
 		if style, _ := ask.Resolve(rt.Action, styles); style != ask.Never {
 			what := string(rt.Action.Type)
 			if rt.Action.What != "" {
