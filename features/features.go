@@ -90,3 +90,20 @@ func (l *List) Known(id string) error {
 	}
 	return fmt.Errorf("unknown feature %q; the features are %s", id, strings.Join(ids, ", "))
 }
+
+// On reports whether the feature id is on now, for a part of the app that asks before each use.
+func (l *List) On(id string) (bool, error) {
+	if err := l.Known(id); err != nil {
+		return false, err
+	}
+	states, err := l.States()
+	if err != nil {
+		return false, err
+	}
+	for _, s := range states {
+		if s.ID == id {
+			return s.On, nil
+		}
+	}
+	return false, nil
+}

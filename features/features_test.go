@@ -77,3 +77,17 @@ func TestAStoreThatCannotBeReadIsSaid(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestOnSaysWhetherOneFeatureIsOnNow(t *testing.T) {
+	l := features.New(all, memory("export"))
+	edit, err := l.On("edit")
+	if err != nil || !edit {
+		t.Fatalf("edit on = %v, %v", edit, err)
+	}
+	if export, err := l.On("export"); err != nil || export {
+		t.Fatalf("export on = %v, %v", export, err)
+	}
+	if _, err := l.On("nope"); err == nil {
+		t.Fatal("an unknown id is on")
+	}
+}
