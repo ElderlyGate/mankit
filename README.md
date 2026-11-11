@@ -27,6 +27,7 @@ three, instead of being made three times.
 | `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
+| `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
 
 ## Settings
 
@@ -365,6 +366,44 @@ is named in `State.By`. A closer only closes: switching a feature back on never
 opens what another closer closed. `Set` refuses an id the list does not hold,
 naming the ones it does, and a store that cannot be read is an error, never an
 empty list.
+
+## Events
+
+`events` tells the app's page, and any other reader, what changed as it
+happens. Every event is a CloudEvent 1.0 in structured JSON, in the shape of
+contracts `event/v1`. It is a feature of its own: the app puts `events.Feature`
+in its feature list and reaches the events only through the broker built from
+that list.
+
+```go
+list := features.New([]features.Feature{events.Feature}, store)
+broker, err := events.New(events.Config{
+	Product:  "designer",
+	Thing:    "shop", // the source is /designer/shop
+	Catalog:  []string{"designer.resource.applied", "designer.layout.changed"},
+	Features: list,
+})
+site.Routes = append(site.Routes, broker.Route()) // GET /api/events, behind serve's guard
+
+ctx := events.WithTrace(r.Context(), r.Header.Get("traceparent"), r.Header.Get("tracestate"))
+_, err = broker.Publish(ctx, "designer.resource.applied", "CMP-SERVE", data)
+```
+
+- `type` is `<product>.<thing>.<verb>`, the verb in the past; `Publish` refuses
+  a type not in the catalog (`events.ErrNotInCatalog`), and `New` refuses a
+  catalog type of another product.
+- Every event carries `traceparent`: the request's, given with `WithTrace`, or
+  a new trace when there is none or it is not valid.
+- `GET /api/events` is `text/event-stream`: `id:` is the event's id and `data:`
+  the event. An idle stream gets a `: heartbeat` comment. A stream that comes
+  back with `Last-Event-ID` first gets the events after that one, from the last
+  `Keep` kept in memory, or all of them when that one is no longer kept.
+- It is a route like any other, so serve's guard stands in front of it: no
+  stream without the token. The browser's `EventSource` sends the page's cookie.
+- With the feature off, `GET /api/events` answers 404 `not_found`, `Publish`
+  builds and keeps nothing, and open streams end within a heartbeat.
+- Streams end when the client leaves or the server stops (`serve.Stopping`), so
+  no stream holds the server open.
 
 ## Why textinput is vendored
 
