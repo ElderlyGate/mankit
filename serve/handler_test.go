@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -449,14 +450,14 @@ func (m *recorder) Skipped(a serve.Answered) { m.skipped = append(m.skipped, a) 
 // withModule is the test site with a feature "hear" whose module is m, switched off when off is set.
 func withModule(t *testing.T, m any, off bool) http.Handler {
 	t.Helper()
-	switched := map[string]bool{}
+	var closed []string
 	if off {
-		switched["hear"] = false
+		closed = []string{"hear"}
 	}
 	list := features.New([]features.Feature{{ID: "hear", Title: "Hear", Covers: "changes"}}, features.Store{
-		Switched: func() (map[string]bool, error) { return switched, nil },
-		Keep:     func(string, bool) error { return nil },
-	}, nil)
+		Off:  func() ([]string, error) { return slices.Clone(closed), nil },
+		Keep: func(string, bool) error { return nil },
+	})
 	if err := list.Attach("hear", m); err != nil {
 		t.Fatal(err)
 	}
@@ -495,10 +496,17 @@ func TestAModuleOffIsNotServedAndHearsOnlyThatItMissedAChange(t *testing.T) {
 	}
 }
 
-func TestAModuleMissingAValueAnswersWhatItNeedsAndTheRestRuns(t *testing.T) {
-	m := &recorder{}
+// needing is the test site with a feature "hear" that needs HEAR_URL, which is not set, whose module is m; closed by public when closed is set.
+func needing(t *testing.T, m any, closed bool) http.Handler {
+	t.Helper()
+	var public []string
+	if closed {
+		public = []string{"hear"}
+	}
 	list := features.New([]features.Feature{{ID: "hear", Needs: []features.Value{{Name: "HEAR_URL", Purpose: "where changes go"}}}},
-		features.Store{Switched: func() (map[string]bool, error) { return nil, nil }}, nil)
+		features.Store{Off: func() ([]string, error) { return nil, nil }},
+		features.Closer{By: "public", Closed: func() ([]string, error) { return public, nil }},
+	).WithLookup(func(string) bool { return false })
 	if err := list.Attach("hear", m); err != nil {
 		t.Fatal(err)
 	}
@@ -508,17 +516,30 @@ func TestAModuleMissingAValueAnswersWhatItNeedsAndTheRestRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return h
+}
+
+func TestAModuleMissingAValueAnswersWhatItNeedsAndTheRestRuns(t *testing.T) {
+	m := &recorder{}
+	h := needing(t, m, false)
 	e := refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusServiceUnavailable, features.CodeNeedsValues)
 	if !strings.Contains(e.Message, "HEAR_URL (where changes go)") {
 		t.Fatalf("message %q does not name the missing value", e.Message)
 	}
-	if w := call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil); w.Code != http.StatusOK || len(m.heard) != 0 {
-		t.Fatalf("change answered %d, heard %+v, want the change served and the broken module not told", w.Code, m.heard)
+	if w := call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("the change answered %d beside the broken module", w.Code)
+	}
+	if len(m.heard) != 0 || len(m.skipped) != 1 || m.skipped[0].Route.Pattern != "POST /api/greeting" {
+		t.Fatalf("heard %+v, skipped %+v, want the broken module to hear only that it missed the change", m.heard, m.skipped)
 	}
 }
 
+func TestAModuleOffAndMissingAValueIsNotThere(t *testing.T) {
+	refusal(t, call(t, needing(t, &recorder{}, true), "GET", "/api/heard", "", nil), http.StatusNotFound, serve.CodeNotFound)
+}
+
 func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
-	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Switched: func() (map[string]bool, error) { return nil, nil }}, nil)
+	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Off: func() ([]string, error) { return nil, nil }})
 	if err := list.Attach("hear", "not a part"); err != nil {
 		t.Fatal(err)
 	}

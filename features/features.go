@@ -22,6 +22,9 @@ type Value struct {
 	Purpose string `json:"purpose" yaml:"purpose"`
 }
 
+// String is the value as people read it in a message: its name and what it is for.
+func (v Value) String() string { return v.Name + " (" + v.Purpose + ")" }
+
 // State is a feature, whether it is on, what keeps it off, and for one that is on, the values it needs and cannot find.
 type State struct {
 	Feature `yaml:",inline"`
@@ -49,22 +52,43 @@ type NeedsValues struct {
 }
 
 func (e *NeedsValues) Error() string {
-	names := make([]string, len(e.Missing))
-	for i, v := range e.Missing {
-		names[i] = fmt.Sprintf("%s (%s)", v.Name, v.Purpose)
+	return fmt.Sprintf("the feature %s needs values that are not set: %s", e.ID, Names(e.Missing))
+}
+
+// Names is values as a message lists them.
+func Names(values []Value) string {
+	names := make([]string, len(values))
+	for i, v := range values {
+		names[i] = v.String()
 	}
-	return fmt.Sprintf("the feature %s needs values that are not set: %s", e.ID, strings.Join(names, ", "))
+	return strings.Join(names, ", ")
 }
 
-// Store keeps the owner's switches; the app says where. It holds on as well as off, so a feature that starts off can be switched on.
+// Missing is every value of needs that lookup cannot find now; a nil lookup finds none.
+func Missing(needs []Value, lookup Lookup) []Value {
+	var out []Value
+	for _, v := range needs {
+		if lookup == nil || !lookup(v.Name) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// Store keeps the owner's switches; the app says where. Its funcs are called from every request, so they must be safe for concurrent use.
+//
+// A feature that starts off is on only while the owner's on is kept, so a list holding one needs On,
+// and its Keep(id, false) keeps id in On as well as taking it out of Off; Keep(id, true) takes it out of On.
 type Store struct {
-	// Switched is each id the owner switched, true for on and false for off; an id not in it is at its default.
-	Switched func() (map[string]bool, error)
-	// Keep switches id on or off.
-	Keep func(id string, on bool) error
+	// Off is the ids switched off now.
+	Off func() ([]string, error)
+	// Keep switches id off, or back on.
+	Keep func(id string, off bool) error
+	// On is the ids switched on now; needed only for a feature that starts off.
+	On func() ([]string, error)
 }
 
-// Lookup says whether the value name is set now; the app says where values live. Nil finds none.
+// Lookup says whether the value name is set now; the app says where values live. It must be safe for concurrent use.
 type Lookup func(name string) bool
 
 // Closer is one more source that can close features, such as public mode or a license; it closes and never opens.
@@ -74,6 +98,7 @@ type Closer struct {
 }
 
 // List is an app's features with what can close them: the owner's switch or the feature's default first, then each closer in order.
+// Attach and WithLookup come before serving; after that the list is safe for concurrent use.
 type List struct {
 	all     []Feature
 	store   Store
@@ -88,15 +113,34 @@ type Part struct {
 	Part any
 }
 
-// New is the list all, switched in store, its needed values found by lookup, closed further by closers.
-func New(all []Feature, store Store, lookup Lookup, closers ...Closer) *List {
-	return &List{all: all, store: store, lookup: lookup, closers: closers}
+// New is the list all, switched in store, closed further by closers.
+func New(all []Feature, store Store, closers ...Closer) *List {
+	return &List{all: all, store: store, closers: append([]Closer{{By: Switch, Closed: store.Off}}, closers...)}
 }
 
-// States is every feature in the list's order: off by the owner's switch or its default, else by the first closer that closes it, else on, and broken when it misses a value.
+// WithLookup hands the list how the app finds a value, needed as soon as a feature needs one, before Attach; it returns the list.
+func (l *List) WithLookup(lookup Lookup) *List {
+	l.lookup = lookup
+	return l
+}
+
+// wired refuses a list that cannot answer for its features: one that needs values without a lookup, or starts off without a store that keeps on.
+func (l *List) wired() error {
+	for _, f := range l.all {
+		if len(f.Needs) > 0 && l.lookup == nil {
+			return fmt.Errorf("features: %s needs values, and the list has no lookup (WithLookup)", f.ID)
+		}
+		if f.StartsOff && l.store.On == nil {
+			return fmt.Errorf("features: %s starts off, and the store keeps no on (Store.On)", f.ID)
+		}
+	}
+	return nil
+}
+
+// States is every feature in the list's order: off by the owner's switch, else by its default, else by the first closer that closes it,
+// else on, and broken when it misses a value.
 func (l *List) States() ([]State, error) {
-	switched, err := l.store.Switched()
-	if err != nil {
+	if err := l.wired(); err != nil {
 		return nil, err
 	}
 	by := map[string]string{}
@@ -111,36 +155,26 @@ func (l *List) States() ([]State, error) {
 			}
 		}
 	}
+	var on []string
+	if l.store.On != nil {
+		var err error
+		if on, err = l.store.On(); err != nil {
+			return nil, err
+		}
+	}
 	out := make([]State, len(l.all))
 	for i, f := range l.all {
-		s := State{Feature: f}
-		on, set := switched[f.ID]
-		switch {
-		case set && !on:
-			s.By = Switch
-		case !set && f.StartsOff:
+		s := State{Feature: f, By: by[f.ID]}
+		if s.By != Switch && f.StartsOff && !slices.Contains(on, f.ID) {
 			s.By = Default
-		default:
-			s.By = by[f.ID]
 		}
 		s.On = s.By == ""
 		if s.On {
-			s.Missing = l.missing(f)
+			s.Missing = Missing(f.Needs, l.lookup)
 		}
 		out[i] = s
 	}
 	return out, nil
-}
-
-// missing is every value f needs that lookup cannot find now.
-func (l *List) missing(f Feature) []Value {
-	var out []Value
-	for _, v := range f.Needs {
-		if l.lookup == nil || !l.lookup(v.Name) {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 // Broken is every feature that is on but misses values it needs, with the missing values, for the app to log at start.
@@ -152,17 +186,20 @@ func (l *List) Broken() ([]State, error) {
 	return slices.DeleteFunc(states, func(s State) bool { return !s.Broken() }), nil
 }
 
-// Set switches the feature id on or off; switching on without every needed value is refused as NeedsValues and nothing is kept,
+// Set switches the feature id off, or back on; switching on without every needed value is refused as NeedsValues and nothing is kept,
 // and another closer still closes it, since a switch never opens what another closed.
 func (l *List) Set(id string, on bool) error {
 	f, err := l.feature(id)
 	if err != nil {
 		return err
 	}
-	if missing := l.missing(f); on && len(missing) > 0 {
+	if err := l.wired(); err != nil {
+		return err
+	}
+	if missing := Missing(f.Needs, l.lookup); on && len(missing) > 0 {
 		return &NeedsValues{ID: id, Missing: missing}
 	}
-	if err := l.store.Keep(id, on); err != nil {
+	if err := l.store.Keep(id, !on); err != nil {
 		return err
 	}
 	if m, ok := l.parts[id].(SwitchedOff); ok && !on {
@@ -212,8 +249,12 @@ func (l *List) On(id string) (bool, error) {
 }
 
 // Attach hands the list the module that serves feature id, so the rest of the app reaches it only through the list; one per feature.
+// It refuses a list that cannot answer for its features, so a wrong wiring shows at start.
 func (l *List) Attach(id string, part any) error {
 	if err := l.Known(id); err != nil {
+		return err
+	}
+	if err := l.wired(); err != nil {
 		return err
 	}
 	if _, taken := l.parts[id]; taken {
