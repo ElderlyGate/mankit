@@ -643,10 +643,12 @@ spec:
     Change writes a ticket (contracts mankit/v1) at the end of the line in
     <served folder>/<app folder>/.queue/ (0700, ignores itself in git),
     waits until it is first and holds the turn, a file lock that holds
-    across processes, runs the app's write, then its read-back. Tickets,
-    never commands. A stale or unreadable ticket is moved to .queue/bad/,
-    said and skipped. Codes: queue_timeout, not_read_back, ticket_lost,
-    queue_unusable. List is what <app> queue shows.
+    across processes and a lock in memory within one, runs the app's write,
+    then its read-back. Tickets, never commands. Each ticket's file stays
+    locked by its process: a free lock means the process died and the
+    ticket is removed. A ticket silent for 30s or unreadable is moved to
+    .queue/bad/, said and skipped. Codes: queue_timeout, not_read_back,
+    ticket_lost, queue_unusable. List is what <app> queue shows.
 --- # block/CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Block
