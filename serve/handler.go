@@ -60,10 +60,15 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 		s := answering(r)
 		Write(w, r, http.StatusOK, VersionKind, VersionData{App: a.ID, Version: a.Version, Contract: s.contract, Contracts: a.Contracts})
 	})
+	seen := map[string]bool{}
 	for _, rt := range site.Routes {
 		if err := rt.check(); err != nil {
 			return nil, err
 		}
+		if seen[rt.Pattern] {
+			return nil, fmt.Errorf("serve: route %q is given twice", rt.Pattern)
+		}
+		seen[rt.Pattern] = true
 		mux.Handle(rt.Pattern, a.gate(site, rt))
 	}
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
