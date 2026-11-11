@@ -210,6 +210,7 @@ func run(ctx context.Context, srv *http.Server, ln net.Listener) error {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	StopOnShutdown(srv)
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

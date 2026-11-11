@@ -27,6 +27,7 @@ three, instead of being made three times.
 | `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
+| `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
 
 ## Settings
 
@@ -332,6 +333,11 @@ What serve does for every app:
   `confirm=remember` is a yes that also stops asking for the type
   (`Site.Remember`). Every change route names its action type; `Handler`
   refuses one that does not.
+- reaches a switchable module only through `Site.Features`: the `serve.Part`
+  attached to a feature adds its routes, answered 404 `not_found` while the
+  feature is off, and hears of each change answered well (`Route.Changes` says
+  the thing it changes), or that it missed one while off, so no handler calls
+  the module (see [Events](#events)).
 
 Each error has a code (`serve.Code…`); a program decides by the code, never by
 the message. `<app> serve --help` and `<app> servers --help` are the reference
@@ -365,6 +371,67 @@ is named in `State.By`. A closer only closes: switching a feature back on never
 opens what another closer closed. `Set` refuses an id the list does not hold,
 naming the ones it does, and a store that cannot be read is an error, never an
 empty list.
+
+## Events
+
+`events` tells the app's page, and any other reader, what changed as it
+happens. Every event is a CloudEvent 1.0 in structured JSON, in the shape of
+contracts `event/v1`. It is a feature of its own, reached only through the
+app's feature list: no handler sends an event, and the routes say nothing about
+events. A change route says the thing it changes (`serve.Change`); serve tells
+the module attached to the list of each change answered well with
+`serve.Write`, and events sends the event its config names for that route.
+
+```go
+list := features.New([]features.Feature{events.Feature}, store)
+err := events.Attach(list, events.Config{
+	Product: "designer",
+	Thing:   "shop", // the source is /designer/shop
+	Catalog: []string{"designer.resource.applied"},
+	Causes:  map[string]events.Cause{"POST /api/resources": {Type: "designer.resource.applied"}},
+})
+site := serve.Site{Features: list, Routes: []serve.Route{{
+	Pattern: "POST /api/resources",
+	Action:  ask.Action{Type: ask.Create},
+	Changes: serve.Change{Thing: "resource", ID: func(data any) string { return data.(Resource).ID }},
+	Handler: apply,
+}}}
+```
+
+Taking events out is taking out `events.Feature` and the `Attach` call: the
+routes stay as they are, and `GET /api/events` answers 404.
+
+- `type` is `<product>.<thing>.<verb>`, the verb in the past. `Attach` refuses
+  a type of another product and a cause not in the catalog
+  (`events.ErrNotInCatalog`); serve refuses at start a cause whose route does
+  not exist or does not change the thing its type names. The subject is the
+  route's `Changes.ID`; `Cause.Data` shapes the event's data from the answer's,
+  and without it the data is the answer's.
+- Every event carries `traceparent`: the request's `traceparent` and
+  `tracestate` headers, or a new trace when there is none or it is not valid.
+- `GET /api/events` is `text/event-stream`: `id:` is the event's id and `data:`
+  the event. An idle stream gets a `: heartbeat` comment. A stream that comes
+  back with `Last-Event-ID` gets the events after that one, from the last
+  `Keep` kept in memory. At most `Streams` (64) are open at once; one more
+  gets 503 `too_many_streams`. A stream that cannot keep up is ended and comes
+  back with `Last-Event-ID`.
+- A client that missed events gets `<product>.stream.gapped`, subject
+  `stream`, with data `{"lastKnown": "<id>", "oldestKept": "<id>"}` (contracts
+  `mankit/v1`), and reloads its state. A stream gets it first when what came
+  after its `Last-Event-ID` is no longer kept: too old, from another server, or
+  from before the feature was off (`lastKnown` is empty when the id is not
+  this server's, `oldestKept` left out when nothing is kept); coming back with
+  the gap's id is no gap. An event that cannot be built after a change is said
+  on stderr (its type and route, never its data) and the gapped event takes
+  its place. Each app lists `<product>.stream.gapped` in its AsyncAPI file.
+- serve's guard stands in front of the stream: no stream without the token.
+  The browser's `EventSource` sends the page's cookie.
+- With the feature off, `GET /api/events` answers 404 `not_found` and no event
+  is built or kept. Switching it off with `List.Set` ends open streams at once;
+  another closer, such as a license, ends them within a heartbeat.
+- Streams end when the client leaves or the server stops (`serve.Stopping`), so
+  no stream holds the server open. An app that runs its own `http.Server`
+  calls `serve.StopOnShutdown(srv)` once before serving.
 
 ## Why textinput is vendored
 

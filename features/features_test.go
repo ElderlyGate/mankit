@@ -77,3 +77,57 @@ func TestAStoreThatCannotBeReadIsSaid(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestOnSaysWhetherOneFeatureIsOnNow(t *testing.T) {
+	l := features.New(all, memory("export"))
+	edit, err := l.On("edit")
+	if err != nil || !edit {
+		t.Fatalf("edit on = %v, %v", edit, err)
+	}
+	if export, err := l.On("export"); err != nil || export {
+		t.Fatalf("export on = %v, %v", export, err)
+	}
+	if _, err := l.On("nope"); err == nil {
+		t.Fatal("an unknown id is on")
+	}
+}
+
+func TestAModuleIsAttachedToItsFeatureOnce(t *testing.T) {
+	l := features.New(all, memory())
+	if err := l.Attach("export", "exporter"); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.Parts(); !reflect.DeepEqual(got, []features.Part{{ID: "export", Part: "exporter"}}) {
+		t.Fatalf("parts = %+v", got)
+	}
+	if err := l.Attach("export", "another"); err == nil {
+		t.Fatal("a second module was attached to export")
+	}
+	if err := l.Attach("nope", "x"); err == nil {
+		t.Fatal("a module was attached to an unknown feature")
+	}
+}
+
+// held is a module that lets go when its feature is switched off.
+type held struct{ off int }
+
+func (h *held) SwitchedOff() { h.off++ }
+
+func TestSwitchingOffTellsTheModuleAtOnce(t *testing.T) {
+	l := features.New(all, memory())
+	m := &held{}
+	if err := l.Attach("export", m); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		id string
+		on bool
+	}{{"export", true}, {"edit", false}, {"export", false}} {
+		if err := l.Set(step.id, step.on); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if m.off != 1 {
+		t.Fatalf("the module was told %d times, want once", m.off)
+	}
+}

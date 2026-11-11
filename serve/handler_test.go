@@ -8,12 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/ElderlyGate/contracts"
 
 	"github.com/tugbayatilla/mankit/ask"
+	"github.com/tugbayatilla/mankit/features"
 	"github.com/tugbayatilla/mankit/serve"
 )
 
@@ -216,6 +218,8 @@ func TestHandlerRefusesARouteItCannotGuard(t *testing.T) {
 		"a change without":      {Pattern: "PUT /api/x", Handler: ok},
 		"a change of no type":   {Pattern: "PUT /api/x", Action: ask.Action{Type: "launch"}, Handler: ok},
 		"a read with an asking": {Pattern: "GET /api/x", Action: ask.Action{Type: ask.Edit}, Handler: ok},
+		"a read that changes":   {Pattern: "GET /api/x", Changes: serve.Change{Thing: "x", ID: func(any) string { return "1" }}, Handler: ok},
+		"a change without id":   {Pattern: "PUT /api/x", Action: ask.Action{Type: ask.Edit}, Changes: serve.Change{Thing: "x"}, Handler: ok},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := app.Handler(serve.Site{Routes: []serve.Route{rt}}, token, nil); err == nil {
@@ -425,5 +429,79 @@ func TestHandlerRefusesARouteGivenTwice(t *testing.T) {
 	_, err := app.Handler(serve.Site{Routes: []serve.Route{{Pattern: "GET /api/x", Handler: ok}, {Pattern: "GET /api/x", Handler: ok}}}, token, nil)
 	if err == nil {
 		t.Fatal("taken")
+	}
+}
+
+// Feature modules
+
+// recorder is a feature's module that adds GET /api/heard and keeps every change it is told of, and every one it missed.
+type recorder struct{ heard, skipped []serve.Answered }
+
+func (m *recorder) Mount(routes []serve.Route) ([]serve.Route, error) {
+	return []serve.Route{{Pattern: "GET /api/heard", Handler: func(w http.ResponseWriter, r *http.Request) {
+		serve.Write(w, r, http.StatusOK, "Heard", len(m.heard))
+	}}}, nil
+}
+
+func (m *recorder) Changed(a serve.Answered) { m.heard = append(m.heard, a) }
+
+func (m *recorder) Skipped(a serve.Answered) { m.skipped = append(m.skipped, a) }
+
+// withModule is the test site with a feature "hear" whose module is m, switched off when off is set.
+func withModule(t *testing.T, m any, off bool) http.Handler {
+	t.Helper()
+	var closed []string
+	if off {
+		closed = []string{"hear"}
+	}
+	list := features.New([]features.Feature{{ID: "hear", Title: "Hear", Covers: "changes"}}, features.Store{
+		Off:  func() ([]string, error) { return slices.Clone(closed), nil },
+		Keep: func(string, bool) error { return nil },
+	})
+	if err := list.Attach("hear", m); err != nil {
+		t.Fatal(err)
+	}
+	s := site(nil)
+	s.Features = list
+	h, err := app.Handler(s, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestAModuleIsToldOfAChangeAnsweredWell(t *testing.T) {
+	m := &recorder{}
+	h := withModule(t, m, false)
+	call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil)
+	call(t, h, "POST", "/api/greeting", `{"text":"hi"}`, nil)
+	call(t, h, "DELETE", "/api/greeting?confirm=yes", "", nil)
+	call(t, h, "GET", "/api/greeting", "", nil)
+	if len(m.heard) != 1 || m.heard[0].Route.Pattern != "POST /api/greeting" || m.heard[0].Kind != "Greeting" || m.heard[0].Data != (greeting{Text: "changed"}) {
+		t.Fatalf("heard %+v, want only the change answered well", m.heard)
+	}
+	if w := call(t, h, "GET", "/api/heard", "", nil); w.Code != http.StatusOK {
+		t.Fatalf("the module's route answered %d", w.Code)
+	}
+}
+
+func TestAModuleOffIsNotServedAndHearsOnlyThatItMissedAChange(t *testing.T) {
+	m := &recorder{}
+	h := withModule(t, m, true)
+	call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil)
+	call(t, h, "POST", "/api/greeting", `{"text":"hi"}`, nil)
+	refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusNotFound, serve.CodeNotFound)
+	if len(m.heard) != 0 || len(m.skipped) != 1 {
+		t.Fatalf("heard %+v, skipped %+v with the feature off", m.heard, m.skipped)
+	}
+}
+
+func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
+	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Off: func() ([]string, error) { return nil, nil }})
+	if err := list.Attach("hear", "not a part"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Handler(serve.Site{Features: list}, token, nil); err == nil {
+		t.Fatal("a module that is not a serve.Part was taken")
 	}
 }

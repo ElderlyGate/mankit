@@ -43,6 +43,13 @@ type List struct {
 	all     []Feature
 	store   Store
 	closers []Closer
+	parts   map[string]any
+}
+
+// Part is the module attached to a feature, for the app's doors to reach while the feature is on.
+type Part struct {
+	ID   string
+	Part any
 }
 
 // New is the list all, switched in store, closed further by closers.
@@ -76,7 +83,19 @@ func (l *List) Set(id string, on bool) error {
 	if err := l.Known(id); err != nil {
 		return err
 	}
-	return l.store.Keep(id, !on)
+	if err := l.store.Keep(id, !on); err != nil {
+		return err
+	}
+	if m, ok := l.parts[id].(SwitchedOff); ok && !on {
+		m.SwitchedOff()
+	}
+	return nil
+}
+
+// SwitchedOff is a module told at once when the owner switches its feature off, so it can let go of what it holds;
+// a closer such as a license is not a switch, so the module still asks On before each use.
+type SwitchedOff interface {
+	SwitchedOff()
 }
 
 // Known refuses an id the list does not hold, naming the ones it does.
@@ -89,4 +108,47 @@ func (l *List) Known(id string) error {
 		ids[i] = f.ID
 	}
 	return fmt.Errorf("unknown feature %q; the features are %s", id, strings.Join(ids, ", "))
+}
+
+// On reports whether the feature id is on now, for a part of the app that asks before each use.
+func (l *List) On(id string) (bool, error) {
+	if err := l.Known(id); err != nil {
+		return false, err
+	}
+	states, err := l.States()
+	if err != nil {
+		return false, err
+	}
+	for _, s := range states {
+		if s.ID == id {
+			return s.On, nil
+		}
+	}
+	return false, nil
+}
+
+// Attach hands the list the module that serves feature id, so the rest of the app reaches it only through the list; one per feature.
+func (l *List) Attach(id string, part any) error {
+	if err := l.Known(id); err != nil {
+		return err
+	}
+	if _, taken := l.parts[id]; taken {
+		return fmt.Errorf("feature %q already has its module", id)
+	}
+	if l.parts == nil {
+		l.parts = map[string]any{}
+	}
+	l.parts[id] = part
+	return nil
+}
+
+// Parts is every attached module in the list's order, on or off: the door that uses one asks On before each use.
+func (l *List) Parts() []Part {
+	var out []Part
+	for _, f := range l.all {
+		if p, ok := l.parts[f.ID]; ok {
+			out = append(out, Part{ID: f.ID, Part: p})
+		}
+	}
+	return out
 }
