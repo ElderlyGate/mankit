@@ -817,7 +817,8 @@ spec:
     App.Handler serves an app's routes behind the guard: this machine's
     address or a --host name, the page from its link (?token=) and a Strict
     cookie <app>-token-<port>, the token in X-<App>-Token, the page's own
-    origin, JSON bodies. GET /api/version, Accept-Contract or 406
+    origin, JSON bodies. GET /api/version lists the contracts answered;
+    Accept-Contract picks one, or 406
     unsupported_contract, and 428 for a change without confirm=yes unless the
     user picked never for its action type. Every answer is the contracts
     envelope with ran (Write, WriteError; Answer, Failure and Encode for the
