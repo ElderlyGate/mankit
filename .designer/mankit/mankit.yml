@@ -52,7 +52,7 @@ metadata:
   id: definitions
 spec:
   vocabulary:
-    connection-label:
+    link-label:
       - calls
       - imports
       - data
@@ -62,19 +62,19 @@ spec:
     edges:
       label: edges
       requires:
-        - Connection
+        - Link
       type: check
       whenUndefined: invisible
       selectors:
         traverses:
-          by: connection-label
+          by: link-label
           values:
             - calls
             - imports
             - data
             - ships
         annotates:
-          by: connection-label
+          by: link-label
           values:
             - related
 --- # block/CMP-APP.yml
@@ -927,10 +927,10 @@ spec:
     <app> commands and its verbs path, init (write the starter file when
     it is missing), check and edit. CommandAt serves it for any config.yaml
     path.
---- # connection/CMP-APP--calls--CMP-HELPOUT.yml
+--- # link/CMP-APP--calls--CMP-HELPOUT.yml
 ---
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-APP--calls--CMP-HELPOUT
 spec:
@@ -939,9 +939,9 @@ spec:
   label: calls
   description: |
     helpout.Apply(root, Info) and helpout.Execute(ctx, root) (README, Help).
---- # connection/CMP-APP--calls--CMP-HOME.yml
+--- # link/CMP-APP--calls--CMP-HOME.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-APP--calls--CMP-HOME
 spec:
@@ -950,9 +950,9 @@ spec:
   label: calls
   description: |
     home.Migrate before its first write, home.Current, home.CopyOnce (README, Where the files are).
---- # connection/CMP-APP--calls--CMP-PREFS.yml
+--- # link/CMP-APP--calls--CMP-PREFS.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-APP--calls--CMP-PREFS
 spec:
@@ -961,9 +961,9 @@ spec:
   label: calls
   description: |
     prefs.AddTo and prefs.Asker.Ask in its own verbs (README, prefs).
---- # connection/CMP-APP--calls--CMP-SETTINGS.yml
+--- # link/CMP-APP--calls--CMP-SETTINGS.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-APP--calls--CMP-SETTINGS
 spec:
@@ -972,9 +972,9 @@ spec:
   label: calls
   description: |
     settings.Keys and settings.Path (README, Settings).
---- # connection/CMP-APP--calls--CMP-SETTINGSCLI.yml
+--- # link/CMP-APP--calls--CMP-SETTINGSCLI.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-APP--calls--CMP-SETTINGSCLI
 spec:
@@ -983,9 +983,9 @@ spec:
   label: calls
   description: |
     cli.AddTo(root, keys, path) (README, Settings).
---- # connection/CMP-APP--calls--CMP-THEME.yml
+--- # link/CMP-APP--calls--CMP-THEME.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-APP--calls--CMP-THEME
 spec:
@@ -994,9 +994,9 @@ spec:
   label: calls
   description: |
     theme.Resolve(app, flag, set) at start (README, theme).
---- # connection/CMP-ASK--calls--CMP-CONFIGFILE.yml
+--- # link/CMP-ASK--calls--CMP-CONFIGFILE.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-ASK--calls--CMP-CONFIGFILE
 spec:
@@ -1005,9 +1005,9 @@ spec:
   label: calls
   description: |
     Set writes the confirm: section with configfile.WriteFile.
---- # connection/CMP-CONFIGFILE--calls--CMP-HOME.yml
+--- # link/CMP-CONFIGFILE--calls--CMP-HOME.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CONFIGFILE--calls--CMP-HOME
 spec:
@@ -1016,9 +1016,9 @@ spec:
   label: calls
   description: |
     Path is home.File(app, "config.yaml") unless a folder is given.
---- # connection/CMP-CTX-CHECKMAN--imports--CMP-MANKIT.yml
+--- # link/CMP-CTX-CHECKMAN--imports--CMP-MANKIT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CTX-CHECKMAN--imports--CMP-MANKIT
 spec:
@@ -1026,9 +1026,9 @@ spec:
   to: CMP-MANKIT
   label: imports
   sides: l-r
---- # connection/CMP-CTX-CONTROLROOM--imports--CMP-MANKIT.yml
+--- # link/CMP-CTX-CONTROLROOM--imports--CMP-MANKIT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CTX-CONTROLROOM--imports--CMP-MANKIT
 spec:
@@ -1036,9 +1036,9 @@ spec:
   to: CMP-MANKIT
   label: imports
   sides: l-r
---- # connection/CMP-CTX-DCMAN--imports--CMP-MANKIT.yml
+--- # link/CMP-CTX-DCMAN--imports--CMP-MANKIT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CTX-DCMAN--imports--CMP-MANKIT
 spec:
@@ -1046,9 +1046,9 @@ spec:
   to: CMP-MANKIT
   label: imports
   sides: l-r
---- # connection/CMP-CTX-DESIGNER--imports--CMP-MANKIT.yml
+--- # link/CMP-CTX-DESIGNER--imports--CMP-MANKIT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CTX-DESIGNER--imports--CMP-MANKIT
 spec:
@@ -1056,10 +1056,10 @@ spec:
   to: CMP-MANKIT
   label: imports
   sides: l-r
---- # connection/CMP-CTX-DEV--imports--CMP-MANKIT.yml
+--- # link/CMP-CTX-DEV--imports--CMP-MANKIT.yml
 ---
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CTX-DEV--imports--CMP-MANKIT
 spec:
@@ -1071,9 +1071,9 @@ spec:
     text: "1"
     description: |
       A tagged version, fetched with `go get` into an app's go.mod, or this checkout through a `go.work` while developing. Nothing proves who is talking beyond the Go module checksum (go.sum).
---- # connection/CMP-CTX-GITMAN--imports--CMP-MANKIT.yml
+--- # link/CMP-CTX-GITMAN--imports--CMP-MANKIT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CTX-GITMAN--imports--CMP-MANKIT
 spec:
@@ -1085,9 +1085,9 @@ spec:
     text: "2"
     description: |
       Each app imports mankit's packages as Go code at build time. No channel at run time: mankit runs inside the app.
---- # connection/CMP-CTX-HUBMAN--imports--CMP-MANKIT.yml
+--- # link/CMP-CTX-HUBMAN--imports--CMP-MANKIT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CTX-HUBMAN--imports--CMP-MANKIT
 spec:
@@ -1095,9 +1095,9 @@ spec:
   to: CMP-MANKIT
   label: imports
   sides: l-r
---- # connection/CMP-CTX-KANBAN--imports--CMP-MANKIT.yml
+--- # link/CMP-CTX-KANBAN--imports--CMP-MANKIT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-CTX-KANBAN--imports--CMP-MANKIT
 spec:
@@ -1105,9 +1105,9 @@ spec:
   to: CMP-MANKIT
   label: imports
   sides: l-r
---- # connection/CMP-DEP-BUILD--ships--CMP-DEP-CHECKMAN.yml
+--- # link/CMP-DEP-BUILD--ships--CMP-DEP-CHECKMAN.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-CHECKMAN
 spec:
@@ -1115,9 +1115,9 @@ spec:
   to: CMP-DEP-CHECKMAN
   label: ships
   sides: r-l
---- # connection/CMP-DEP-BUILD--ships--CMP-DEP-CONTROLROOM.yml
+--- # link/CMP-DEP-BUILD--ships--CMP-DEP-CONTROLROOM.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-CONTROLROOM
 spec:
@@ -1125,9 +1125,9 @@ spec:
   to: CMP-DEP-CONTROLROOM
   label: ships
   sides: r-l
---- # connection/CMP-DEP-BUILD--ships--CMP-DEP-DCMAN.yml
+--- # link/CMP-DEP-BUILD--ships--CMP-DEP-DCMAN.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-DCMAN
 spec:
@@ -1135,9 +1135,9 @@ spec:
   to: CMP-DEP-DCMAN
   label: ships
   sides: r-l
---- # connection/CMP-DEP-BUILD--ships--CMP-DEP-DESIGNER.yml
+--- # link/CMP-DEP-BUILD--ships--CMP-DEP-DESIGNER.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-DESIGNER
 spec:
@@ -1145,9 +1145,9 @@ spec:
   to: CMP-DEP-DESIGNER
   label: ships
   sides: r-l
---- # connection/CMP-DEP-BUILD--ships--CMP-DEP-GITMAN.yml
+--- # link/CMP-DEP-BUILD--ships--CMP-DEP-GITMAN.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-GITMAN
 spec:
@@ -1159,9 +1159,9 @@ spec:
     text: "3"
     description: |
       mankit compiled into the app's binary: no library file, no process of its own on the machine. A new mankit reaches an app only when the app is built again.
---- # connection/CMP-DEP-BUILD--ships--CMP-DEP-HUBMAN.yml
+--- # link/CMP-DEP-BUILD--ships--CMP-DEP-HUBMAN.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-HUBMAN
 spec:
@@ -1169,9 +1169,9 @@ spec:
   to: CMP-DEP-HUBMAN
   label: ships
   sides: r-l
---- # connection/CMP-DEP-BUILD--ships--CMP-DEP-KANBAN.yml
+--- # link/CMP-DEP-BUILD--ships--CMP-DEP-KANBAN.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-KANBAN
 spec:
@@ -1179,9 +1179,9 @@ spec:
   to: CMP-DEP-KANBAN
   label: ships
   sides: r-l
---- # connection/CMP-DEP-CHECKMAN--data--CMP-DEP-FILES.yml
+--- # link/CMP-DEP-CHECKMAN--data--CMP-DEP-FILES.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-CHECKMAN--data--CMP-DEP-FILES
 spec:
@@ -1189,9 +1189,9 @@ spec:
   to: CMP-DEP-FILES
   label: data
   sides: r-l
---- # connection/CMP-DEP-CONTROLROOM--data--CMP-DEP-FILES.yml
+--- # link/CMP-DEP-CONTROLROOM--data--CMP-DEP-FILES.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-CONTROLROOM--data--CMP-DEP-FILES
 spec:
@@ -1199,9 +1199,9 @@ spec:
   to: CMP-DEP-FILES
   label: data
   sides: r-l
---- # connection/CMP-DEP-DCMAN--data--CMP-DEP-FILES.yml
+--- # link/CMP-DEP-DCMAN--data--CMP-DEP-FILES.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-DCMAN--data--CMP-DEP-FILES
 spec:
@@ -1209,9 +1209,9 @@ spec:
   to: CMP-DEP-FILES
   label: data
   sides: r-l
---- # connection/CMP-DEP-GITMAN--data--CMP-DEP-FILES.yml
+--- # link/CMP-DEP-GITMAN--data--CMP-DEP-FILES.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-GITMAN--data--CMP-DEP-FILES
 spec:
@@ -1223,9 +1223,9 @@ spec:
     text: "4"
     description: |
       Plain files read and written by mankit's code in the binary (temp file, sync, rename). No token; the person's own account.
---- # connection/CMP-DEP-HUBMAN--data--CMP-DEP-FILES.yml
+--- # link/CMP-DEP-HUBMAN--data--CMP-DEP-FILES.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-HUBMAN--data--CMP-DEP-FILES
 spec:
@@ -1233,9 +1233,9 @@ spec:
   to: CMP-DEP-FILES
   label: data
   sides: r-l
---- # connection/CMP-DEP-KANBAN--data--CMP-DEP-FILES.yml
+--- # link/CMP-DEP-KANBAN--data--CMP-DEP-FILES.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-KANBAN--data--CMP-DEP-FILES
 spec:
@@ -1243,9 +1243,9 @@ spec:
   to: CMP-DEP-FILES
   label: data
   sides: r-l
---- # connection/CMP-DEP-PROXY--ships--CMP-DEP-BUILD.yml
+--- # link/CMP-DEP-PROXY--ships--CMP-DEP-BUILD.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-PROXY--ships--CMP-DEP-BUILD
 spec:
@@ -1257,9 +1257,9 @@ spec:
     text: "2"
     description: |
       The module source at the version the app's go.mod names.
---- # connection/CMP-DEP-REPO--ships--CMP-DEP-PROXY.yml
+--- # link/CMP-DEP-REPO--ships--CMP-DEP-PROXY.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-DEP-REPO--ships--CMP-DEP-PROXY
 spec:
@@ -1271,9 +1271,9 @@ spec:
     text: "1"
     description: |
       A version tag, fetched by module path. What proves it is the module's checksum, recorded in each app's go.sum.
---- # connection/CMP-HELPOUT--calls--CMP-ASK.yml
+--- # link/CMP-HELPOUT--calls--CMP-ASK.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-HELPOUT--calls--CMP-ASK
 spec:
@@ -1282,9 +1282,9 @@ spec:
   label: calls
   description: |
     Execute checks errors.Is(err, ask.ErrRefused) for exit 3.
---- # connection/CMP-MANKIT--data--CMP-CTX-BROWSER.yml
+--- # link/CMP-MANKIT--data--CMP-CTX-BROWSER.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-MANKIT--data--CMP-CTX-BROWSER
 spec:
@@ -1296,9 +1296,9 @@ spec:
     text: "5"
     description: |
       A URL handed to the system's opener; mankit waits for nothing back.
---- # connection/CMP-MANKIT--data--CMP-CTX-CLIP.yml
+--- # link/CMP-MANKIT--data--CMP-CTX-CLIP.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-MANKIT--data--CMP-CTX-CLIP
 spec:
@@ -1310,9 +1310,9 @@ spec:
     text: "4"
     description: |
       Copied text out as OSC 52 on the terminal and to the system clipboard tool; pasted text back from that tool.
---- # connection/CMP-MANKIT--data--CMP-CTX-FILES.yml
+--- # link/CMP-MANKIT--data--CMP-CTX-FILES.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-MANKIT--data--CMP-CTX-FILES
 spec:
@@ -1324,9 +1324,9 @@ spec:
     text: "3"
     description: |
       Reads and writes each app's config.yaml, split and favorites (a temp file synced, then renamed), and names its data folder. Plain files under the person's own account; no token.
---- # connection/CMP-MANKIT--imports--CMP-CTX-GOMODS.yml
+--- # link/CMP-MANKIT--imports--CMP-CTX-GOMODS.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-MANKIT--imports--CMP-CTX-GOMODS
 spec:
@@ -1338,18 +1338,18 @@ spec:
     text: "6"
     description: |
       mankit's own dependencies, from go.mod.
---- # connection/CMP-NOTICE--calls--CMP-THEME.yml
+--- # link/CMP-NOTICE--calls--CMP-THEME.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-NOTICE--calls--CMP-THEME
 spec:
   from: CMP-NOTICE
   to: CMP-THEME
   label: calls
---- # connection/CMP-PALETTE--calls--CMP-HOME.yml
+--- # link/CMP-PALETTE--calls--CMP-HOME.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-PALETTE--calls--CMP-HOME
 spec:
@@ -1358,9 +1358,9 @@ spec:
   label: calls
   description: |
     the favorites file is home.File(app, "favorites").
---- # connection/CMP-PALETTE--calls--CMP-SETTINGS.yml
+--- # link/CMP-PALETTE--calls--CMP-SETTINGS.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-PALETTE--calls--CMP-SETTINGS
 spec:
@@ -1369,27 +1369,27 @@ spec:
   label: calls
   description: |
     palette.Settings(rows) makes a command of every setting row.
---- # connection/CMP-PALETTE--calls--CMP-TEXTINPUT.yml
+--- # link/CMP-PALETTE--calls--CMP-TEXTINPUT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-PALETTE--calls--CMP-TEXTINPUT
 spec:
   from: CMP-PALETTE
   to: CMP-TEXTINPUT
   label: calls
---- # connection/CMP-PREFS--calls--CMP-ASK.yml
+--- # link/CMP-PREFS--calls--CMP-ASK.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-PREFS--calls--CMP-ASK
 spec:
   from: CMP-PREFS
   to: CMP-ASK
   label: calls
---- # connection/CMP-PREFS--calls--CMP-HOME.yml
+--- # link/CMP-PREFS--calls--CMP-HOME.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-PREFS--calls--CMP-HOME
 spec:
@@ -1398,9 +1398,9 @@ spec:
   label: calls
   description: |
     Locations calls home.ProductData.
---- # connection/CMP-PREFS--calls--CMP-SETTINGSCLI.yml
+--- # link/CMP-PREFS--calls--CMP-SETTINGSCLI.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-PREFS--calls--CMP-SETTINGSCLI
 spec:
@@ -1409,18 +1409,18 @@ spec:
   label: calls
   description: |
     Not an import: AddTo finds settings/cli's set config command in the cobra tree, wraps its RunE, and calls it after the yes.
---- # connection/CMP-SEARCH--calls--CMP-TEXTINPUT.yml
+--- # link/CMP-SEARCH--calls--CMP-TEXTINPUT.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-SEARCH--calls--CMP-TEXTINPUT
 spec:
   from: CMP-SEARCH
   to: CMP-TEXTINPUT
   label: calls
---- # connection/CMP-SETTINGS--calls--CMP-ASK.yml
+--- # link/CMP-SETTINGS--calls--CMP-ASK.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-SETTINGS--calls--CMP-ASK
 spec:
@@ -1430,18 +1430,18 @@ spec:
   sides: l-t
   description: |
     confirm.<type> keys; Set hands them to ask.Set.
---- # connection/CMP-SETTINGS--calls--CMP-CONFIGFILE.yml
+--- # link/CMP-SETTINGS--calls--CMP-CONFIGFILE.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-SETTINGS--calls--CMP-CONFIGFILE
 spec:
   from: CMP-SETTINGS
   to: CMP-CONFIGFILE
   label: calls
---- # connection/CMP-SETTINGS--calls--CMP-THEME.yml
+--- # link/CMP-SETTINGS--calls--CMP-THEME.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-SETTINGS--calls--CMP-THEME
 spec:
@@ -1450,18 +1450,18 @@ spec:
   label: calls
   description: |
     theme.Names() are the allowed values of the theme key.
---- # connection/CMP-SETTINGSCLI--calls--CMP-SETTINGS.yml
+--- # link/CMP-SETTINGSCLI--calls--CMP-SETTINGS.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-SETTINGSCLI--calls--CMP-SETTINGS
 spec:
   from: CMP-SETTINGSCLI
   to: CMP-SETTINGS
   label: calls
---- # connection/CMP-SPLIT--calls--CMP-HOME.yml
+--- # link/CMP-SPLIT--calls--CMP-HOME.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-SPLIT--calls--CMP-HOME
 spec:
@@ -1470,9 +1470,9 @@ spec:
   label: calls
   description: |
     the split file is home.File(app, "split").
---- # connection/CMP-TEXTINPUT--calls--CMP-DESKTOP.yml
+--- # link/CMP-TEXTINPUT--calls--CMP-DESKTOP.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-TEXTINPUT--calls--CMP-DESKTOP
 spec:
@@ -1481,27 +1481,27 @@ spec:
   label: calls
   description: |
     paste calls desktop.Paste().
---- # connection/CMP-THEME--calls--CMP-CONFIGFILE.yml
+--- # link/CMP-THEME--calls--CMP-CONFIGFILE.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-THEME--calls--CMP-CONFIGFILE
 spec:
   from: CMP-THEME
   to: CMP-CONFIGFILE
   label: calls
---- # connection/CMP-USERCMD--calls--CMP-CONFIGFILE.yml
+--- # link/CMP-USERCMD--calls--CMP-CONFIGFILE.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-USERCMD--calls--CMP-CONFIGFILE
 spec:
   from: CMP-USERCMD
   to: CMP-CONFIGFILE
   label: calls
---- # connection/CMP-USERCMDCLI--calls--CMP-USERCMD.yml
+--- # link/CMP-USERCMDCLI--calls--CMP-USERCMD.yml
 apiVersion: core/design/v2
-kind: Connection
+kind: Link
 metadata:
   id: CMP-USERCMDCLI--calls--CMP-USERCMD
 spec:
