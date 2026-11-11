@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ElderlyGate/contracts"
+	"github.com/gofrs/flock"
 
 	"github.com/tugbayatilla/mankit/queue"
 	"github.com/tugbayatilla/mankit/serve"
@@ -38,7 +39,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// child is another process on the queue: count adds one to a counter five times, hold keeps the turn for a while, mark writes its mark once its turn comes.
+// child is another process on the queue: count adds one to a counter five times, hold keeps the turn for a while, mark writes its mark once its turn comes, lock holds the folder's lock for a while.
 func child(mode, folder, arg string) int {
 	if times := os.Getenv(timesEnv); times != "" {
 		stale, touch, _ := strings.Cut(times, ",")
@@ -70,6 +71,18 @@ func child(mode, folder, arg string) int {
 		err = q.Change(context.Background(), "hold the turn", func(context.Context) error { time.Sleep(d); return nil }, nothing)
 	case "mark":
 		err = q.Change(context.Background(), "mark "+arg, func(context.Context) error { appendLine(log, arg); return nil }, nothing)
+	case "lock":
+		// Holds the folder's lock as another process in the middle of reading the line would.
+		d, _ := time.ParseDuration(arg)
+		f := flock.New(filepath.Join(folder, ".queue", "lock"))
+		var got bool
+		if got, err = f.TryLock(); err == nil && got {
+			appendLine(filepath.Join(folder, "locked"), "")
+			time.Sleep(d)
+			err = f.Close()
+		} else if err == nil {
+			err = errors.New("the folder's lock is held")
+		}
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -606,29 +619,113 @@ func TestAChangePastTheRunLimitIsToldToStopAndFails(t *testing.T) {
 	}
 }
 
-func TestAChangeThatIgnoresTheLimitKeepsTheTurnUntilItsWriteReturns(t *testing.T) {
+func TestAWriteThatFinishesPastTheLimitIsReadBackAndKeepsTheTurnUntilThen(t *testing.T) {
 	q, _ := newQueue(t)
 	q.Limit = 100 * time.Millisecond
 	writing, wrote := make(chan struct{}), make(chan time.Time, 1)
 	result := make(chan error, 1)
+	readBack := false
 	go func() {
 		result <- q.Change(context.Background(), "deaf", func(context.Context) error {
 			close(writing)
 			time.Sleep(400 * time.Millisecond)
 			wrote <- time.Now()
 			return nil
-		}, nothing)
+		}, func(ctx context.Context) error {
+			readBack = ctx.Err() == nil
+			return nil
+		})
 	}()
 	<-writing
 	var ranAt time.Time
 	if err := q.Change(context.Background(), "next", func(context.Context) error { ranAt = time.Now(); return nil }, nothing); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-result; code(err) != queue.CodeTooLong {
-		t.Fatalf("got %v, want %s", err, queue.CodeTooLong)
+	if err := <-result; err != nil || !readBack {
+		t.Fatalf("got %v (read back with a live context %v); a write that finished is done once read back", err, readBack)
 	}
 	if done := <-wrote; ranAt.Before(done) {
 		t.Fatal("the next change ran before the long write returned")
+	}
+}
+
+func TestAWriteThatFinishedPastTheLimitButCannotBeReadBackIsNotReadBack(t *testing.T) {
+	q, _ := newQueue(t)
+	q.Limit = 50 * time.Millisecond
+	err := q.Change(context.Background(), "slow", func(context.Context) error {
+		time.Sleep(150 * time.Millisecond)
+		return nil
+	}, func(context.Context) error { return errors.New("the file is half written") })
+	if code(err) != queue.CodeNotReadBack {
+		t.Fatalf("got %v, want %s, never %s for a write that finished", err, queue.CodeNotReadBack, queue.CodeTooLong)
+	}
+}
+
+func TestChangesHandTheTurnOnQuickly(t *testing.T) {
+	q, _ := newQueue(t)
+	began := time.Now()
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 2 {
+				if err := q.Change(context.Background(), "quick", func(context.Context) error { time.Sleep(time.Millisecond); return nil }, nothing); err != nil {
+					t.Error(err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if took := time.Since(began); took > time.Second {
+		t.Fatalf("20 changes of 1ms took %s, want well under a second", took)
+	}
+}
+
+func TestATicketLeavesTheLineEvenWhenTheFolderLockIsHeldElsewhere(t *testing.T) {
+	defer queue.LeaveFor(100 * time.Millisecond)()
+	q, log := newQueue(t)
+	writing, finish, result := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		result <- q.Change(context.Background(), "held up", func(context.Context) error {
+			close(writing)
+			<-finish
+			return nil
+		}, nothing)
+	}()
+	<-writing
+	l := waitFor(t, q, 1)
+	ticket := filepath.Join(q.Folder, ".queue", l.Tickets[0].Ticket.Metadata.ID+".json")
+	start(t, "lock", q.Folder, "700ms", "")
+	waitForFile(t, filepath.Join(q.Folder, "locked"))
+	close(finish)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{ticket, strings.TrimSuffix(ticket, ".json") + ".lock"} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s is still there: %v", path, err)
+		}
+	}
+	if !strings.Contains(log.String(), ticket) {
+		t.Errorf("said %q, want the ticket named", log.String())
+	}
+	if err := q.Change(context.Background(), "next", nothing, nothing); err != nil {
+		t.Fatalf("the next change in this process did not run: %v", err)
+	}
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s never came", path)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
