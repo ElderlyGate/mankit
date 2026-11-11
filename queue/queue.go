@@ -217,7 +217,7 @@ func retry(ctx context.Context, try func() (bool, error)) error {
 
 // inProcess holds one process's own locks on a queue folder, so changes in one process take turns without leaning on the file system's locks.
 type inProcess struct {
-	folder sync.Mutex
+	folder chan struct{} // held by sending, so a goroutine waits for it in line and gives up when its context ends
 	turn   sync.Mutex
 	mu     sync.Mutex
 	mine   map[string]bool // the ticket files this process holds, which a sweep here never takes for dead
@@ -230,7 +230,7 @@ func (q Queue) process() *inProcess {
 	if err != nil {
 		key = filepath.Clean(q.dir())
 	}
-	p, _ := processes.LoadOrStore(key, &inProcess{mine: map[string]bool{}})
+	p, _ := processes.LoadOrStore(key, &inProcess{folder: make(chan struct{}, 1), mine: map[string]bool{}})
 	return p.(*inProcess)
 }
 
@@ -467,10 +467,12 @@ func (q Queue) prepare(ctx context.Context) error {
 // locked runs fn while this process alone may change the queue's folder, waiting for it until ctx ends.
 func (q Queue) locked(ctx context.Context, fn func() error) error {
 	p := q.process()
-	if err := retry(ctx, func() (bool, error) { return p.folder.TryLock(), nil }); err != nil {
-		return err
+	select {
+	case p.folder <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	defer p.folder.Unlock()
+	defer func() { <-p.folder }()
 	path := filepath.Join(q.dir(), lockName)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
