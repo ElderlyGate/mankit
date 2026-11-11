@@ -451,7 +451,9 @@ func TestAWaitingTicketTakenForStaleIsLost(t *testing.T) {
 	release := hold(t, q)
 	done := make(chan error, 1)
 	ran := false
-	go func() { done <- q.Change(context.Background(), "tidy", func() error { ran = true; return nil }, nothing) }()
+	go func() {
+		done <- q.Change(context.Background(), "tidy", func() error { ran = true; return nil }, nothing)
+	}()
 	l := waitFor(t, q, 2)
 	waiting := l.Tickets[1].Ticket.Metadata.ID + ".json"
 	// As another process does when it finds the ticket stale.
