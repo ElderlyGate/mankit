@@ -1,14 +1,15 @@
 // Package events is an app's live events: CloudEvents 1.0 in structured JSON, checked against the app's catalog,
-// sent on GET /api/events as Server-Sent Events through serve; it is a feature of its own, reached through the app's feature list.
+// sent on GET /api/events as Server-Sent Events through serve. It is a feature of its own: attached to the app's feature list,
+// it hears of each change a route says it causes, so no handler calls it and removing it touches only the list.
 package events
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/tugbayatilla/mankit/features"
+	"github.com/tugbayatilla/mankit/serve"
 )
 
 // Feature is the events feature for the app's list: closed, there is no stream and nothing is kept.
@@ -36,22 +38,31 @@ type Event struct {
 	TraceState      string          `json:"tracestate,omitempty"`
 }
 
-// ErrNotInCatalog is a type the app did not declare; a program tells it by errors.Is, never by the message.
+// GapVerb ends the type of the event a stream gets first when events it asked for are no longer kept: <product>.stream.gap.
+const GapVerb = "stream.gap"
+
+// Gap is the data of the gap event: the last event the client had, and the oldest still kept (empty when none is); the client reloads its state.
+type Gap struct {
+	LastKnown  string `json:"lastKnown"`
+	OldestKept string `json:"oldestKept,omitempty"`
+}
+
+// ErrNotInCatalog is a route causing a type the app did not declare; a program tells it by errors.Is, never by the message.
 var ErrNotInCatalog = errors.New("not in the app's event catalog")
 
 // Config is what an app tells events about itself.
 type Config struct {
-	Product   string         // the product ID: the first part of every type and of the source
-	Thing     string         // the thing served, the source's second part (/<product>/<thing>); empty is Product
-	Catalog   []string       // every type the app sends, <product>.<thing>.<verb> with the verb in the past
-	Features  *features.List // the app's feature list; it must hold Feature
-	Heartbeat time.Duration  // how often an idle stream gets a comment, and the feature is asked again; zero is 15s
-	Keep      int            // how many events are kept for Last-Event-ID; zero is 256
+	Product   string        // the product ID: the first part of every type and of the source
+	Thing     string        // the thing served, the source's second part (/<product>/<thing>); empty is Product
+	Catalog   []string      // every type the app sends, <product>.<thing>.<verb> with the verb in the past
+	Heartbeat time.Duration // how often an idle stream gets a comment, and the feature is asked again; zero is 15s
+	Keep      int           // how many events are kept for Last-Event-ID; zero is 256
 }
 
-// Broker builds an app's events and sends each to every open stream, keeping the last few for a stream that comes back.
-type Broker struct {
+// broker builds an app's events and sends each to every open stream, keeping the last few for a stream that comes back.
+type broker struct {
 	cfg    Config
+	list   *features.List
 	source string
 	run    string
 
@@ -73,27 +84,25 @@ var (
 	typePattern    = regexp.MustCompile(`^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$`)
 )
 
-// New is the broker for cfg; it refuses a product, thing or catalog type that breaks the event names (ADR-E2), and a list without Feature.
-func New(cfg Config) (*Broker, error) {
+// Attach puts live events on the app's feature list, which must hold Feature; serve then adds GET /api/events and tells events of each change.
+// It refuses a product, thing or catalog type that breaks the event names (ADR-E2).
+func Attach(list *features.List, cfg Config) error {
 	if !productPattern.MatchString(cfg.Product) {
-		return nil, fmt.Errorf("events: product %q is not a product ID", cfg.Product)
+		return fmt.Errorf("events: product %q is not a product ID", cfg.Product)
 	}
 	if cfg.Thing == "" {
 		cfg.Thing = cfg.Product
 	}
 	if !thingPattern.MatchString(cfg.Thing) {
-		return nil, fmt.Errorf("events: thing %q may hold only letters, digits, '.', '_' and '-'", cfg.Thing)
+		return fmt.Errorf("events: thing %q may hold only letters, digits, '.', '_' and '-'", cfg.Thing)
 	}
 	for _, t := range cfg.Catalog {
 		if !typePattern.MatchString(t) || !strings.HasPrefix(t, cfg.Product+".") {
-			return nil, fmt.Errorf("events: catalog type %q is not %s.<thing>.<verb>", t, cfg.Product)
+			return fmt.Errorf("events: catalog type %q is not %s.<thing>.<verb>", t, cfg.Product)
 		}
 	}
-	if cfg.Features == nil {
-		return nil, errors.New("events: needs the app's feature list")
-	}
-	if err := cfg.Features.Known(Feature.ID); err != nil {
-		return nil, fmt.Errorf("events: the app's feature list must hold %s: %w", Feature.ID, err)
+	if list == nil {
+		return errors.New("events: needs the app's feature list")
 	}
 	if cfg.Heartbeat <= 0 {
 		cfg.Heartbeat = 15 * time.Second
@@ -103,50 +112,62 @@ func New(cfg Config) (*Broker, error) {
 	}
 	run := make([]byte, 8)
 	if _, err := rand.Read(run); err != nil {
-		return nil, err
+		return err
 	}
-	return &Broker{
+	b := &broker{
 		cfg:    cfg,
+		list:   list,
 		source: "/" + cfg.Product + "/" + cfg.Thing,
 		run:    hex.EncodeToString(run),
 		subs:   map[chan []byte]struct{}{},
-	}, nil
+	}
+	if err := list.Attach(Feature.ID, b); err != nil {
+		return fmt.Errorf("events: %w", err)
+	}
+	return nil
 }
 
-// Publish builds the event typ about subject with data, traced by ctx (WithTrace), and sends it to every open stream.
-// With the feature closed it builds nothing, keeps nothing and answers a zero Event; a store it cannot read is an error.
-func (b *Broker) Publish(ctx context.Context, typ, subject string, data any) (Event, error) {
-	if !slices.Contains(b.cfg.Catalog, typ) {
-		return Event{}, fmt.Errorf("events: %q: %w", typ, ErrNotInCatalog)
+// Mount refuses a route that causes a type not in the catalog, or says no subject, and adds the stream.
+func (b *broker) Mount(routes []serve.Route) ([]serve.Route, error) {
+	for _, rt := range routes {
+		switch {
+		case rt.Causes.Type == "":
+		case !slices.Contains(b.cfg.Catalog, rt.Causes.Type):
+			return nil, fmt.Errorf("events: route %q causes %q: %w", rt.Pattern, rt.Causes.Type, ErrNotInCatalog)
+		case rt.Causes.Subject == nil:
+			return nil, fmt.Errorf("events: route %q causes %q but says no subject", rt.Pattern, rt.Causes.Type)
+		}
 	}
+	return []serve.Route{b.route()}, nil
+}
+
+// Changed sends the event the change's route causes; the change is already answered, so an event that cannot be built is left out.
+func (b *broker) Changed(c serve.Change) {
+	cause := c.Route.Causes
+	if cause.Type == "" {
+		return
+	}
+	data := c.Data
+	if cause.Data != nil {
+		data = cause.Data(c.Data)
+	}
+	_ = b.publish(c.Request, cause.Type, cause.Subject(c.Data), data)
+}
+
+// publish builds the event typ about subject with data, traced by the request that caused it, and sends it to every open stream.
+func (b *broker) publish(r *http.Request, typ, subject string, data any) error {
 	if subject == "" {
-		return Event{}, fmt.Errorf("events: %s needs the id of its thing as subject", typ)
-	}
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return Event{}, fmt.Errorf("events: the data of %s is not JSON: %w", typ, err)
-	}
-	on, err := b.cfg.Features.On(Feature.ID)
-	if err != nil {
-		return Event{}, err
+		return fmt.Errorf("events: %s needs the id of its thing as subject", typ)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !on {
-		b.closeAll()
-		return Event{}, nil
+	id := b.run + "-" + strconv.FormatUint(b.seq+1, 10)
+	text, err := b.event(r, id, typ, subject, data)
+	if err != nil {
+		return err
 	}
 	b.seq++
-	tp, ts := trace(ctx)
-	e := Event{
-		SpecVersion: "1.0", ID: b.run + "-" + strconv.FormatUint(b.seq, 10), Source: b.source, Type: typ, Subject: subject,
-		Time: time.Now().UTC(), DataContentType: "application/json", Data: raw, TraceParent: tp, TraceState: ts,
-	}
-	text, err := json.Marshal(e)
-	if err != nil {
-		return Event{}, err
-	}
-	f := frame{id: e.ID, text: []byte("id: " + e.ID + "\ndata: " + string(text) + "\n\n")}
+	f := frame{id: id, text: text}
 	b.kept = append(b.kept, f)
 	if len(b.kept) > b.cfg.Keep {
 		b.kept = slices.Delete(b.kept, 0, len(b.kept)-b.cfg.Keep)
@@ -160,31 +181,70 @@ func (b *Broker) Publish(ctx context.Context, typ, subject string, data any) (Ev
 			close(ch)
 		}
 	}
-	return e, nil
+	return nil
 }
 
-// subscribe opens a stream: the kept events after last (all of them when last is not kept), then every new one.
-func (b *Broker) subscribe(last string) ([][]byte, chan []byte) {
+// event is one event as a stream frame.
+func (b *broker) event(r *http.Request, id, typ, subject string, data any) ([]byte, error) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("events: the data of %s is not JSON: %w", typ, err)
+	}
+	tp, ts := trace(r)
+	text, err := json.Marshal(Event{
+		SpecVersion: "1.0", ID: id, Source: b.source, Type: typ, Subject: subject,
+		Time: time.Now().UTC(), DataContentType: "application/json", Data: raw, TraceParent: tp, TraceState: ts,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return []byte("id: " + id + "\ndata: " + string(text) + "\n\n"), nil
+}
+
+// subscribe opens a stream: the kept events after last, then every new one. When last is not followed by what is kept,
+// the stream gets the gap event first, then every kept event; its id stands just before the oldest kept, so coming back with it is no gap.
+func (b *broker) subscribe(r *http.Request, last string) ([][]byte, chan []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	from := 0
-	if last != "" {
-		if i := slices.IndexFunc(b.kept, func(f frame) bool { return f.id == last }); i >= 0 {
-			from = i + 1
+	oldest := b.seq + 1 - uint64(len(b.kept))
+	var replay [][]byte
+	switch seq, ours := b.position(last); {
+	case last == "":
+	case ours && seq+1 >= oldest && seq <= b.seq:
+		for _, f := range b.kept[seq+1-oldest:] {
+			replay = append(replay, f.text)
 		}
-	} else {
-		from = len(b.kept)
-	}
-	replay := make([][]byte, 0, len(b.kept)-from)
-	for _, f := range b.kept[from:] {
-		replay = append(replay, f.text)
+	default:
+		gap := Gap{LastKnown: last}
+		if len(b.kept) > 0 {
+			gap.OldestKept = b.kept[0].id
+		}
+		mark := make([]byte, 4)
+		_, _ = rand.Read(mark)
+		if text, err := b.event(r, fmt.Sprintf("%s-%d-gap-%s", b.run, oldest-1, hex.EncodeToString(mark)), b.cfg.Product+"."+GapVerb, b.cfg.Thing, gap); err == nil {
+			replay = append(replay, text)
+		}
+		for _, f := range b.kept {
+			replay = append(replay, f.text)
+		}
 	}
 	ch := make(chan []byte, 64)
 	b.subs[ch] = struct{}{}
 	return replay, ch
 }
 
-func (b *Broker) unsubscribe(ch chan []byte) {
+// position is the place of id in this run's events: <run>-<seq>, or <run>-<seq>-gap-<mark> for a gap event.
+func (b *broker) position(id string) (uint64, bool) {
+	run, rest, ok := strings.Cut(id, "-")
+	if !ok || run != b.run {
+		return 0, false
+	}
+	seq, _, _ := strings.Cut(rest, "-")
+	n, err := strconv.ParseUint(seq, 10, 64)
+	return n, err == nil
+}
+
+func (b *broker) unsubscribe(ch chan []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, open := b.subs[ch]; open {
@@ -194,14 +254,9 @@ func (b *Broker) unsubscribe(ch chan []byte) {
 }
 
 // forget ends every stream and every kept event, once the feature is found closed.
-func (b *Broker) forget() {
+func (b *broker) forget() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.closeAll()
-}
-
-// closeAll ends every stream and forgets every kept event, once the feature is closed.
-func (b *Broker) closeAll() {
 	for ch := range b.subs {
 		delete(b.subs, ch)
 		close(ch)
@@ -209,29 +264,16 @@ func (b *Broker) closeAll() {
 	b.kept = nil
 }
 
-type traceKey struct{}
-
-type traceContext struct{ parent, state string }
-
 var traceParentPattern = regexp.MustCompile(`^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`)
-
-// WithTrace is ctx carrying the W3C trace context of the request that caused the events, such as its traceparent and tracestate headers;
-// a traceparent that is not valid is left out, and the event starts a trace of its own.
-func WithTrace(ctx context.Context, traceparent, tracestate string) context.Context {
-	if !validTraceParent(traceparent) {
-		return ctx
-	}
-	return context.WithValue(ctx, traceKey{}, traceContext{parent: traceparent, state: tracestate})
-}
 
 func validTraceParent(tp string) bool {
 	return traceParentPattern.MatchString(tp) && tp[:2] != "ff" && tp[3:35] != "00000000000000000000000000000000" && tp[36:52] != "0000000000000000"
 }
 
-// trace is the trace context in ctx, or a new one: every event carries traceparent (ADR-E6).
-func trace(ctx context.Context) (string, string) {
-	if tc, ok := ctx.Value(traceKey{}).(traceContext); ok {
-		return tc.parent, tc.state
+// trace is the W3C trace context of the request, or a new one when it has none or it is not valid: every event carries traceparent (ADR-E6).
+func trace(r *http.Request) (string, string) {
+	if tp := r.Header.Get("traceparent"); validTraceParent(tp) {
+		return tp, r.Header.Get("tracestate")
 	}
 	for {
 		id := make([]byte, 24)
