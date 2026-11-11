@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tugbayatilla/mankit/ask"
+	"github.com/tugbayatilla/mankit/features"
 )
 
 // The words of a request: the header a reader asks a contract with, and the query that carries the user's yes to a change.
@@ -25,6 +26,31 @@ type Route struct {
 	Pattern string // a method and a path under /api/, such as "POST /api/designs/{design}/blocks"
 	Action  ask.Action
 	Handler http.HandlerFunc
+	Causes  Cause // the event a change causes once answered well; a feature's module, such as live events, acts on it
+}
+
+// Cause is what a change caused, said by the route so no handler calls a switchable module itself.
+type Cause struct {
+	Type    string                // the event type, such as designer.resource.applied
+	Subject func(data any) string // the id of the thing, from the data the change answered with
+	Data    func(data any) any    // the event's data from the answer's data; nil is the answer's data
+}
+
+// Part is what a feature's module attaches to the app's feature list for serve; while the feature is off serve neither serves its routes nor tells it of a change.
+type Part interface {
+	// Mount checks the app's routes when the server starts and gives the routes the module adds.
+	Mount(routes []Route) ([]Route, error)
+	// Changed is told of each change answered well with Write.
+	Changed(c Change)
+}
+
+// Change is a change serve answered well: the request, its route, and what Write answered.
+type Change struct {
+	Request *http.Request
+	Route   Route
+	Status  int
+	Kind    string
+	Data    any
 }
 
 // Site is what an app serves: its routes, its page, and the thing it serves.
@@ -34,6 +60,7 @@ type Site struct {
 	UI       http.Handler                           // the page and its files at /; nil serves the API alone
 	Styles   func() (map[ask.Type]ask.Style, error) // the user's asking style per type, read on every change; nil is every default
 	Remember func(ask.Type) error                   // saves never for a type after "Remember my answer" (confirm=remember), in the app's config, such as ask.Remember
+	Features *features.List                         // the app's feature list; the Part attached to a feature adds routes and hears of changes while it is on
 }
 
 // VersionData is the data of the GET /api/version answer.
@@ -60,16 +87,37 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 		s := answering(r)
 		Write(w, r, http.StatusOK, VersionKind, VersionData{App: a.ID, Version: a.Version, Contract: s.contract, Contracts: a.Contracts})
 	})
+	parts, err := attached(site.Features)
+	if err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
-	for _, rt := range site.Routes {
+	add := func(rt Route, h http.Handler) error {
 		if err := rt.check(); err != nil {
-			return nil, err
+			return err
 		}
 		if seen[rt.Pattern] {
-			return nil, fmt.Errorf("serve: route %q is given twice", rt.Pattern)
+			return fmt.Errorf("serve: route %q is given twice", rt.Pattern)
 		}
 		seen[rt.Pattern] = true
-		mux.Handle(rt.Pattern, a.gate(site, rt))
+		mux.Handle(rt.Pattern, h)
+		return nil
+	}
+	for _, rt := range site.Routes {
+		if err := add(rt, a.gate(site, rt, parts)); err != nil {
+			return nil, err
+		}
+	}
+	for _, p := range parts {
+		routes, err := p.part.Mount(site.Routes)
+		if err != nil {
+			return nil, fmt.Errorf("serve: feature %s: %w", p.id, err)
+		}
+		for _, rt := range routes {
+			if err := add(rt, a.feature(site.Features, p.id, a.gate(site, rt, nil))); err != nil {
+				return nil, err
+			}
+		}
 	}
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, r, http.StatusNotFound, Fail(CodeNotFound, fmt.Sprintf("%s has no %s %s", a.command(), r.Method, r.URL.Path)))
@@ -82,6 +130,9 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 
 // Write answers kind with data, in the envelope and the contract the request was answered in.
 func Write(w http.ResponseWriter, r *http.Request, status int, kind string, data any) {
+	if c, ok := r.Context().Value(changeKey{}).(*Change); ok {
+		c.Status, c.Kind, c.Data = status, kind, data
+	}
 	s := answering(r)
 	writeEnvelope(w, status, s.app.Answer(s.name, s.contract, kind, data))
 }
@@ -140,11 +191,70 @@ func (a App) choose(name string, next http.Handler) http.Handler {
 	})
 }
 
+type part struct {
+	id   string
+	part Part
+}
+
+// attached is every module on the list that serve can use; a module serve cannot use is refused, so a wrong wiring shows at start.
+func attached(list *features.List) ([]part, error) {
+	if list == nil {
+		return nil, nil
+	}
+	var out []part
+	for _, p := range list.Parts() {
+		sp, ok := p.Part.(Part)
+		if !ok {
+			return nil, fmt.Errorf("serve: the module of feature %s is not a serve.Part", p.ID)
+		}
+		out = append(out, part{id: p.ID, part: sp})
+	}
+	return out, nil
+}
+
+// feature serves next only while the feature id is on; off, the route answers as if it were not there.
+func (a App) feature(list *features.List, id string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		on, err := list.On(id)
+		if err != nil {
+			WriteError(w, r, http.StatusInternalServerError, Fail(CodeConfig, fmt.Sprintf("the feature %s cannot be read: %v", id, err)))
+			return
+		}
+		if !on {
+			WriteError(w, r, http.StatusNotFound, Fail(CodeNotFound, fmt.Sprintf("%s has no %s %s: the feature %s is off", a.command(), r.Method, r.URL.Path, id)))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type changeKey struct{}
+
+// told runs the change, then tells each module whose feature is on of a change answered well; the answer is already sent, so a module never changes it.
+func told(h http.HandlerFunc, rt Route, list *features.List, parts []part) http.HandlerFunc {
+	if len(parts) == 0 {
+		return h
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		c := &Change{Request: r, Route: rt}
+		h(w, r.WithContext(context.WithValue(r.Context(), changeKey{}, c)))
+		if c.Status < 200 || c.Status > 299 {
+			return
+		}
+		for _, p := range parts {
+			if on, err := list.On(p.id); err == nil && on {
+				p.part.Changed(*c)
+			}
+		}
+	}
+}
+
 // gate answers 428 to a change that came without the user's yes (confirm=yes, or remember to stop asking), unless the user picked never for its type.
-func (a App) gate(site Site, rt Route) http.Handler {
+func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 	if !writing[rt.method()] {
 		return rt.Handler
 	}
+	rt.Handler = told(rt.Handler, rt, site.Features, parts)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get(ConfirmParam) {
 		case ConfirmYes:
@@ -206,6 +316,8 @@ func (rt Route) check() error {
 		return fmt.Errorf("serve: change %q needs its action type, one of %v", rt.Pattern, ask.Types())
 	case !writing[method] && rt.Action.Type != "":
 		return fmt.Errorf("serve: read %q never asks, so it takes no action type", rt.Pattern)
+	case !writing[method] && rt.Causes.Type != "":
+		return fmt.Errorf("serve: read %q changes nothing, so it causes no event", rt.Pattern)
 	}
 	return nil
 }
