@@ -639,12 +639,17 @@ spec:
   caption:
     - "an app's switchable features"
     - "the owner's switch, then each closer"
+    - "each names the values it needs"
   description: |
-    New takes the app's features, the Store where the owner's switches are
-    kept, and further closers (public mode, a license). States says which
-    are on and, for one that is off, the first closer that closed it; Set
-    switches one, and never opens what another closer closed; Known refuses
-    an id the list does not hold. It knows no app and keeps no file itself.
+    New takes the app's features, each starting on or off and naming the
+    values it needs, the Store where the owner's switches (on and off) are
+    kept, the lookup that finds a value, and further closers (public mode, a
+    license). States says which are on, for one that is off what keeps it
+    off, and for one that is on the values it misses (broken); Set switches
+    one, refuses on without every needed value (feature_needs_values), and
+    never opens what another closer closed; Broken is the start log's list;
+    Known refuses an id the list does not hold. It knows no app and keeps no
+    file itself.
 --- # block/CMP-HEADER.yml
 apiVersion: core/design/v2
 kind: Block
@@ -1520,7 +1525,7 @@ spec:
   to: CMP-FEATURES
   label: calls
   description: |
-    features.New(list, store, closers...) is the app's feature list; a switchable part of the app is reached only through it (README, Features).
+    features.New(list, store, lookup, closers...) is the app's feature list; a switchable part of the app is reached only through it (README, Features).
 --- # link/CMP-APP--calls--CMP-EVENTS.yml
 apiVersion: core/design/v2
 kind: Link
@@ -1575,7 +1580,7 @@ spec:
   to: CMP-FEATURES
   label: calls
   description: |
-    Site.Features: list.Parts() at start, list.On(id) before a module's route and before telling it of a change.
+    Site.Features: list.Parts() at start, list.On(id) before a module's route (503 feature_needs_values while broken) and before telling it of a change.
 --- # link/CMP-SERVE--calls--CMP-HOME.yml
 apiVersion: core/design/v2
 kind: Link
