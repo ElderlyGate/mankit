@@ -83,7 +83,19 @@ func (l *List) Set(id string, on bool) error {
 	if err := l.Known(id); err != nil {
 		return err
 	}
-	return l.store.Keep(id, !on)
+	if err := l.store.Keep(id, !on); err != nil {
+		return err
+	}
+	if m, ok := l.parts[id].(SwitchedOff); ok && !on {
+		m.SwitchedOff()
+	}
+	return nil
+}
+
+// SwitchedOff is a module told at once when the owner switches its feature off, so it can let go of what it holds;
+// a closer such as a license is not a switch, so the module still asks On before each use.
+type SwitchedOff interface {
+	SwitchedOff()
 }
 
 // Known refuses an id the list does not hold, naming the ones it does.

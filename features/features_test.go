@@ -107,3 +107,27 @@ func TestAModuleIsAttachedToItsFeatureOnce(t *testing.T) {
 		t.Fatal("a module was attached to an unknown feature")
 	}
 }
+
+// held is a module that lets go when its feature is switched off.
+type held struct{ off int }
+
+func (h *held) SwitchedOff() { h.off++ }
+
+func TestSwitchingOffTellsTheModuleAtOnce(t *testing.T) {
+	l := features.New(all, memory())
+	m := &held{}
+	if err := l.Attach("export", m); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		id string
+		on bool
+	}{{"export", true}, {"edit", false}, {"export", false}} {
+		if err := l.Set(step.id, step.on); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if m.off != 1 {
+		t.Fatalf("the module was told %d times, want once", m.off)
+	}
+}
