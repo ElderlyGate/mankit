@@ -597,6 +597,28 @@ spec:
     Copy sends OSC 52 (through SSH and tmux) and to the system clipboard
     where there is one; Paste reads the system clipboard; Open opens a URL
     in the browser; IsWSL. The tools are looked up only when used.
+--- # block/CMP-EVENTS.yml
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-EVENTS
+  title: "events"
+spec:
+  place:
+    group: GRP-CLI
+  code:
+    implements: events/events.go
+  caption:
+    - "live events: CloudEvents over SSE"
+    - "GET /api/events, a switchable feature"
+  description: |
+    New takes the product, the thing served, the app's event catalog and
+    its feature list, which must hold the events feature. Publish builds a
+    CloudEvent 1.0 (contracts event/v1) with traceparent, refuses a type
+    not in the catalog, and sends it to every open stream, keeping the last
+    few. Route is GET /api/events for the app's site, behind serve's guard:
+    Server-Sent Events, Last-Event-ID resumes, a heartbeat on an idle
+    stream. With the feature off it answers 404 not_found and keeps nothing.
 --- # block/CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Block
@@ -846,7 +868,8 @@ spec:
     CLI). App.Commands adds serve [--detach], servers, servers stop and
     servers link; every server, detached or not, leaves a record (contracts
     mankit/v1) in the app's data folder, and a server is known by asking
-    its address without the token.
+    its address without the token. Stopping tells a long answer, such as
+    a stream, that the server is stopping.
 --- # block/CMP-SETTINGS.yml
 apiVersion: core/design/v2
 kind: Block
@@ -1488,6 +1511,39 @@ spec:
   label: calls
   description: |
     features.New(list, store, closers...) is the app's feature list; a switchable part of the app is reached only through it (README, Features).
+--- # link/CMP-APP--calls--CMP-EVENTS.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-APP--calls--CMP-EVENTS
+spec:
+  from: CMP-APP
+  to: CMP-EVENTS
+  label: calls
+  description: |
+    events.New(config) and broker.Publish for each change; broker.Route() goes into the site (README, Events).
+--- # link/CMP-EVENTS--calls--CMP-FEATURES.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-EVENTS--calls--CMP-FEATURES
+spec:
+  from: CMP-EVENTS
+  to: CMP-FEATURES
+  label: calls
+  description: |
+    list.On(events) before each event and each stream; closed, nothing is sent or kept.
+--- # link/CMP-EVENTS--calls--CMP-SERVE.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-EVENTS--calls--CMP-SERVE
+spec:
+  from: CMP-EVENTS
+  to: CMP-SERVE
+  label: calls
+  description: |
+    Route is a serve.Route behind the guard; WriteError answers its refusals; serve.Stopping ends a stream.
 --- # link/CMP-SERVE--calls--CMP-ASK.yml
 apiVersion: core/design/v2
 kind: Link
