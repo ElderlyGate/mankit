@@ -612,13 +612,16 @@ spec:
     - "live events: CloudEvents over SSE"
     - "GET /api/events, a switchable feature"
   description: |
-    New takes the product, the thing served, the app's event catalog and
-    its feature list, which must hold the events feature. Publish builds a
-    CloudEvent 1.0 (contracts event/v1) with traceparent, refuses a type
-    not in the catalog, and sends it to every open stream, keeping the last
-    few. Route is GET /api/events for the app's site, behind serve's guard:
-    Server-Sent Events, Last-Event-ID resumes, a heartbeat on an idle
-    stream. With the feature off it answers 404 not_found and keeps nothing.
+    Attach puts it on the app's feature list, which must hold the events
+    feature, with the product, the thing served and the event catalog; no
+    handler calls it. As a serve.Part it refuses at start a route causing
+    a type not in the catalog, adds GET /api/events, and hears of each
+    change answered well: it builds the CloudEvent 1.0 the route's Causes
+    says (contracts event/v1, with the request's traceparent) and sends it
+    to every open stream, keeping the last few. Server-Sent Events behind
+    serve's guard, a heartbeat on an idle stream, Last-Event-ID resumes,
+    and <product>.stream.gap first when what came after is no longer kept.
+    With the feature off: 404 not_found and nothing kept.
 --- # block/CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Block
@@ -869,7 +872,10 @@ spec:
     servers link; every server, detached or not, leaves a record (contracts
     mankit/v1) in the app's data folder, and a server is known by asking
     its address without the token. Stopping tells a long answer, such as
-    a stream, that the server is stopping.
+    a stream, that the server is stopping. A switchable module is reached
+    only through Site.Features: the serve.Part attached to a feature adds
+    routes, served only while it is on, and hears of each change whose
+    answer was good, by the event its route Causes.
 --- # block/CMP-SETTINGS.yml
 apiVersion: core/design/v2
 kind: Block
@@ -1521,7 +1527,7 @@ spec:
   to: CMP-EVENTS
   label: calls
   description: |
-    events.New(config) and broker.Publish for each change; broker.Route() goes into the site (README, Events).
+    events.Attach(list, config) and serve.Cause on each change route; nothing else (README, Events).
 --- # link/CMP-EVENTS--calls--CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Link
@@ -1532,7 +1538,7 @@ spec:
   to: CMP-FEATURES
   label: calls
   description: |
-    list.On(events) before each event and each stream; closed, nothing is sent or kept.
+    list.Attach(events, module); list.On(events) on each heartbeat ends a stream once closed.
 --- # link/CMP-EVENTS--calls--CMP-SERVE.yml
 apiVersion: core/design/v2
 kind: Link
@@ -1543,7 +1549,7 @@ spec:
   to: CMP-SERVE
   label: calls
   description: |
-    Route is a serve.Route behind the guard; WriteError answers its refusals; serve.Stopping ends a stream.
+    a serve.Part: Mount adds GET /api/events behind the guard, Changed hears each change; serve.Stopping ends a stream.
 --- # link/CMP-SERVE--calls--CMP-ASK.yml
 apiVersion: core/design/v2
 kind: Link
@@ -1555,6 +1561,17 @@ spec:
   label: calls
   description: |
     ask.Resolve picks the style of a change's type for the 428 gate; servers stop takes --yes (ask.Flag).
+--- # link/CMP-SERVE--calls--CMP-FEATURES.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-SERVE--calls--CMP-FEATURES
+spec:
+  from: CMP-SERVE
+  to: CMP-FEATURES
+  label: calls
+  description: |
+    Site.Features: list.Parts() at start, list.On(id) before a module's route and before telling it of a change.
 --- # link/CMP-SERVE--calls--CMP-HOME.yml
 apiVersion: core/design/v2
 kind: Link
