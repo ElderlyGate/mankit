@@ -222,7 +222,7 @@ func (s *shop) open(t *testing.T, lastID string) *stream {
 	return &stream{resp: resp, r: bufio.NewReader(resp.Body), stop: cancel}
 }
 
-// next is the next event on the stream, with its id: line checked against the event's id; it skips heartbeat comments.
+// next is the next event on the stream, checked against the contract (mankit/v1 for a gapped one) and its id: line; it skips heartbeat comments.
 func (st *stream) next(t *testing.T) (events.Event, []byte) {
 	t.Helper()
 	var id, data string
@@ -240,6 +240,14 @@ func (st *stream) next(t *testing.T) (events.Event, []byte) {
 			}
 			if e.ID != id {
 				t.Fatalf("id: %q, the event's id %q", id, e.ID)
+			}
+			if err := contracts.Validate("event/v1/event.schema.json", []byte(data)); err != nil {
+				t.Fatalf("%s: %v", data, err)
+			}
+			if strings.HasSuffix(e.Type, "."+events.Gapped) {
+				if err := contracts.Validate("mankit/v1/stream.gapped.schema.json", []byte(data)); err != nil {
+					t.Fatalf("%s: %v", data, err)
+				}
 			}
 			return e, []byte(data)
 		case strings.HasPrefix(line, "id: "):
