@@ -820,11 +820,13 @@ spec:
     origin, JSON bodies. GET /api/version lists the contracts answered;
     Accept-Contract picks one, or 406
     unsupported_contract, and 428 for a change without confirm=yes unless the
-    user picked never for its action type. Every answer is the contracts
+    user picked never for its action type (confirm=remember saves that
+    through Site.Remember). Every answer is the contracts
     envelope with ran (Write, WriteError; Answer, Failure and Encode for the
     CLI). App.Commands adds serve [--detach], servers, servers stop and
-    servers link; a detached server leaves a record (contracts mankit/v1) in
-    the app's data folder.
+    servers link; every server, detached or not, leaves a record (contracts
+    mankit/v1) in the app's data folder, and a server is known by asking
+    its address without the token.
 --- # block/CMP-SETTINGS.yml
 apiVersion: core/design/v2
 kind: Block
