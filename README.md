@@ -25,6 +25,7 @@ three, instead of being made three times.
 | `home` | Where the org's apps keep their files: the org's config and data folders, a folder per product, and `CopyOnce` to bring old files along |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 | `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
+| `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link` (see [Serve](#serve)) |
 
 ## Settings
 
@@ -283,6 +284,54 @@ if err := asker.Ask(cmd, ask.Action{Type: ask.Delete, What: "delete branch x", N
 	return err
 }
 ```
+
+## Serve
+
+`serve` is the HTTP door of an app, the same for every app (ADR-S04 in the org's
+design). The app gives its routes; serve adds the rest.
+
+```go
+app := serve.App{ID: "designer", Command: "e-designer", Version: version, Contracts: []string{"v1"}, Addr: "127.0.0.1:7480"}
+open := func(cmd *cobra.Command) (serve.Site, error) {
+	return serve.Site{
+		Name: "shop",
+		Routes: []serve.Route{
+			{Pattern: "GET /api/blocks", Handler: listBlocks},
+			{Pattern: "POST /api/blocks", Action: ask.Action{Type: ask.Create}, Handler: addBlock},
+		},
+		UI:     page,
+		Styles: func() (map[ask.Type]ask.Style, error) { return ask.Load(configPath) },
+	}, nil
+}
+root.AddCommand(app.Commands(open, asker.Ask)...)
+```
+
+A handler answers with `serve.Write(w, r, status, kind, data)` or
+`serve.WriteError(w, r, status, err)`. Every answer is the contracts envelope:
+`apiVersion` (`<org>/<app>/app/<contract>`), `kind`, `ran` (the thing, the app,
+its version and the contract), `data` and `errors`. The CLI builds the same
+answer with `app.Answer` or `app.Failure` and writes it with `serve.Encode`, so
+both doors give the same bytes.
+
+What serve does for every app:
+
+- answers only on this machine's own address, or a name given with `--host`;
+- opens the page only from its link (`?token=`), which it swaps for the cookie
+  `<app>-token-<port>` (Strict, HttpOnly); an API request carries the token in
+  `X-<App>-Token` or that cookie, comes from the page itself, and sends JSON;
+- answers `GET /api/version`, and the contract asked for in `Accept-Contract`,
+  else 406 `unsupported_contract` with the versions it answers;
+- answers a change (POST, PUT, PATCH, DELETE) with 428 `unconfirmed` until it
+  comes with `confirm=yes`, unless the user picked `never` for its type. Every
+  change route names its action type; `Handler` refuses one that does not.
+
+Each error has a code (`serve.Code…`); a program decides by the code, never by
+the message. `<app> serve --help` and `<app> servers --help` are the reference
+for the commands. A detached server leaves a record in
+`<data folder>/<app>/servers/`, in the shape of contracts `mankit/v1`.
+
+The tests check the real answers against the schemas in
+[contracts](https://github.com/ElderlyGate/contracts).
 
 ## Why textinput is vendored
 
