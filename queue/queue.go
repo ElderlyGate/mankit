@@ -701,7 +701,12 @@ func (q Queue) moveBad(path, why string) error {
 		}
 		to = filepath.Join(bad, fmt.Sprintf("%s.%d", filepath.Base(path), n))
 	}
-	if err := os.Rename(path, to); err != nil {
+	err := os.Rename(path, to)
+	if errors.Is(err, os.ErrNotExist) {
+		// Gone since the folder was read, taken by a person or a process that does not hold the lock: nothing left to set aside.
+		return nil
+	}
+	if err != nil {
 		return unusable("cannot move %s, which %s, to %s: %v", path, why, bad, err)
 	}
 	fmt.Fprintf(q.log(), "queue: %s %s; moved to %s and skipped\n", path, why, to)
