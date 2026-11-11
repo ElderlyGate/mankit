@@ -328,3 +328,17 @@ func TestSwitchingAndAskingAtOnceIsSafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestAFeatureInBothOffAndOnIsOff(t *testing.T) {
+	k := &keeping{off: []string{"telemetry"}, on: []string{"telemetry"}}
+	if got := states(t, features.New(needy, k.store()).WithLookup(set(everyValue))); got[0].On || got[0].By != features.Switch {
+		t.Fatalf("telemetry = %+v, want off by switch", got[0])
+	}
+}
+
+func TestAFeatureThatStartsOffIsOffByItsDefaultBeforeACloser(t *testing.T) {
+	license := features.Closer{By: "license", Closed: func() ([]string, error) { return []string{"telemetry"}, nil }}
+	if got := states(t, features.New(needy, (&keeping{}).store(), license).WithLookup(set(everyValue))); got[0].On || got[0].By != features.Default {
+		t.Fatalf("telemetry = %+v, want off by default", got[0])
+	}
+}

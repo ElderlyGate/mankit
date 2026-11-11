@@ -79,6 +79,7 @@ func Missing(needs []Value, lookup Lookup) []Value {
 //
 // A feature that starts off is on only while the owner's on is kept, so a list holding one needs On,
 // and its Keep(id, false) keeps id in On as well as taking it out of Off; Keep(id, true) takes it out of On.
+// An id in both Off and On is off: the owner's off wins.
 type Store struct {
 	// Off is the ids switched off now.
 	Off func() ([]string, error)
