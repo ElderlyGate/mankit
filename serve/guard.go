@@ -2,6 +2,7 @@ package serve
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"html"
 	"mime"
@@ -54,6 +55,8 @@ func (a App) guard(token string, hosts []string, name string, next http.Handler)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		if !allowedHost(r.Host, hosts) {
 			refuse(w, http.StatusForbidden, CodeHost, fmt.Sprintf("%s answers on this machine's own address only; serve --host <name> names another", a.command()))
 			return
@@ -65,7 +68,7 @@ func (a App) guard(token string, hosts []string, name string, next http.Handler)
 					a.writeLinkPage(w)
 					return
 				}
-				http.SetCookie(w, &http.Cookie{Name: cookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+				http.SetCookie(w, &http.Cookie{Name: cookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: overTLS(r)})
 				writeOnward(w, withoutToken(r.URL))
 				return
 			}
@@ -105,14 +108,24 @@ func (a App) guard(token string, hosts []string, name string, next http.Handler)
 	})
 }
 
+// maxBody is the most a request body may hold.
+const maxBody = 1 << 20
+
+// overTLS reports whether the browser reached the server over HTTPS, itself or through a proxy, so the cookie is sent over HTTPS only.
+func overTLS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
 // writeOnward sends the browser on to path from this page, not by a redirect: a Strict cookie set on a redirect that began on another site is not sent.
+// location.replace also drops the link, with its token, from the history; the refresh is for a browser without scripts.
 func writeOnward(w http.ResponseWriter, path string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.WriteHeader(http.StatusOK)
 	p := html.EscapeString(path)
-	_, _ = fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=%s"><a href="%s">Open</a>`+"\n", p, p)
+	js, _ := json.Marshal(path)
+	_, _ = fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><script>location.replace(%s)</script><meta http-equiv="refresh" content="0;url=%s"><a href="%s">Open</a>`+"\n", js, p, p)
 }
 
 // writeLinkPage tells a browser without the cookie where its link is, and holds no secret.
