@@ -60,24 +60,45 @@ func routes() []serve.Route {
 		{Pattern: "DELETE /api/items/{id}", Action: serveDelete, Changes: changes, Handler: answer(http.StatusOK)},
 		{Pattern: "PUT /api/items/{id}", Action: serveEdit, Changes: changes, Handler: answer(http.StatusOK)},
 		{Pattern: "PATCH /api/items/{id}", Action: serveEdit, Changes: changes, Handler: answer(http.StatusOK)},
+		{Pattern: "POST /api/nameless", Action: serveCreate, Changes: serve.Change{Thing: "item", ID: func(any) string { return "" }}, Handler: answer(http.StatusCreated)},
 	}
 }
 
-// causes are the events the shop's changes cause: PUT carries a large data, PATCH one that is not JSON.
+// causes are the events the shop's changes cause: PUT carries a large data, PATCH one that is not JSON, nameless no subject.
 var causes = map[string]events.Cause{
 	"POST /api/items/{id}":   {Type: "shop.item.added"},
 	"DELETE /api/items/{id}": {Type: "shop.item.removed", Data: func(any) any { return nil }},
 	"PUT /api/items/{id}":    {Type: "shop.item.added", Data: func(any) any { return strings.Repeat("x", 128<<10) }},
 	"PATCH /api/items/{id}":  {Type: "shop.item.added", Data: func(any) any { return func() {} }},
+	"POST /api/nameless":     {Type: "shop.item.added"},
 }
 
 func keep(n int) func(*events.Config) { return func(c *events.Config) { c.Keep = n } }
 
 // switches is the owner's switches, held in the test as an app's config would hold them.
 type switches struct {
-	mu   sync.Mutex
-	off  []string
-	fail error
+	mu         sync.Mutex
+	off        []string
+	fail       error
+	unlicensed bool
+}
+
+// license is a closer that is not the owner's switch, as a license would be: it closes events while unlicensed is set.
+func (s *switches) license() features.Closer {
+	return features.Closer{By: "license", Closed: func() ([]string, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.unlicensed {
+			return []string{events.Feature.ID}, nil
+		}
+		return nil, nil
+	}}
+}
+
+func (s *switches) licensed(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.unlicensed = !on
 }
 
 func (s *switches) store() features.Store {
@@ -119,7 +140,7 @@ func shopHandler(t *testing.T, withEvents bool, tweak ...func(*events.Config)) (
 	if withEvents {
 		all = append(all, events.Feature)
 	}
-	list := features.New(all, sw.store())
+	list := features.New(all, sw.store(), sw.license())
 	if withEvents {
 		cfg := events.Config{Product: "shop", Thing: "main", Catalog: catalog, Causes: causes, Heartbeat: 20 * time.Millisecond}
 		for _, f := range tweak {
@@ -556,6 +577,15 @@ func TestAChangeMissedWhileAnotherCloserHeldTheFeatureGivesAGap(t *testing.T) {
 	}
 }
 
+func TestAnotherCloserEndsAnOpenStreamWithinAFewHeartbeats(t *testing.T) {
+	s := serving(t, true)
+	st := s.open(t, "")
+	s.sw.licensed(false)
+	if !st.ended(t) {
+		t.Fatal("the stream sent an event after the license closed the feature")
+	}
+}
+
 func TestSwitchingTheFeatureOffEndsAnOpenStreamAtOnce(t *testing.T) {
 	s := serving(t, true, func(c *events.Config) { c.Heartbeat = time.Hour })
 	st := s.open(t, "")
@@ -614,6 +644,39 @@ func TestASlowStreamIsEndedAndResumesWhereItStopped(t *testing.T) {
 	}
 }
 
+func TestASlowStreamTooFarBehindGetsAGapThenWhatIsKept(t *testing.T) {
+	s := serving(t, true, keep(100))
+	slow := s.open(t, "")
+	const n = 300
+	for i := range n {
+		if status := s.change(t, http.MethodPut, fmt.Sprintf("/api/items/item-%d", i), nil); status != http.StatusOK {
+			t.Fatalf("status %d", status)
+		}
+	}
+	var last string
+	count := 0
+	for {
+		line, err := slow.r.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if id, ok := strings.CutPrefix(line, "id: "); ok {
+			last, count = strings.TrimSpace(id), count+1
+		}
+	}
+	if count == 0 || count >= n-100 {
+		t.Fatalf("the slow stream got %d events before it ended; it must stop more than 100 short of %d", count, n)
+	}
+	back := s.open(t, last)
+	gap, _ := back.next(t)
+	if gap.Type != "shop."+events.Gapped {
+		t.Fatalf("event %+v, want the gap: %d events are no longer kept", gap, n-count-100)
+	}
+	if got := back.ids(t, 100); len(got) != 100 {
+		t.Fatalf("got %d kept events after the gap, want 100", len(got))
+	}
+}
+
 func TestStoppingTheServerEndsAStream(t *testing.T) {
 	h, _, _ := shopHandler(t, true, func(c *events.Config) { c.Heartbeat = time.Hour })
 	srv := httptest.NewUnstartedServer(h)
@@ -633,7 +696,9 @@ func TestStoppingTheServerEndsAStream(t *testing.T) {
 
 // More errors and codes
 
-func TestAnEventThatCannotBeBuiltIsSaidAndTakesItsPlaceAsAGap(t *testing.T) {
+// servingSaid is the shop with events, and what events says on stderr until the test reads it.
+func servingSaid(t *testing.T) (*shop, func() string) {
+	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -642,6 +707,15 @@ func TestAnEventThatCannotBeBuiltIsSaidAndTakesItsPlaceAsAGap(t *testing.T) {
 	os.Stderr = w
 	s := serving(t, true)
 	os.Stderr = stderr
+	return s, func() string {
+		w.Close()
+		said, _ := io.ReadAll(r)
+		return string(said)
+	}
+}
+
+func TestAnEventThatCannotBeBuiltIsSaidAndTakesItsPlaceAsAGap(t *testing.T) {
+	s, said := servingSaid(t)
 	live := s.open(t, "")
 	s.add(t, "item-1")
 	first := live.ids(t, 1)[0]
@@ -653,10 +727,22 @@ func TestAnEventThatCannotBeBuiltIsSaidAndTakesItsPlaceAsAGap(t *testing.T) {
 	if again, _ := s.open(t, first).next(t); again.ID != gap.ID {
 		t.Fatalf("a stream coming back got %+v, want the gap in its place", again)
 	}
-	w.Close()
-	said, _ := io.ReadAll(r)
-	if !strings.Contains(string(said), "shop.item.added from PATCH /api/items/{id}") || strings.Contains(string(said), "item-2") || strings.Contains(string(said), token) {
-		t.Fatalf("stderr %q, want the type and the route, without data or token", said)
+	if got := said(); !strings.Contains(got, "shop.item.added from PATCH /api/items/{id}") || strings.Contains(got, "item-2") || strings.Contains(got, token) {
+		t.Fatalf("stderr %q, want the type and the route, without data or token", got)
+	}
+}
+
+func TestAnEventWithoutItsSubjectIsSaidAndTakesItsPlaceAsAGap(t *testing.T) {
+	s, said := servingSaid(t)
+	live := s.open(t, "")
+	if status := s.change(t, http.MethodPost, "/api/nameless", nil); status != http.StatusCreated {
+		t.Fatalf("status %d", status)
+	}
+	if gap, _ := live.next(t); gap.Type != "shop."+events.Gapped || string(gap.Data) != `{"lastKnown":""}` {
+		t.Fatalf("gap %+v", gap)
+	}
+	if got := said(); !strings.Contains(got, "shop.item.added from POST /api/nameless") || !strings.Contains(got, "subject") {
+		t.Fatalf("stderr %q", got)
 	}
 }
 
