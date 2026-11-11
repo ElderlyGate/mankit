@@ -8,3 +8,10 @@ func Times(stale, touch time.Duration) (restore func()) {
 	staleAfter, touchEvery = stale, touch
 	return func() { staleAfter, touchEvery = oldStale, oldTouch }
 }
+
+// RunLimit shortens the queue's fixed run limit for one test, and gives back the func that restores it.
+func RunLimit(d time.Duration) (restore func()) {
+	old := runLimit
+	runLimit = d
+	return func() { runLimit = old }
+}

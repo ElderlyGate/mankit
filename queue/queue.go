@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,6 +29,7 @@ const (
 	CodeUnusable    = "queue_unusable" // the queue's folder cannot be made, read or written
 
 	CodeBackendUnsupported = "queue_backend_unsupported" // .queue/backend names a backend this build does not run, or cannot be read
+	CodeTooLong            = "change_too_long"           // the change held the turn past the run limit; its turn ended once write returned
 )
 
 // DefaultWait is how long a change waits for its turn when the app sets no Wait.
@@ -62,6 +64,7 @@ const (
 var (
 	staleAfter = 30 * time.Second
 	touchEvery = 5 * time.Second
+	runLimit   = 2 * time.Minute // how long a change may hold the turn; write and readBack get a context that ends then
 )
 
 const (
@@ -116,10 +119,11 @@ type Listing struct {
 	Bad     []Bad   `json:"bad"`
 }
 
-// Place is a ticket in the line, and whether its change runs now.
+// Place is a ticket in the line, whether its change runs now, and since when.
 type Place struct {
-	Ticket Ticket `json:"ticket"`
-	Turn   bool   `json:"turn"`
+	Ticket Ticket     `json:"ticket"`
+	Turn   bool       `json:"turn"`
+	Since  *time.Time `json:"since,omitempty"` // when the change that runs now took the turn
 }
 
 // Bad is a file moved to .queue/bad/, by its name there.
@@ -128,8 +132,9 @@ type Bad struct {
 }
 
 // Change runs write once every change queued before it on this thing is done, then reads it back; the change is done only once readBack is.
+// write and readBack get a context that ends at the run limit (2 minutes) and must stop when it does: the turn is held until write returns.
 // An error from write is given back as it is; the queue's own errors carry its codes.
-func (q Queue) Change(ctx context.Context, change string, write, readBack func() error) error {
+func (q Queue) Change(ctx context.Context, change string, write, readBack func(context.Context) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -151,7 +156,7 @@ func (q Queue) List(ctx context.Context) (Listing, error) {
 
 // backend is how a queue takes turns; the folder's marker picks one for every writer, so two apps never take turns two ways.
 type backend interface {
-	change(ctx context.Context, q Queue, change string, write, readBack func() error) error
+	change(ctx context.Context, q Queue, change string, write, readBack func(context.Context) error) error
 	list(ctx context.Context, q Queue) (Listing, error)
 }
 
@@ -199,7 +204,7 @@ func (q Queue) backend() (backend, error) {
 // files takes turns with files and their locks in the queue's folder (contracts README, The change queue on disk).
 type files struct{}
 
-func (files) change(ctx context.Context, q Queue, change string, write, readBack func() error) error {
+func (files) change(ctx context.Context, q Queue, change string, write, readBack func(context.Context) error) error {
 	waiting, cancel := context.WithTimeout(ctx, q.wait())
 	defer cancel()
 	t, err := q.join(waiting, change)
@@ -210,10 +215,26 @@ func (files) change(ctx context.Context, q Queue, change string, write, readBack
 	if err := t.await(waiting); err != nil {
 		return q.gaveUp(ctx, err)
 	}
-	if err := write(); err != nil {
+	running, stop := context.WithTimeout(ctx, runLimit)
+	defer stop()
+	tooLong := func() error {
+		if errors.Is(running.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			return serve.Fail(CodeTooLong, fmt.Sprintf("%s held the turn in %s past the limit of %s and is not done", change, q.dir(), runLimit))
+		}
+		return nil
+	}
+	err = write(running)
+	if late := tooLong(); late != nil {
+		return late
+	}
+	if err != nil {
 		return err
 	}
-	if err := readBack(); err != nil {
+	err = readBack(running)
+	if late := tooLong(); late != nil {
+		return late
+	}
+	if err != nil {
 		return serve.Fail(CodeNotReadBack, fmt.Sprintf("%s was written but could not be read back: %v", change, err))
 	}
 	return nil
@@ -230,12 +251,16 @@ func (files) list(ctx context.Context, q Queue) (Listing, error) {
 		if err != nil {
 			return err
 		}
-		holder, err := q.turnHolder()
+		h, err := q.turnHolder()
 		if err != nil {
 			return err
 		}
 		for _, t := range tickets {
-			out.Tickets = append(out.Tickets, Place{Ticket: t, Turn: holder != "" && t.Metadata.ID == holder})
+			place := Place{Ticket: t, Turn: h.ID != "" && t.Metadata.ID == h.ID}
+			if place.Turn && !h.Since.IsZero() {
+				place.Since = &h.Since
+			}
+			out.Tickets = append(out.Tickets, place)
 		}
 		bad, err := os.ReadDir(filepath.Join(q.dir(), badName))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -268,9 +293,34 @@ func (q Queue) log() io.Writer {
 // gaveUp is the error of a wait that ended: the queue's timeout when its own deadline passed, else what the caller's context says.
 func (q Queue) gaveUp(ctx context.Context, err error) error {
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		return serve.Fail(CodeTimeout, fmt.Sprintf("the change waited %s for its turn in %s and did not run", q.wait(), q.dir()))
+		return serve.Fail(CodeTimeout, fmt.Sprintf("the change waited %s for its turn in %s and did not run%s", q.wait(), q.dir(), q.holderSays()))
 	}
 	return err
+}
+
+// holderSays names the change that holds the turn, for a person deciding whether to wait or stop it; empty when none can be named.
+func (q Queue) holderSays() string {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	says := ""
+	_ = q.locked(ctx, func() error {
+		h, err := q.turnHolder()
+		if err != nil || h.ID == "" {
+			return err
+		}
+		says = "; ticket " + h.ID + " holds the turn"
+		path := filepath.Join(q.dir(), h.ID+".json")
+		if info, err := os.Lstat(path); err == nil {
+			if t, why := read(path, fs.FileInfoToDirEntry(info)); why == "" {
+				says += fmt.Sprintf(" (pid %d on %s)", t.Metadata.PID, t.Metadata.Host)
+			}
+		}
+		if !h.Since.IsZero() {
+			says += fmt.Sprintf(" and has held it for %s", time.Since(h.Since).Round(time.Millisecond))
+		}
+		return nil
+	})
+	return says
 }
 
 func unusable(format string, args ...any) error {
@@ -470,7 +520,7 @@ func (t *ticket) try() (bool, error) {
 		return false, nil
 	}
 	t.turn = f
-	if err := say(f, t.id); err != nil {
+	if err := say(f, t.id+"\n"+time.Now().UTC().Format(time.RFC3339Nano)+"\n"); err != nil {
 		return false, unusable("cannot write %s: %v", path, err)
 	}
 	return true, nil
@@ -571,15 +621,21 @@ func (q Queue) locked(ctx context.Context, fn func() error) error {
 	return fn()
 }
 
-// turnHolder is the id of the ticket whose change runs now, or empty; asked under the folder's lock, so trying the turn here holds up no one.
-func (q Queue) turnHolder() (string, error) {
+// holder is the ticket whose change runs now and when it took the turn, as its process wrote them in turn.
+type holder struct {
+	ID    string
+	Since time.Time
+}
+
+// turnHolder is the change that runs now, or none; asked under the folder's lock, so trying the turn here holds up no one.
+func (q Queue) turnHolder() (holder, error) {
 	path := filepath.Join(q.dir(), turnName)
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
+		return holder{}, nil
 	}
 	if err != nil {
-		return "", unusable("cannot open %s: %v", path, err)
+		return holder{}, unusable("cannot open %s: %v", path, err)
 	}
 	defer f.Close()
 	p := q.process()
@@ -587,18 +643,27 @@ func (q Queue) turnHolder() (string, error) {
 		defer p.turn.Unlock()
 		free, err := lockFile(f)
 		if err != nil {
-			return "", unusable("cannot lock %s: %v", path, err)
+			return holder{}, unusable("cannot lock %s: %v", path, err)
 		}
 		if free {
 			_ = unlockFile(f)
-			return "", nil
+			return holder{}, nil
 		}
 	}
 	data, err := io.ReadAll(f)
 	if err != nil {
-		return "", unusable("cannot read %s: %v", path, err)
+		return holder{}, unusable("cannot read %s: %v", path, err)
 	}
-	return strings.TrimSpace(string(data)), nil
+	// A turn written by a process that died half way names no one, rather than a wrong one.
+	id, since, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+	if !idPattern.MatchString(id) {
+		return holder{}, nil
+	}
+	h := holder{ID: id}
+	if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(since)); err == nil {
+		h.Since = t
+	}
+	return h, nil
 }
 
 // sweep is the line in order: a ticket whose process is gone is removed, and one that cannot be read or shows no sign of life is set aside in bad/ (G-CODE-6).
