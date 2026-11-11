@@ -188,6 +188,16 @@ func TestServeRefusesABodyThatIsNotJSON(t *testing.T) {
 	refusal(t, w, http.StatusUnsupportedMediaType, serve.CodeNotJSON)
 }
 
+func TestServeRefusesAChunkedBodyThatIsNotJSON(t *testing.T) {
+	req := httptest.NewRequest("POST", "http://127.0.0.1:7480/api/greeting?confirm=yes", strings.NewReader("text=hi"))
+	req.ContentLength = -1
+	req.Header.Set(app.TokenHeader(), token)
+	req.Header.Set("Content-Type", "text/plain")
+	w := httptest.NewRecorder()
+	handler(t, nil).ServeHTTP(w, req)
+	refusal(t, w, http.StatusUnsupportedMediaType, serve.CodeNotJSON)
+}
+
 func TestServeAnswersAnUnknownRouteInTheEnvelope(t *testing.T) {
 	refusal(t, call(t, handler(t, nil), "GET", "/api/nothing", "", nil), http.StatusNotFound, serve.CodeNotFound)
 }
