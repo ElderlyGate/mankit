@@ -295,12 +295,13 @@ func TestAnEventWithoutItsSubjectOrWithDataNotJSONIsRefused(t *testing.T) {
 func TestNewRefusesNamesThatBreakTheEventNames(t *testing.T) {
 	list := features.New([]features.Feature{events.Feature}, (&switches{}).store())
 	for name, cfg := range map[string]events.Config{
-		"another product's type": {Product: "shop", Catalog: []string{"store.item.added"}, Features: list},
-		"a type of two parts":    {Product: "shop", Catalog: []string{"shop.added"}, Features: list},
-		"a product not an ID":    {Product: "Shop", Features: list},
-		"a thing with a slash":   {Product: "shop", Thing: "a/b", Features: list},
-		"no feature list":        {Product: "shop"},
-		"a list without events":  {Product: "shop", Features: features.New(nil, (&switches{}).store())},
+		"another product's type":          {Product: "shop", Catalog: []string{"store.item.added"}, Features: list},
+		"a type of two parts":             {Product: "shop", Catalog: []string{"shop.added"}, Features: list},
+		"a type shorter than the product": {Product: "warehouse", Catalog: []string{"a.b.c"}, Features: list},
+		"a product not an ID":             {Product: "Shop", Features: list},
+		"a thing with a slash":            {Product: "shop", Thing: "a/b", Features: list},
+		"no feature list":                 {Product: "shop"},
+		"a list without events":           {Product: "shop", Features: features.New(nil, (&switches{}).store())},
 	} {
 		if _, err := events.New(cfg); err == nil {
 			t.Errorf("%s was taken", name)

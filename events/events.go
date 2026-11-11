@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,7 +85,7 @@ func New(cfg Config) (*Broker, error) {
 		return nil, fmt.Errorf("events: thing %q may hold only letters, digits, '.', '_' and '-'", cfg.Thing)
 	}
 	for _, t := range cfg.Catalog {
-		if !typePattern.MatchString(t) || t[:len(cfg.Product)+1] != cfg.Product+"." {
+		if !typePattern.MatchString(t) || !strings.HasPrefix(t, cfg.Product+".") {
 			return nil, fmt.Errorf("events: catalog type %q is not %s.<thing>.<verb>", t, cfg.Product)
 		}
 	}
