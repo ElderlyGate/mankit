@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tugbayatilla/mankit/ask"
 	"github.com/tugbayatilla/mankit/home"
+	"github.com/tugbayatilla/mankit/queue"
 	"github.com/tugbayatilla/mankit/settings"
 	"github.com/tugbayatilla/mankit/theme"
 )
@@ -371,5 +373,18 @@ func TestSetWritesThroughABrokenSymlink(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(real); string(b) != "theme: mono\n" {
 		t.Fatalf("%q", b)
+	}
+}
+
+// Every key mankit declares says its purpose in one line, so no setting reaches a user unexplained.
+func TestEveryKeyMankitDeclaresHasAPurposeLine(t *testing.T) {
+	all := append(settings.Keys("app"), queue.WaitKey, queue.LimitKey)
+	for _, typ := range ask.Types() {
+		all = append(all, settings.Confirm(typ))
+	}
+	for _, k := range all {
+		if strings.TrimSpace(k.Help) == "" || strings.Contains(k.Help, "\n") {
+			t.Errorf("key %s has no one-line Help", k.Name)
+		}
 	}
 }
