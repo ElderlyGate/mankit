@@ -19,6 +19,7 @@ import (
 
 	"github.com/tugbayatilla/mankit/queue"
 	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/settings"
 )
 
 // The environment that starts this test binary again as another process on the same queue: what it does, where, and with what.
@@ -590,8 +591,8 @@ func TestACancelledWaitLeavesTheLine(t *testing.T) {
 // The run limit
 
 func TestAChangePastTheRunLimitIsToldToStopAndFails(t *testing.T) {
-	defer queue.RunLimit(100 * time.Millisecond)()
 	q, _ := newQueue(t)
+	q.Limit = 100 * time.Millisecond
 	readBack := false
 	err := q.Change(context.Background(), "slow", func(ctx context.Context) error {
 		<-ctx.Done()
@@ -606,8 +607,8 @@ func TestAChangePastTheRunLimitIsToldToStopAndFails(t *testing.T) {
 }
 
 func TestAChangeThatIgnoresTheLimitKeepsTheTurnUntilItsWriteReturns(t *testing.T) {
-	defer queue.RunLimit(100 * time.Millisecond)()
 	q, _ := newQueue(t)
+	q.Limit = 100 * time.Millisecond
 	writing, wrote := make(chan struct{}), make(chan time.Time, 1)
 	result := make(chan error, 1)
 	go func() {
@@ -654,6 +655,63 @@ func TestAWaitThatTimesOutNamesTheHolderAndTheListSaysSinceWhen(t *testing.T) {
 	}
 	if err := release(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Settings
+
+func TestTheWaitAndLimitComeFromTheAppsSettingsRows(t *testing.T) {
+	q, _ := newQueue(t)
+	set, err := q.Settings("45s", "5m")
+	if err != nil || set.Wait != 45*time.Second || set.Limit != 5*time.Minute {
+		t.Fatalf("got wait %s limit %s, %v; want 45s and 5m", set.Wait, set.Limit, err)
+	}
+	if kept, err := q.Settings("", ""); err != nil || kept.Wait != q.Wait || kept.Limit != q.Limit {
+		t.Fatalf("empty rows changed the waits: %+v, %v", kept, err)
+	}
+	for _, k := range []settings.Key{queue.WaitKey, queue.LimitKey} {
+		if k.Help == "" || !strings.HasPrefix(k.Name, "queue.") {
+			t.Errorf("%+v needs a queue. name and a purpose line", k)
+		}
+	}
+	if queue.WaitKey.Default != queue.DefaultWait.String() || queue.LimitKey.Default != queue.DefaultLimit.String() {
+		t.Errorf("the rows' defaults %s, %s are not the queue's", queue.WaitKey.Default, queue.LimitKey.Default)
+	}
+}
+
+func TestAWaitOrLimitThatIsNoDurationOrTooShortIsRefusedNamingTheRow(t *testing.T) {
+	q, _ := newQueue(t)
+	for _, c := range []struct{ wait, limit, row string }{
+		{"soon", "", "queue.wait"},
+		{"", "-1m", "queue.limit"},
+		{"1ms", "", "queue.wait"},
+		{"", "0s", "queue.limit"},
+	} {
+		_, err := q.Settings(c.wait, c.limit)
+		if code(err) != serve.CodeConfig || !strings.Contains(err.Error(), c.row) {
+			t.Errorf("%q %q: got %v, want %s naming %s", c.wait, c.limit, err, serve.CodeConfig, c.row)
+		}
+	}
+}
+
+func TestALockFileLeftWithoutItsTicketIsRemovedNeverSetAside(t *testing.T) {
+	q, log := newQueue(t)
+	path := plant(t, q, firstID+".lock", "", time.Now())
+	if err := q.Change(context.Background(), "add item", nothing, nothing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the orphan lock file is still there: %v", err)
+	}
+	l, err := q.List(context.Background())
+	if err != nil || len(l.Bad) != 0 || log.String() != "" {
+		t.Fatalf("bad %v, said %q, %v; want it removed quietly", l.Bad, log.String(), err)
+	}
+	locks, _ := filepath.Glob(filepath.Join(q.Folder, ".queue", "*.lock"))
+	for _, l := range locks {
+		if filepath.Base(l) != "turn.lock" {
+			t.Errorf("%s was left behind by a change that is done", l)
+		}
 	}
 }
 
