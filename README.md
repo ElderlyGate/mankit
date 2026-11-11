@@ -452,12 +452,16 @@ err := q.Change(ctx, "add block shop", write, readBack)
 ```
 
 An app passes a context that ends on Ctrl-C (`signal.NotifyContext`), so the
-ticket leaves the line before the process does.
+ticket leaves the line before the process does. `write` and `readBack` take a
+context too, and must stop when it ends: a change may hold the turn for 2
+minutes, and the turn is held until `write` returns.
 
 - `Change` writes a ticket at the end of the line, waits until it is first and
   holds the turn, runs `write`, then `readBack`: the change is done only once
   it is read back. The ticket leaves the line whether the change ran or not.
-  An error from `write` comes back as it is.
+  An error from `write` comes back as it is. Past the run limit (2 minutes)
+  the context of `write` and `readBack` ends and the change fails with
+  `change_too_long`; the next change gets the turn once `write` returns.
 - The turn is a lock on a file, so it holds across processes; within one
   process a lock in memory keeps changes apart as well. A ticket's own file
   stays locked by its process while it waits and runs: when the process dies
@@ -476,9 +480,11 @@ ticket leaves the line before the process does.
   come within `Wait` (30s), `not_read_back` when the change ran but could not
   be read back, `ticket_lost` when another process set the waiting ticket
   aside, `queue_unusable` when the folder cannot be made, read or written,
-  `queue_backend_unsupported` for a marker this build does not run.
+  `queue_backend_unsupported` for a marker this build does not run,
+  `change_too_long` past the run limit. `queue_timeout` names the change that
+  holds the turn: its ticket, pid, host and how long it has held it.
 - `List(ctx)` is what `<app> queue` shows: the tickets in order, which one's
-  change runs now, and the files in `bad/`. Answered as kind `queue.ListKind`
+  change runs now and since when, and the files in `bad/`. Answered as kind `queue.ListKind`
   it meets contracts `mankit/v1/queue-list`; every ticket meets
   `mankit/v1/ticket` (apiVersion `elderlygate/mankit/ticket/v1`, whose header
   never changes, ADR-S15).
