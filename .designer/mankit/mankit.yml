@@ -597,6 +597,26 @@ spec:
     Copy sends OSC 52 (through SSH and tmux) and to the system clipboard
     where there is one; Paste reads the system clipboard; Open opens a URL
     in the browser; IsWSL. The tools are looked up only when used.
+--- # block/CMP-FEATURES.yml
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-FEATURES
+  title: "features"
+spec:
+  place:
+    group: GRP-CONFIG
+  code:
+    implements: features/features.go
+  caption:
+    - "an app's switchable features"
+    - "the owner's switch, then each closer"
+  description: |
+    New takes the app's features, the Store where the owner's switches are
+    kept, and further closers (public mode, a license). States says which
+    are on and, for one that is off, the first closer that closed it; Set
+    switches one, and never opens what another closer closed; Known refuses
+    an id the list does not hold. It knows no app and keeps no file itself.
 --- # block/CMP-HEADER.yml
 apiVersion: core/design/v2
 kind: Block
@@ -1457,6 +1477,17 @@ spec:
   label: calls
   description: |
     app.Commands(open, confirm) adds serve and servers; handlers answer with serve.Write (README, Serve).
+--- # link/CMP-APP--calls--CMP-FEATURES.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-APP--calls--CMP-FEATURES
+spec:
+  from: CMP-APP
+  to: CMP-FEATURES
+  label: calls
+  description: |
+    features.New(list, store, closers...) is the app's feature list; a switchable part of the app is reached only through it (README, Features).
 --- # link/CMP-SERVE--calls--CMP-ASK.yml
 apiVersion: core/design/v2
 kind: Link
