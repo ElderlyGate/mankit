@@ -29,10 +29,11 @@ type Route struct {
 
 // Site is what an app serves: its routes, its page, and the thing it serves.
 type Site struct {
-	Name   string                                 // ran.name of every answer: the thing served; empty is the app's ID
-	Routes []Route                                // every API route but GET /api/version, which serve answers
-	UI     http.Handler                           // the page and its files at /; nil serves the API alone
-	Styles func() (map[ask.Type]ask.Style, error) // the user's asking style per type, read on every change; nil is every default
+	Name     string                                 // ran.name of every answer: the thing served; empty is the app's ID
+	Routes   []Route                                // every API route but GET /api/version, which serve answers
+	UI       http.Handler                           // the page and its files at /; nil serves the API alone
+	Styles   func() (map[ask.Type]ask.Style, error) // the user's asking style per type, read on every change; nil is every default
+	Remember func(ask.Type) error                   // saves never for a type after "Remember my answer" (confirm=remember), in the app's config, such as ask.Remember
 }
 
 // VersionData is the data of the GET /api/version answer.
@@ -126,13 +127,25 @@ func (a App) choose(name string, next http.Handler) http.Handler {
 	})
 }
 
-// gate answers 428 to a change that came without the user's yes, unless the user picked never for its type.
+// gate answers 428 to a change that came without the user's yes (confirm=yes, or remember to stop asking), unless the user picked never for its type.
 func (a App) gate(site Site, rt Route) http.Handler {
 	if !writing[rt.method()] {
 		return rt.Handler
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if v := r.URL.Query().Get(ConfirmParam); v == ConfirmYes || v == ConfirmRemember {
+		switch r.URL.Query().Get(ConfirmParam) {
+		case ConfirmYes:
+			rt.Handler(w, r)
+			return
+		case ConfirmRemember:
+			// A change to the system itself is never remembered (G-STACK-6); without Site.Remember the app keeps no answer, so remember is a yes.
+			if site.Remember != nil && !rt.Action.System {
+				if err := site.Remember(rt.Action.Type); err != nil {
+					WriteError(w, r, http.StatusInternalServerError, Fail(CodeConfig, fmt.Sprintf(
+						"nothing was changed: the answer for %s could not be saved: %v; send it again with %s=%s", rt.Action.Type, err, ConfirmParam, ConfirmYes)))
+					return
+				}
+			}
 			rt.Handler(w, r)
 			return
 		}
