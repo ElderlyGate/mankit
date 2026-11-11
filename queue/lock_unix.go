@@ -8,14 +8,10 @@ import (
 	"syscall"
 )
 
-// lockFile takes f's lock for this open file alone, waiting for it or not; the system gives it back when the process dies.
-func lockFile(f *os.File, wait bool) (bool, error) {
-	how := syscall.LOCK_EX
-	if !wait {
-		how |= syscall.LOCK_NB
-	}
+// lockFile takes f's exclusive lock on the whole file without waiting; false when another open file holds it. The system gives it back when its process ends.
+func lockFile(f *os.File) (bool, error) {
 	for {
-		err := syscall.Flock(int(f.Fd()), how)
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		switch {
 		case err == nil:
 			return true, nil

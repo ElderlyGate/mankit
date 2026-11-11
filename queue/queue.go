@@ -1,6 +1,4 @@
-// Package queue is the change queue every app shares (ADR-S14): every change to one served thing waits its turn in one queue,
-// kept in <served folder>/<app folder>/.queue/, so CLI runs, servers, page clicks and other apps see the same line.
-// The queue holds tickets, never commands: each process runs its own change, and nothing in the folder is ever executed.
+// Package queue is the change queue every app shares (ADR-S14): one change at a time per served thing, across processes, done once written and read back.
 package queue
 
 import (
@@ -11,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,15 +24,12 @@ import (
 const (
 	CodeTimeout     = "queue_timeout"  // the change waited longer than Queue.Wait for its turn and did not run
 	CodeNotReadBack = "not_read_back"  // the change ran, but what it wrote could not be read back
-	CodeLost        = "ticket_lost"    // another process found the ticket stale and moved it to bad/ while it waited
+	CodeLost        = "ticket_lost"    // another process took the waiting ticket for stale and moved it to bad/
 	CodeUnusable    = "queue_unusable" // the queue's folder cannot be made, read or written
 )
 
-// The waits an app gets when it sets none.
-const (
-	DefaultWait  = 30 * time.Second
-	DefaultStale = 30 * time.Second
-)
+// DefaultWait is how long a change waits for its turn when the app sets no Wait.
+const DefaultWait = 30 * time.Second
 
 // Kind is the kind of a ticket, and ListKind the kind of the answer <app> queue gives (contracts mankit/v1).
 const (
@@ -41,14 +37,28 @@ const (
 	ListKind = "QueueList"
 )
 
+// The names in the queue's folder; every app version sharing a queue relies on them (contracts mankit/v1).
 const (
 	folderName = ".queue"
 	badName    = "bad"
 	lockName   = "lock"
 	turnName   = "turn"
 	ignoreName = ".gitignore"
-	poll       = 20 * time.Millisecond
 )
+
+// staleAfter and touchEvery are fixed by contracts mankit/v1, so every app sharing a queue agrees; vars only so tests can shorten them.
+var (
+	staleAfter = 30 * time.Second
+	touchEvery = 5 * time.Second
+)
+
+const (
+	firstPause = 5 * time.Millisecond
+	lastPause  = 200 * time.Millisecond
+	leaveFor   = 5 * time.Second
+)
+
+var idPattern = regexp.MustCompile(`^[0-9]{20}$`)
 
 // APIVersion is the ticket's apiVersion; two app versions share a queue at once, so it never changes (ADR-S15).
 func APIVersion() string { return home.Org + "/mankit/ticket/v1" }
@@ -59,8 +69,7 @@ type Queue struct {
 	App     string        // the product ID of the app that waits
 	Version string        // the app's version, written on its tickets
 	Wait    time.Duration // how long a change waits for its turn; zero is DefaultWait
-	Stale   time.Duration // a ticket with no sign of life for this long is stale; zero is DefaultStale
-	Log     io.Writer     // where a ticket moved to bad/ is said; nil is stderr
+	Log     io.Writer     // where a ticket set aside or a failed leave is said; nil is stderr
 }
 
 // Ticket is one change waiting its turn, as written in the queue's folder (contracts mankit/v1 ticket).
@@ -73,7 +82,7 @@ type Ticket struct {
 
 // Metadata is the ticket's fixed header: never renamed or removed (ADR-S15).
 type Metadata struct {
-	ID   string `json:"id"` // its place in the line and its file name; a lower one goes first
+	ID   string `json:"id"` // 20 digits: its place in the line and its file name; a lower one goes first
 	App  string `json:"app"`
 	PID  int    `json:"pid"`
 	Host string `json:"host"`
@@ -106,13 +115,18 @@ type Bad struct {
 // Change runs write once every change queued before it on this thing is done, then reads it back; the change is done only once readBack is.
 // An error from write is given back as it is; the queue's own errors carry its codes.
 func (q Queue) Change(ctx context.Context, change string, write, readBack func() error) error {
-	t, err := q.join(change)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
+	waiting, cancel := context.WithTimeout(ctx, q.wait())
+	defer cancel()
+	t, err := q.join(waiting, change)
+	if err != nil {
+		return q.gaveUp(ctx, err)
+	}
 	defer t.leave()
-	if err := t.await(ctx); err != nil {
-		return err
+	if err := t.await(waiting); err != nil {
+		return q.gaveUp(ctx, err)
 	}
 	if err := write(); err != nil {
 		return err
@@ -123,23 +137,23 @@ func (q Queue) Change(ctx context.Context, change string, write, readBack func()
 	return nil
 }
 
-// List is the queue now; stale and unreadable tickets it meets are moved to bad/ first, as every reader of the queue does.
-func (q Queue) List() (Listing, error) {
+// List is the queue now; tickets of dead processes go and bad ones are set aside first, as every reader of the queue does.
+func (q Queue) List(ctx context.Context) (Listing, error) {
 	out := Listing{Tickets: []Place{}, Bad: []Bad{}}
 	if _, err := os.Stat(q.dir()); errors.Is(err, os.ErrNotExist) {
 		return out, nil
 	}
-	err := q.locked(func() error {
+	err := q.locked(ctx, func() error {
 		tickets, err := q.sweep()
 		if err != nil {
 			return err
 		}
-		busy, err := q.turnTaken()
+		holder, err := q.turnHolder()
 		if err != nil {
 			return err
 		}
-		for i, t := range tickets {
-			out.Tickets = append(out.Tickets, Place{Ticket: t, Turn: i == 0 && busy})
+		for _, t := range tickets {
+			out.Tickets = append(out.Tickets, Place{Ticket: t, Turn: holder != "" && t.Metadata.ID == holder})
 		}
 		bad, err := os.ReadDir(filepath.Join(q.dir(), badName))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -155,15 +169,11 @@ func (q Queue) List() (Listing, error) {
 
 func (q Queue) dir() string { return filepath.Join(q.Folder, folderName) }
 
-func (q Queue) wait() time.Duration { return or(q.Wait, DefaultWait) }
-
-func (q Queue) stale() time.Duration { return or(q.Stale, DefaultStale) }
-
-func or(d, fallback time.Duration) time.Duration {
-	if d > 0 {
-		return d
+func (q Queue) wait() time.Duration {
+	if q.Wait > 0 {
+		return q.Wait
 	}
-	return fallback
+	return DefaultWait
 }
 
 func (q Queue) log() io.Writer {
@@ -173,23 +183,87 @@ func (q Queue) log() io.Writer {
 	return os.Stderr
 }
 
+// gaveUp is the error of a wait that ended: the queue's timeout when its own deadline passed, else what the caller's context says.
+func (q Queue) gaveUp(ctx context.Context, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		return serve.Fail(CodeTimeout, fmt.Sprintf("the change waited %s for its turn in %s and did not run", q.wait(), q.dir()))
+	}
+	return err
+}
+
 func unusable(format string, args ...any) error {
 	return serve.Fail(CodeUnusable, "the change queue "+fmt.Sprintf(format, args...))
 }
 
-// ticket is this process's place in the line while its change waits and runs.
-type ticket struct {
-	q    Queue
-	id   string
-	path string
-	turn *os.File
-	stop chan struct{}
-	done sync.WaitGroup
+// retry calls try until it succeeds, fails or ctx ends, pausing longer each time up to lastPause, so a long wait reads the folder seldom.
+func retry(ctx context.Context, try func() (bool, error)) error {
+	pause := firstPause
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		done, err := try()
+		if err != nil || done {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pause):
+		}
+		pause = min(pause*2, lastPause)
+	}
 }
 
-// join writes a ticket at the end of the line and keeps it alive until it leaves.
-func (q Queue) join(change string) (*ticket, error) {
-	if err := q.prepare(); err != nil {
+// inProcess holds one process's own locks on a queue folder, so changes in one process take turns without leaning on the file system's locks.
+type inProcess struct {
+	folder sync.Mutex
+	turn   sync.Mutex
+	mu     sync.Mutex
+	mine   map[string]bool // the ticket files this process holds, which a sweep here never takes for dead
+}
+
+var processes sync.Map
+
+func (q Queue) process() *inProcess {
+	key, err := filepath.Abs(q.dir())
+	if err != nil {
+		key = filepath.Clean(q.dir())
+	}
+	p, _ := processes.LoadOrStore(key, &inProcess{mine: map[string]bool{}})
+	return p.(*inProcess)
+}
+
+func (p *inProcess) holds(path string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.mine[path]
+}
+
+func (p *inProcess) hold(path string, on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if on {
+		p.mine[path] = true
+	} else {
+		delete(p.mine, path)
+	}
+}
+
+// ticket is this process's place in the line while its change waits and runs; its file stays locked for as long, which says it is alive.
+type ticket struct {
+	q     Queue
+	id    string
+	path  string
+	alive *os.File
+	turn  *os.File
+	stop  chan struct{}
+	done  sync.WaitGroup
+}
+
+// join writes a ticket at the end of the line and holds its lock until it leaves.
+func (q Queue) join(ctx context.Context, change string) (*ticket, error) {
+	if err := q.prepare(ctx); err != nil {
 		return nil, err
 	}
 	host, err := os.Hostname()
@@ -197,7 +271,7 @@ func (q Queue) join(change string) (*ticket, error) {
 		host = "unknown"
 	}
 	t := &ticket{q: q, stop: make(chan struct{})}
-	err = q.locked(func() error {
+	err = q.locked(ctx, func() error {
 		tickets, err := q.sweep()
 		if err != nil {
 			return err
@@ -216,13 +290,30 @@ func (q Queue) join(change string) (*ticket, error) {
 		if err := writeWhole(q.dir(), t.path, append(data, '\n')); err != nil {
 			return unusable("cannot write a ticket in %s: %v", q.dir(), err)
 		}
+		// Locked before the folder's lock is given up, so no sweep ever sees this ticket without its owner.
+		f, err := os.Open(t.path)
+		if err == nil {
+			var got bool
+			if got, err = lockFile(f); err == nil && !got {
+				err = errors.New("another process holds it")
+			}
+			if err != nil {
+				f.Close()
+			}
+		}
+		if err != nil {
+			_ = os.Remove(t.path)
+			return unusable("cannot lock the ticket %s: %v", t.path, err)
+		}
+		t.alive = f
+		q.process().hold(t.path, true)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	t.done.Add(1)
-	go t.alive()
+	go t.touch()
 	return t, nil
 }
 
@@ -237,10 +328,10 @@ func nextID(tickets []Ticket, now time.Time) string {
 	return fmt.Sprintf("%020d", next)
 }
 
-// alive touches the ticket while it waits and runs, so no other process takes it for the ticket of one that died.
-func (t *ticket) alive() {
+// touch keeps the ticket's time fresh, for a reader that cannot tell from the lock whether its owner still runs.
+func (t *ticket) touch() {
 	defer t.done.Done()
-	tick := time.NewTicker(t.q.stale() / 4)
+	tick := time.NewTicker(touchEvery)
 	defer tick.Stop()
 	for {
 		select {
@@ -252,52 +343,64 @@ func (t *ticket) alive() {
 	}
 }
 
-// await returns once the ticket is first in the line and holds the turn, or gives up when the wait is over.
+// await returns once the ticket is first in the line and holds the turn, or when ctx ends.
 func (t *ticket) await(ctx context.Context) error {
-	deadline := time.NewTimer(t.q.wait())
-	defer deadline.Stop()
-	for {
-		ready, err := t.try()
-		if err != nil || ready {
+	return retry(ctx, func() (bool, error) {
+		ready := false
+		err := t.q.locked(ctx, func() error {
+			var err error
+			ready, err = t.try()
 			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline.C:
-			return serve.Fail(CodeTimeout, fmt.Sprintf("the change waited %s for its turn in %s and did not run", t.q.wait(), t.q.dir()))
-		case <-time.After(poll):
-		}
-	}
+		})
+		return ready, err
+	})
 }
 
-// try takes the turn when the ticket is first; the turn's lock also keeps out a process whose ticket was taken for stale while it still runs.
+// try takes the turn when the ticket is first; the turn's lock also keeps out a change whose ticket was set aside while it still runs.
 func (t *ticket) try() (bool, error) {
-	ready := false
-	err := t.q.locked(func() error {
-		tickets, err := t.q.sweep()
+	tickets, err := t.q.sweep()
+	if err != nil {
+		return false, err
+	}
+	if !holds(tickets, t.id) {
+		return false, serve.Fail(CodeLost, fmt.Sprintf("the ticket %s was taken for stale and moved to %s; the change did not run", t.path, filepath.Join(t.q.dir(), badName)))
+	}
+	if tickets[0].Metadata.ID != t.id {
+		return false, nil
+	}
+	p := t.q.process()
+	if !p.turn.TryLock() {
+		return false, nil
+	}
+	path := filepath.Join(t.q.dir(), turnName)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		p.turn.Unlock()
+		return false, unusable("cannot open %s: %v", path, err)
+	}
+	got, err := lockFile(f)
+	if err != nil || !got {
+		f.Close()
+		p.turn.Unlock()
 		if err != nil {
-			return err
+			return false, unusable("cannot lock %s: %v", path, err)
 		}
-		if !holds(tickets, t.id) {
-			return serve.Fail(CodeLost, fmt.Sprintf("the ticket %s was taken for stale and moved to %s; the change did not run", t.path, filepath.Join(t.q.dir(), badName)))
-		}
-		if tickets[0].Metadata.ID != t.id {
-			return nil
-		}
-		f, err := os.OpenFile(filepath.Join(t.q.dir(), turnName), os.O_CREATE|os.O_RDWR, 0o600)
-		if err != nil {
-			return unusable("cannot open %s: %v", filepath.Join(t.q.dir(), turnName), err)
-		}
-		got, err := lockFile(f, false)
-		if err != nil || !got {
-			f.Close()
-			return err
-		}
-		t.turn, ready = f, true
-		return nil
-	})
-	return ready, err
+		return false, nil
+	}
+	t.turn = f
+	if err := say(f, t.id); err != nil {
+		return false, unusable("cannot write %s: %v", path, err)
+	}
+	return true, nil
+}
+
+// say makes f hold text alone.
+func say(f *os.File, text string) error {
+	if err := f.Truncate(0); err != nil {
+		return err
+	}
+	_, err := f.WriteAt([]byte(text), 0)
+	return err
 }
 
 func holds(tickets []Ticket, id string) bool {
@@ -309,25 +412,38 @@ func holds(tickets []Ticket, id string) bool {
 	return false
 }
 
-// leave gives the turn up and takes the ticket out of the line, whether the change ran or not.
+// leave gives the turn up and takes the ticket out of the line, whether the change ran or not; it is not cut short by the caller's context.
 func (t *ticket) leave() {
 	close(t.stop)
 	t.done.Wait()
+	p := t.q.process()
 	if t.turn != nil {
+		if err := say(t.turn, ""); err != nil {
+			fmt.Fprintf(t.q.log(), "queue: cannot clear %s: %v\n", t.turn.Name(), err)
+		}
 		_ = unlockFile(t.turn)
 		t.turn.Close()
+		p.turn.Unlock()
 	}
-	_ = t.q.locked(func() error {
+	ctx, cancel := context.WithTimeout(context.Background(), leaveFor)
+	defer cancel()
+	err := t.q.locked(ctx, func() error {
+		_ = unlockFile(t.alive)
+		t.alive.Close()
+		p.hold(t.path, false)
 		err := os.Remove(t.path)
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return err
 	})
+	if err != nil {
+		fmt.Fprintf(t.q.log(), "queue: cannot take the ticket %s out of the line: %v\n", t.path, err)
+	}
 }
 
 // prepare makes the queue's folder only this user may enter, and keeps it out of git without touching the served folder's own files.
-func (q Queue) prepare() error {
+func (q Queue) prepare(ctx context.Context) error {
 	dir := q.dir()
 	for _, d := range []string{dir, filepath.Join(dir, badName)} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -337,8 +453,7 @@ func (q Queue) prepare() error {
 			return unusable("cannot keep %s to this user: %v", d, err)
 		}
 	}
-	// Under the folder's lock, so no other process meets the temporary file and takes it for a bad ticket.
-	return q.locked(func() error {
+	return q.locked(ctx, func() error {
 		ignore := filepath.Join(dir, ignoreName)
 		if _, err := os.Stat(ignore); errors.Is(err, os.ErrNotExist) {
 			if err := writeWhole(dir, ignore, []byte("*\n")); err != nil {
@@ -349,57 +464,85 @@ func (q Queue) prepare() error {
 	})
 }
 
-// locked runs fn while this process alone may change the queue's folder; fn is short, so others wait for it without a deadline.
-func (q Queue) locked(fn func() error) error {
+// locked runs fn while this process alone may change the queue's folder, waiting for it until ctx ends.
+func (q Queue) locked(ctx context.Context, fn func() error) error {
+	p := q.process()
+	if err := retry(ctx, func() (bool, error) { return p.folder.TryLock(), nil }); err != nil {
+		return err
+	}
+	defer p.folder.Unlock()
 	path := filepath.Join(q.dir(), lockName)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return unusable("cannot open %s: %v", path, err)
 	}
 	defer f.Close()
-	if _, err := lockFile(f, true); err != nil {
+	if err := retry(ctx, func() (bool, error) { return lockFile(f) }); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
 		return unusable("cannot lock %s: %v", path, err)
 	}
 	defer unlockFile(f)
 	return fn()
 }
 
-// turnTaken says whether a change runs now; it is asked under the folder's lock, so taking and giving the turn back here holds up no one.
-func (q Queue) turnTaken() (bool, error) {
+// turnHolder is the id of the ticket whose change runs now, or empty; asked under the folder's lock, so trying the turn here holds up no one.
+func (q Queue) turnHolder() (string, error) {
 	path := filepath.Join(q.dir(), turnName)
-	f, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return "", nil
 	}
 	if err != nil {
-		return false, unusable("cannot open %s: %v", path, err)
+		return "", unusable("cannot open %s: %v", path, err)
 	}
 	defer f.Close()
-	got, err := lockFile(f, false)
+	p := q.process()
+	if p.turn.TryLock() {
+		defer p.turn.Unlock()
+		free, err := lockFile(f)
+		if err != nil {
+			return "", unusable("cannot lock %s: %v", path, err)
+		}
+		if free {
+			_ = unlockFile(f)
+			return "", nil
+		}
+	}
+	data, err := io.ReadAll(f)
 	if err != nil {
-		return false, unusable("cannot lock %s: %v", path, err)
+		return "", unusable("cannot read %s: %v", path, err)
 	}
-	if got {
-		_ = unlockFile(f)
-	}
-	return !got, nil
+	return strings.TrimSpace(string(data)), nil
 }
 
-// sweep is the line in order; a ticket it cannot read or understand, or one with no sign of life, is moved to bad/ and said (G-CODE-6).
+// sweep is the line in order: a ticket whose process is gone is removed, and one that cannot be read or shows no sign of life is set aside in bad/ (G-CODE-6).
 func (q Queue) sweep() ([]Ticket, error) {
 	dir := q.dir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, unusable("cannot read %s: %v", dir, err)
 	}
+	p := q.process()
 	var tickets []Ticket
 	for _, e := range entries {
-		switch e.Name() {
-		case badName, lockName, turnName, ignoreName:
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || name == badName || name == lockName || name == turnName {
 			continue
 		}
-		path := filepath.Join(dir, e.Name())
-		t, why := q.read(path, e)
+		path := filepath.Join(dir, name)
+		t, why := read(path, e)
+		if why == "" && !p.holds(path) {
+			gone, err := q.ownerGone(path)
+			if err != nil {
+				return nil, err
+			}
+			if gone {
+				continue
+			}
+			why = stale(e)
+		}
 		if why != "" {
 			if err := q.moveBad(path, why); err != nil {
 				return nil, err
@@ -412,18 +555,42 @@ func (q Queue) sweep() ([]Ticket, error) {
 	return tickets, nil
 }
 
+// ownerGone removes the ticket at path when its lock is free: the system gave it back, so the process that held it has ended.
+func (q Queue) ownerGone(path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, nil
+	}
+	defer f.Close()
+	free, err := lockFile(f)
+	if err != nil || !free {
+		return false, nil
+	}
+	defer unlockFile(f)
+	if err := os.Remove(path); err != nil {
+		return false, unusable("cannot remove %s, whose process has ended: %v", path, err)
+	}
+	fmt.Fprintf(q.log(), "queue: %s: its process has ended; removed\n", path)
+	return true, nil
+}
+
+// stale is why a ticket whose owner still holds its lock is set aside anyway: no sign of life for staleAfter.
+func stale(e os.DirEntry) string {
+	info, err := e.Info()
+	if err != nil {
+		return fmt.Sprintf("cannot be read: %v", err)
+	}
+	if age := time.Since(info.ModTime()); age > staleAfter {
+		return fmt.Sprintf("is stale: no sign of life for %s", age.Round(time.Second))
+	}
+	return ""
+}
+
 // read is the ticket at path, or why it is bad.
-func (q Queue) read(path string, e os.DirEntry) (Ticket, string) {
+func read(path string, e os.DirEntry) (Ticket, string) {
 	var t Ticket
 	if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 		return t, "is not a ticket file"
-	}
-	info, err := e.Info()
-	if err != nil {
-		return t, fmt.Sprintf("cannot be read: %v", err)
-	}
-	if age := time.Since(info.ModTime()); age > q.stale() {
-		return t, fmt.Sprintf("is stale: no sign of life for %s", age.Round(time.Second))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -432,9 +599,10 @@ func (q Queue) read(path string, e os.DirEntry) (Ticket, string) {
 	if err := json.Unmarshal(data, &t); err != nil {
 		return t, fmt.Sprintf("is not JSON: %v", err)
 	}
-	m := t.Metadata
-	if t.APIVersion != APIVersion() || t.Kind != Kind || m.ID+".json" != e.Name() || m.App == "" || m.PID < 1 || m.Host == "" {
-		return t, fmt.Sprintf("is not a %s %s whose id is its file name, with an app, a pid and a host", APIVersion(), Kind)
+	m, s := t.Metadata, t.Spec
+	if t.APIVersion != APIVersion() || t.Kind != Kind || !idPattern.MatchString(m.ID) || m.ID+".json" != e.Name() ||
+		m.App == "" || m.PID < 1 || m.Host == "" || s.Change == "" || s.JoinedAt.IsZero() {
+		return t, fmt.Sprintf("is not a %s %s whose 20-digit id is its file name, with an app, a pid, a host, a change and when it joined", APIVersion(), Kind)
 	}
 	return t, ""
 }
@@ -456,7 +624,7 @@ func (q Queue) moveBad(path, why string) error {
 	return nil
 }
 
-// writeWhole writes data to path through a temporary file beside it (G-CODE-5).
+// writeWhole writes data to path through a temporary file beside it (G-CODE-5); its name starts with a dot, so no sweep takes it for a ticket.
 func writeWhole(dir, path string, data []byte) error {
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {

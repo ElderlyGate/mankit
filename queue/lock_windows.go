@@ -7,13 +7,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// lockFile takes f's lock for this handle alone, waiting for it or not; the system gives it back when the process dies.
-func lockFile(f *os.File, wait bool) (bool, error) {
-	how := uint32(windows.LOCKFILE_EXCLUSIVE_LOCK)
-	if !wait {
-		how |= windows.LOCKFILE_FAIL_IMMEDIATELY
-	}
-	err := windows.LockFileEx(windows.Handle(f.Fd()), how, 0, 1, 0, &windows.Overlapped{})
+// lockAt is the one byte locked, far past any content, because a Windows lock also keeps others from reading the bytes it covers.
+var lockAt = windows.Overlapped{OffsetHigh: 1 << 30}
+
+// lockFile takes f's exclusive lock without waiting; false when another handle holds it. The system gives it back when its process ends.
+func lockFile(f *os.File) (bool, error) {
+	at := lockAt
+	err := windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &at)
 	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
 		return false, nil
 	}
@@ -21,5 +21,6 @@ func lockFile(f *os.File, wait bool) (bool, error) {
 }
 
 func unlockFile(f *os.File) error {
-	return windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &windows.Overlapped{})
+	at := lockAt
+	return windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &at)
 }
