@@ -91,3 +91,19 @@ func TestOnSaysWhetherOneFeatureIsOnNow(t *testing.T) {
 		t.Fatal("an unknown id is on")
 	}
 }
+
+func TestAModuleIsAttachedToItsFeatureOnce(t *testing.T) {
+	l := features.New(all, memory())
+	if err := l.Attach("export", "exporter"); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.Parts(); !reflect.DeepEqual(got, []features.Part{{ID: "export", Part: "exporter"}}) {
+		t.Fatalf("parts = %+v", got)
+	}
+	if err := l.Attach("export", "another"); err == nil {
+		t.Fatal("a second module was attached to export")
+	}
+	if err := l.Attach("nope", "x"); err == nil {
+		t.Fatal("a module was attached to an unknown feature")
+	}
+}

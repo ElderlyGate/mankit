@@ -43,6 +43,13 @@ type List struct {
 	all     []Feature
 	store   Store
 	closers []Closer
+	parts   map[string]any
+}
+
+// Part is the module attached to a feature, for the app's doors to reach while the feature is on.
+type Part struct {
+	ID   string
+	Part any
 }
 
 // New is the list all, switched in store, closed further by closers.
@@ -106,4 +113,30 @@ func (l *List) On(id string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// Attach hands the list the module that serves feature id, so the rest of the app reaches it only through the list; one per feature.
+func (l *List) Attach(id string, part any) error {
+	if err := l.Known(id); err != nil {
+		return err
+	}
+	if _, taken := l.parts[id]; taken {
+		return fmt.Errorf("feature %q already has its module", id)
+	}
+	if l.parts == nil {
+		l.parts = map[string]any{}
+	}
+	l.parts[id] = part
+	return nil
+}
+
+// Parts is every attached module in the list's order, on or off: the door that uses one asks On before each use.
+func (l *List) Parts() []Part {
+	var out []Part
+	for _, f := range l.all {
+		if p, ok := l.parts[f.ID]; ok {
+			out = append(out, Part{ID: f.ID, Part: p})
+		}
+	}
+	return out
 }
