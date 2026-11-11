@@ -799,6 +799,31 @@ spec:
   description: |
     Drag with the mouse to select text on the screen. It imports no mankit
     package: the app hands the selection to desktop to copy.
+--- # block/CMP-SERVE.yml
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-SERVE
+  title: "serve"
+spec:
+  place:
+    group: GRP-CLI
+  code:
+    implements: serve/handler.go
+  caption:
+    - "the server every app shares: guard,"
+    - "contract, envelope, 428, servers"
+  description: |
+    App.Handler serves an app's routes behind the guard: this machine's
+    address or a --host name, the page from its link (?token=) and a Strict
+    cookie <app>-token-<port>, the token in X-<App>-Token, the page's own
+    origin, JSON bodies. GET /api/version, Accept-Contract or 406
+    unsupported_contract, and 428 for a change without confirm=yes unless the
+    user picked never for its action type. Every answer is the contracts
+    envelope with ran (Write, WriteError; Answer, Failure and Encode for the
+    CLI). App.Commands adds serve [--detach], servers, servers stop and
+    servers link; a detached server leaves a record (contracts mankit/v1) in
+    the app's data folder.
 --- # block/CMP-SETTINGS.yml
 apiVersion: core/design/v2
 kind: Block
@@ -1418,6 +1443,39 @@ spec:
   from: CMP-SEARCH
   to: CMP-TEXTINPUT
   label: calls
+--- # link/CMP-APP--calls--CMP-SERVE.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-APP--calls--CMP-SERVE
+spec:
+  from: CMP-APP
+  to: CMP-SERVE
+  label: calls
+  description: |
+    app.Commands(open, confirm) adds serve and servers; handlers answer with serve.Write (README, Serve).
+--- # link/CMP-SERVE--calls--CMP-ASK.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-SERVE--calls--CMP-ASK
+spec:
+  from: CMP-SERVE
+  to: CMP-ASK
+  label: calls
+  description: |
+    ask.Resolve picks the style of a change's type for the 428 gate; servers stop takes --yes (ask.Flag).
+--- # link/CMP-SERVE--calls--CMP-HOME.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-SERVE--calls--CMP-HOME
+spec:
+  from: CMP-SERVE
+  to: CMP-HOME
+  label: calls
+  description: |
+    home.Org starts every apiVersion; home.ProductData holds the servers records and the token.
 --- # link/CMP-SETTINGS--calls--CMP-ASK.yml
 apiVersion: core/design/v2
 kind: Link

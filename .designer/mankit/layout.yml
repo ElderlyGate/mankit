@@ -47,6 +47,9 @@ views:
       CMP-SELECTION:
         x: 2788
         y: 1102
+      CMP-SERVE:
+        x: 686
+        y: 842
       CMP-SETTINGS:
         x: 1956
         y: 608
