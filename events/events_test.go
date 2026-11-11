@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -35,25 +38,40 @@ type item struct {
 var (
 	serveCreate = ask.Action{Type: ask.Create}
 	serveDelete = ask.Action{Type: ask.Delete}
+	serveEdit   = ask.Action{Type: ask.Edit}
 )
 
 func itemID(data any) string { return data.(item).ID }
 
-// routes are the shop's routes, the same with events and without: each change says the event it causes, and no handler sends one.
+// routes are the shop's routes, the same with events and without: each change says the thing it changes, and nothing about events.
 func routes() []serve.Route {
-	return []serve.Route{
-		{Pattern: "POST /api/items/{id}", Action: serveCreate, Causes: serve.Cause{Type: "shop.item.added", Subject: itemID}, Handler: func(w http.ResponseWriter, r *http.Request) {
-			serve.Write(w, r, http.StatusCreated, "Item", item{ID: r.PathValue("id")})
-		}},
-		{Pattern: "DELETE /api/items/{id}", Action: serveDelete, Causes: serve.Cause{Type: "shop.item.removed", Subject: itemID, Data: func(any) any { return nil }}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	changes := serve.Change{Thing: "item", ID: itemID}
+	answer := func(status int) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
 			if r.PathValue("id") == "missing" {
 				serve.WriteError(w, r, http.StatusNotFound, serve.Fail(serve.CodeNotFound, "no such item"))
 				return
 			}
-			serve.Write(w, r, http.StatusOK, "Item", item{ID: r.PathValue("id")})
-		}},
+			serve.Write(w, r, status, "Item", item{ID: r.PathValue("id")})
+		}
+	}
+	return []serve.Route{
+		{Pattern: "POST /api/items/{id}", Action: serveCreate, Changes: changes, Handler: answer(http.StatusCreated)},
+		{Pattern: "DELETE /api/items/{id}", Action: serveDelete, Changes: changes, Handler: answer(http.StatusOK)},
+		{Pattern: "PUT /api/items/{id}", Action: serveEdit, Changes: changes, Handler: answer(http.StatusOK)},
+		{Pattern: "PATCH /api/items/{id}", Action: serveEdit, Changes: changes, Handler: answer(http.StatusOK)},
 	}
 }
+
+// causes are the events the shop's changes cause: PUT carries a large data, PATCH one that is not JSON.
+var causes = map[string]events.Cause{
+	"POST /api/items/{id}":   {Type: "shop.item.added"},
+	"DELETE /api/items/{id}": {Type: "shop.item.removed", Data: func(any) any { return nil }},
+	"PUT /api/items/{id}":    {Type: "shop.item.added", Data: func(any) any { return strings.Repeat("x", 128<<10) }},
+	"PATCH /api/items/{id}":  {Type: "shop.item.added", Data: func(any) any { return func() {} }},
+}
+
+func keep(n int) func(*events.Config) { return func(c *events.Config) { c.Keep = n } }
 
 // switches is the owner's switches, held in the test as an app's config would hold them.
 type switches struct {
@@ -93,8 +111,8 @@ type shop struct {
 	url  string
 }
 
-// serving is the shop behind serve's guard; with events, its list holds the feature and events is attached to it, and that is the only difference.
-func serving(t *testing.T, keep int, withEvents bool) *shop {
+// shopHandler is the shop's handler; with events, its list holds the feature and events is attached to it, and that is the only difference.
+func shopHandler(t *testing.T, withEvents bool, tweak ...func(*events.Config)) (http.Handler, *features.List, *switches) {
 	t.Helper()
 	sw := &switches{}
 	var all []features.Feature
@@ -103,7 +121,11 @@ func serving(t *testing.T, keep int, withEvents bool) *shop {
 	}
 	list := features.New(all, sw.store())
 	if withEvents {
-		if err := events.Attach(list, events.Config{Product: "shop", Thing: "main", Catalog: catalog, Heartbeat: 20 * time.Millisecond, Keep: keep}); err != nil {
+		cfg := events.Config{Product: "shop", Thing: "main", Catalog: catalog, Causes: causes, Heartbeat: 20 * time.Millisecond}
+		for _, f := range tweak {
+			f(&cfg)
+		}
+		if err := events.Attach(list, cfg); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -111,6 +133,13 @@ func serving(t *testing.T, keep int, withEvents bool) *shop {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return h, list, sw
+}
+
+// serving is the shop behind serve's guard, as an app serves it.
+func serving(t *testing.T, withEvents bool, tweak ...func(*events.Config)) *shop {
+	t.Helper()
+	h, list, sw := shopHandler(t, withEvents, tweak...)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return &shop{list: list, sw: sw, url: srv.URL}
@@ -210,16 +239,29 @@ func (st *stream) ids(t *testing.T, n int) []string {
 	return out
 }
 
-// ended says whether the stream ends without another event.
-func (st *stream) ended() bool {
-	for {
-		line, err := st.r.ReadString('\n')
-		if err != nil {
-			return true
+// ended says whether the stream ends without another event; a stream still open after a few seconds fails the test.
+func (st *stream) ended(t *testing.T) bool {
+	t.Helper()
+	done := make(chan bool, 1)
+	go func() {
+		for {
+			line, err := st.r.ReadString('\n')
+			if err != nil {
+				done <- true
+				return
+			}
+			if strings.HasPrefix(line, "data: ") {
+				done <- false
+				return
+			}
 		}
-		if strings.HasPrefix(line, "data: ") {
-			return false
-		}
+	}()
+	select {
+	case ended := <-done:
+		return ended
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream is still open")
+		return false
 	}
 }
 
@@ -237,7 +279,7 @@ func refusal(t *testing.T, resp *http.Response, status int, code string) {
 // Success
 
 func TestAChangeSendsItsEventToEveryOpenStream(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	a, b := s.open(t, ""), s.open(t, "")
 	s.add(t, "item-1")
 	for _, st := range []*stream{a, b} {
@@ -249,7 +291,7 @@ func TestAChangeSendsItsEventToEveryOpenStream(t *testing.T) {
 }
 
 func TestARouteMayShapeTheEventsData(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	st := s.open(t, "")
 	s.change(t, http.MethodDelete, "/api/items/item-1", nil)
 	if e, _ := st.next(t); e.Type != "shop.item.removed" || string(e.Data) != "null" {
@@ -258,7 +300,7 @@ func TestARouteMayShapeTheEventsData(t *testing.T) {
 }
 
 func TestAnIdleStreamGetsAHeartbeat(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	st := s.open(t, "")
 	if line, err := st.r.ReadString('\n'); err != nil || line != ": heartbeat\n" {
 		t.Fatalf("line %q, %v", line, err)
@@ -266,7 +308,7 @@ func TestAnIdleStreamGetsAHeartbeat(t *testing.T) {
 }
 
 func TestTheTraceOfTheRequestIsCarried(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	st := s.open(t, "")
 	tp := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 	s.change(t, http.MethodPost, "/api/items/item-1", map[string]string{"traceparent": tp, "tracestate": "shop=1"})
@@ -280,7 +322,7 @@ func TestTheTraceOfTheRequestIsCarried(t *testing.T) {
 }
 
 func TestAnAppWithoutEventsServesTheSameRoutes(t *testing.T) {
-	s := serving(t, 0, false)
+	s := serving(t, false)
 	s.add(t, "item-1")
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{app.TokenHeader(): token})
 	defer cancel()
@@ -291,7 +333,7 @@ func TestAnAppWithoutEventsServesTheSameRoutes(t *testing.T) {
 // Contract
 
 func TestEveryEventMeetsTheContract(t *testing.T) {
-	s := serving(t, 1, true)
+	s := serving(t, true, keep(1))
 	live := s.open(t, "")
 	s.add(t, "item-1")
 	s.change(t, http.MethodPost, "/api/items/item-2", map[string]string{"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "tracestate": "shop=1"})
@@ -320,7 +362,7 @@ func TestEveryEventMeetsTheContract(t *testing.T) {
 // Resume
 
 func TestLastEventIDResumesAfterTheEventGiven(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	live := s.open(t, "")
 	s.add(t, "item-1")
 	s.add(t, "item-2")
@@ -337,7 +379,7 @@ func TestLastEventIDResumesAfterTheEventGiven(t *testing.T) {
 }
 
 func TestALastEventIDNoLongerKeptGetsAGapThenEveryEventKept(t *testing.T) {
-	s := serving(t, 2, true)
+	s := serving(t, true, keep(2))
 	live := s.open(t, "")
 	s.add(t, "item-1")
 	s.add(t, "item-2")
@@ -350,7 +392,7 @@ func TestALastEventIDNoLongerKeptGetsAGapThenEveryEventKept(t *testing.T) {
 	if err := json.Unmarshal(gap.Data, &data); err != nil {
 		t.Fatal(err)
 	}
-	if gap.Type != "shop."+events.GapVerb || data != (events.Gap{LastKnown: sent[0], OldestKept: sent[2]}) {
+	if gap.Type != "shop."+events.Gapped || data != (events.Gap{LastKnown: sent[0], OldestKept: sent[2]}) {
 		t.Fatalf("gap %+v, data %+v", gap, data)
 	}
 	if got := st.ids(t, 2); !slices.Equal(got, sent[2:]) {
@@ -363,16 +405,16 @@ func TestALastEventIDNoLongerKeptGetsAGapThenEveryEventKept(t *testing.T) {
 }
 
 func TestALastEventIDFromAnotherServerGetsAGap(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	st := s.open(t, "0123456789abcdef-7")
 	gap, _ := st.next(t)
-	if gap.Type != "shop."+events.GapVerb || !strings.Contains(string(gap.Data), `"lastKnown":"0123456789abcdef-7"`) || strings.Contains(string(gap.Data), "oldestKept") {
+	if gap.Type != "shop."+events.Gapped || string(gap.Data) != `{"lastKnown":""}` {
 		t.Fatalf("gap %+v", gap)
 	}
 }
 
 func TestANewStreamGetsOnlyNewEvents(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	s.add(t, "item-1")
 	st := s.open(t, "")
 	s.add(t, "item-2")
@@ -383,22 +425,27 @@ func TestANewStreamGetsOnlyNewEvents(t *testing.T) {
 
 // Errors and codes
 
-func TestARouteCausingATypeNotInTheCatalogIsRefusedAtStart(t *testing.T) {
-	list := features.New([]features.Feature{events.Feature}, (&switches{}).store())
-	if err := events.Attach(list, events.Config{Product: "shop", Catalog: []string{"shop.item.added"}}); err != nil {
-		t.Fatal(err)
+func TestACauseThatDoesNotFitItsRouteIsRefusedAtStart(t *testing.T) {
+	list := func() *features.List { return features.New([]features.Feature{events.Feature}, (&switches{}).store()) }
+	if err := events.Attach(list(), events.Config{Product: "shop", Catalog: []string{"shop.item.added"}, Causes: causes}); !errors.Is(err, events.ErrNotInCatalog) {
+		t.Fatalf("a cause not in the catalog: err = %v", err)
 	}
-	if _, err := app.Handler(serve.Site{Routes: routes(), Features: list}, token, nil); !errors.Is(err, events.ErrNotInCatalog) {
-		t.Fatalf("err = %v", err)
-	}
-	noSubject := []serve.Route{{Pattern: "POST /api/x", Action: serveCreate, Causes: serve.Cause{Type: "shop.item.added"}, Handler: func(http.ResponseWriter, *http.Request) {}}}
-	if _, err := app.Handler(serve.Site{Routes: noSubject, Features: list}, token, nil); err == nil {
-		t.Fatal("a route causing an event without its subject was taken")
+	for name, cause := range map[string]map[string]events.Cause{
+		"no such route": {"POST /api/nothing": {Type: "shop.item.added"}},
+		"another thing": {"POST /api/items/{id}": {Type: "shop.order.added"}},
+	} {
+		l := list()
+		if err := events.Attach(l, events.Config{Product: "shop", Catalog: []string{"shop.item.added", "shop.order.added"}, Causes: cause}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := app.Handler(serve.Site{Routes: routes(), Features: l}, token, nil); err == nil {
+			t.Errorf("%s was taken", name)
+		}
 	}
 }
 
 func TestAChangeThatFailsSendsNothing(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	st := s.open(t, "")
 	if status := s.change(t, http.MethodDelete, "/api/items/missing", nil); status != http.StatusNotFound {
 		t.Fatalf("status %d", status)
@@ -433,7 +480,7 @@ func TestAttachRefusesNamesThatBreakTheEventNames(t *testing.T) {
 }
 
 func TestTheGuardRefusesAStreamWithoutTheToken(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	resp, cancel := s.do(t, http.MethodGet, events.Path, nil)
 	defer cancel()
 	defer resp.Body.Close()
@@ -441,7 +488,7 @@ func TestTheGuardRefusesAStreamWithoutTheToken(t *testing.T) {
 }
 
 func TestSwitchesThatCannotBeReadAreSaid(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	s.sw.failing(errors.New("config.yaml: cannot read"))
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{app.TokenHeader(): token})
 	defer cancel()
@@ -452,7 +499,7 @@ func TestSwitchesThatCannotBeReadAreSaid(t *testing.T) {
 // The feature off
 
 func TestTheFeatureOffServesNoStream(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	if err := s.list.Set(events.Feature.ID, false); err != nil {
 		t.Fatal(err)
 	}
@@ -462,8 +509,8 @@ func TestTheFeatureOffServesNoStream(t *testing.T) {
 	refusal(t, resp, http.StatusNotFound, serve.CodeNotFound)
 }
 
-func TestTheFeatureOffKeepsNothing(t *testing.T) {
-	s := serving(t, 0, true)
+func TestTheFeatureOffKeepsNothingAndAStreamThatComesBackGetsAGap(t *testing.T) {
+	s := serving(t, true)
 	live := s.open(t, "")
 	s.add(t, "item-1")
 	first := live.ids(t, 1)[0]
@@ -476,20 +523,150 @@ func TestTheFeatureOffKeepsNothing(t *testing.T) {
 	}
 	s.add(t, "item-3")
 	st := s.open(t, first)
-	if e, _ := st.next(t); e.Subject != "item-3" {
+	gap, _ := st.next(t)
+	var data events.Gap
+	if err := json.Unmarshal(gap.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := st.next(t)
+	if gap.Type != "shop."+events.Gapped || gap.Subject != "stream" || data != (events.Gap{OldestKept: e.ID}) {
+		t.Fatalf("gap %+v", gap)
+	}
+	if e.Subject != "item-3" {
 		t.Fatalf("event %+v, want only item-3: something was kept while off", e)
 	}
 }
 
-func TestSwitchingTheFeatureOffEndsAnOpenStream(t *testing.T) {
-	s := serving(t, 0, true)
+func TestAChangeMissedWhileAnotherCloserHeldTheFeatureGivesAGap(t *testing.T) {
+	s := serving(t, true)
+	live := s.open(t, "")
+	s.add(t, "item-1")
+	first := live.ids(t, 1)[0]
+	keepOff := s.sw.store().Keep
+	if err := keepOff(events.Feature.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	s.add(t, "item-2")
+	if err := keepOff(events.Feature.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	st := s.open(t, first)
+	if gap, _ := st.next(t); gap.Type != "shop."+events.Gapped {
+		t.Fatalf("event %+v, want the gap: item-2 went by unseen", gap)
+	}
+}
+
+func TestSwitchingTheFeatureOffEndsAnOpenStreamAtOnce(t *testing.T) {
+	s := serving(t, true, func(c *events.Config) { c.Heartbeat = time.Hour })
 	st := s.open(t, "")
 	if err := s.list.Set(events.Feature.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	if !st.ended() {
+	if !st.ended(t) {
 		t.Fatal("the stream sent an event after the feature was switched off")
 	}
+}
+
+// More resume
+
+func TestALastEventIDAheadOfTheServerGetsAGap(t *testing.T) {
+	s := serving(t, true)
+	live := s.open(t, "")
+	s.add(t, "item-1")
+	id := live.ids(t, 1)[0]
+	run, _, _ := strings.Cut(id, "-")
+	ahead := run + "-99999"
+	st := s.open(t, ahead)
+	gap, _ := st.next(t)
+	if gap.Type != "shop."+events.Gapped || string(gap.Data) != `{"lastKnown":"`+ahead+`","oldestKept":"`+id+`"}` {
+		t.Fatalf("gap %+v", gap)
+	}
+	if e, _ := st.next(t); e.ID != id {
+		t.Fatalf("event %+v, want the kept %s", e, id)
+	}
+}
+
+func TestASlowStreamIsEndedAndResumesWhereItStopped(t *testing.T) {
+	s := serving(t, true, keep(400))
+	slow := s.open(t, "")
+	const n = 300
+	for i := range n {
+		if status := s.change(t, http.MethodPut, fmt.Sprintf("/api/items/item-%d", i), nil); status != http.StatusOK {
+			t.Fatalf("status %d", status)
+		}
+	}
+	var got []string
+	for {
+		line, err := slow.r.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if id, ok := strings.CutPrefix(line, "id: "); ok {
+			got = append(got, strings.TrimSpace(id))
+		}
+	}
+	if len(got) == 0 || len(got) >= n {
+		t.Fatalf("the slow stream got %d of %d events before it ended", len(got), n)
+	}
+	rest := s.open(t, got[len(got)-1]).ids(t, n-len(got))
+	if all := append(got, rest...); len(slices.Compact(slices.Clone(all))) != n {
+		t.Fatalf("%d events after resuming, want %d without a gap", len(all), n)
+	}
+}
+
+func TestStoppingTheServerEndsAStream(t *testing.T) {
+	h, _, _ := shopHandler(t, true, func(c *events.Config) { c.Heartbeat = time.Hour })
+	srv := httptest.NewUnstartedServer(h)
+	serve.StopOnShutdown(srv.Config)
+	srv.Start()
+	t.Cleanup(srv.Close)
+	st := (&shop{url: srv.URL}).open(t, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Config.Shutdown(ctx); err != nil {
+		t.Fatalf("the stream held the server open: %v", err)
+	}
+	if !st.ended(t) {
+		t.Fatal("the stream sent an event while the server stopped")
+	}
+}
+
+// More errors and codes
+
+func TestAnEventThatCannotBeBuiltIsSaidAndTakesItsPlaceAsAGap(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := os.Stderr
+	os.Stderr = w
+	s := serving(t, true)
+	os.Stderr = stderr
+	live := s.open(t, "")
+	s.add(t, "item-1")
+	first := live.ids(t, 1)[0]
+	s.change(t, http.MethodPatch, "/api/items/item-2", nil)
+	gap, _ := live.next(t)
+	if gap.Type != "shop."+events.Gapped || string(gap.Data) != `{"lastKnown":"`+first+`"}` {
+		t.Fatalf("gap %+v", gap)
+	}
+	if again, _ := s.open(t, first).next(t); again.ID != gap.ID {
+		t.Fatalf("a stream coming back got %+v, want the gap in its place", again)
+	}
+	w.Close()
+	said, _ := io.ReadAll(r)
+	if !strings.Contains(string(said), "shop.item.added from PATCH /api/items/{id}") || strings.Contains(string(said), "item-2") || strings.Contains(string(said), token) {
+		t.Fatalf("stderr %q, want the type and the route, without data or token", said)
+	}
+}
+
+func TestTooManyStreamsAreRefused(t *testing.T) {
+	s := serving(t, true, func(c *events.Config) { c.Streams = 1 })
+	s.open(t, "")
+	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{app.TokenHeader(): token})
+	defer cancel()
+	defer resp.Body.Close()
+	refusal(t, resp, http.StatusServiceUnavailable, events.CodeTooManyStreams)
 }
 
 // CLI and HTTP parity: none, since no command reads the stream; the decisions call for none.
@@ -497,7 +674,7 @@ func TestSwitchingTheFeatureOffEndsAnOpenStream(t *testing.T) {
 // Leaks
 
 func TestAClientThatLeavesLeavesNoGoroutine(t *testing.T) {
-	s := serving(t, 0, true)
+	s := serving(t, true)
 	before := runtime.NumGoroutine()
 	var streams []*stream
 	for range 5 {

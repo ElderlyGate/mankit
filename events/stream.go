@@ -1,6 +1,8 @@
 package events
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -18,7 +20,15 @@ func (b *broker) route() serve.Route {
 // stream sends the kept events after Last-Event-ID, then each new one, with a comment on an idle line; it ends when the client leaves, the server stops or the feature is closed.
 func (b *broker) stream(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
-	replay, ch := b.subscribe(r, r.Header.Get("Last-Event-ID"))
+	replay, ch, err := b.subscribe(r, r.Header.Get("Last-Event-ID"))
+	if errors.Is(err, errTooManyStreams) {
+		serve.WriteError(w, r, http.StatusServiceUnavailable, serve.Fail(CodeTooManyStreams, fmt.Sprintf("%d streams are open, the most this server keeps; try again later", b.cfg.Streams)))
+		return
+	}
+	if err != nil {
+		serve.WriteError(w, r, http.StatusInternalServerError, err)
+		return
+	}
 	defer b.unsubscribe(ch)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("X-Accel-Buffering", "no")
