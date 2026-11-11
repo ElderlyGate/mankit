@@ -447,24 +447,34 @@ rules every app sharing a queue follows on disk are fixed in contracts
 ```go
 ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 defer stop()
-q := queue.Queue{Folder: filepath.Join(repo, ".designer"), App: "designer", Version: version}
-err := q.Change(ctx, "add block shop", write, readBack)
+q, err := queue.Queue{Folder: filepath.Join(repo, ".designer"), App: "designer", Version: version}.
+	Settings(wait, limit) // the values of the app's rows queue.wait and queue.limit
+err = q.Change(ctx, "add block shop", write, readBack)
 ```
+
+Every app adds `queue.WaitKey` and `queue.LimitKey` to its settings keys, so a
+user sets `queue.wait` (30s) and `queue.limit` (2m) the same way in each.
+`Settings` refuses a value that is not a duration of at least a second, naming
+the row. Each bounds only this process's own waiting and holding, so apps
+sharing a queue may set them apart.
 
 An app passes a context that ends on Ctrl-C (`signal.NotifyContext`), so the
 ticket leaves the line before the process does. `write` and `readBack` take a
-context too, and must stop when it ends: a change may hold the turn for 2
-minutes, and the turn is held until `write` returns.
+context too, and must stop when it ends: a change may hold the turn for
+`Limit`, and the turn is held until `write` returns.
 
 - `Change` writes a ticket at the end of the line, waits until it is first and
   holds the turn, runs `write`, then `readBack`: the change is done only once
   it is read back. The ticket leaves the line whether the change ran or not.
-  An error from `write` comes back as it is. Past the run limit (2 minutes)
-  the context of `write` and `readBack` ends and the change fails with
+  An error from `write` comes back as it is. Past `Limit` (2 minutes) the
+  context of `write` and `readBack` ends and the change fails with
   `change_too_long`; the next change gets the turn once `write` returns.
-- The turn is a lock on a file, so it holds across processes; within one
-  process a lock in memory keeps changes apart as well. A ticket's own file
-  stays locked by its process while it waits and runs: when the process dies
+- The turn is a lock on a file (`github.com/gofrs/flock`), so it holds across
+  processes; within one process a lock in memory keeps changes apart as well.
+  Locks sit on lock files beside what others read (`<id>.lock` beside each
+  ticket, `turn.lock` beside `turn`), since a lock on Windows keeps others from
+  reading what it covers. A ticket's lock file stays locked by its process
+  while it waits and runs: when the process dies
   the system gives the lock back, and the next reader removes the ticket and
   says so. A ticket whose lock is held but whose file was not touched for 30s
   (touched every 5s), or one that cannot be read or understood, is moved to
@@ -481,11 +491,11 @@ minutes, and the turn is held until `write` returns.
   be read back, `ticket_lost` when another process set the waiting ticket
   aside, `queue_unusable` when the folder cannot be made, read or written,
   `queue_backend_unsupported` for a marker this build does not run,
-  `change_too_long` past the run limit. `queue_timeout` names the change that
+  `change_too_long` past `Limit`. `queue_timeout` names the change that
   holds the turn: its ticket, pid, host and how long it has held it.
 - `List(ctx)` is what `<app> queue` shows: the tickets in order, which one's
-  change runs now and since when, and the files in `bad/`. Answered as kind `queue.ListKind`
-  it meets contracts `mankit/v1/queue-list`; every ticket meets
+  change runs now and since when, and the files in `bad/`. Answered as kind
+  `queue.ListKind` it meets contracts `mankit/v1/queue-list`; every ticket meets
   `mankit/v1/ticket` (apiVersion `elderlygate/mankit/ticket/v1`, whose header
   never changes, ADR-S15).
 
