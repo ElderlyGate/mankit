@@ -103,16 +103,20 @@ func (s *switches) licensed(on bool) {
 
 func (s *switches) store() features.Store {
 	return features.Store{
-		Off: func() ([]string, error) {
+		Switched: func() (map[string]bool, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			return slices.Clone(s.off), s.fail
+			switched := map[string]bool{}
+			for _, id := range s.off {
+				switched[id] = false
+			}
+			return switched, s.fail
 		},
-		Keep: func(id string, off bool) error {
+		Keep: func(id string, on bool) error {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			s.off = slices.DeleteFunc(s.off, func(o string) bool { return o == id })
-			if off {
+			if !on {
 				s.off = append(s.off, id)
 			}
 			return nil
@@ -140,7 +144,7 @@ func shopHandler(t *testing.T, withEvents bool, tweak ...func(*events.Config)) (
 	if withEvents {
 		all = append(all, events.Feature)
 	}
-	list := features.New(all, sw.store(), sw.license())
+	list := features.New(all, sw.store(), nil, sw.license())
 	if withEvents {
 		cfg := events.Config{Product: "shop", Thing: "main", Catalog: catalog, Causes: causes, Heartbeat: 20 * time.Millisecond}
 		for _, f := range tweak {
@@ -455,7 +459,9 @@ func TestANewStreamGetsOnlyNewEvents(t *testing.T) {
 // Errors and codes
 
 func TestACauseThatDoesNotFitItsRouteIsRefusedAtStart(t *testing.T) {
-	list := func() *features.List { return features.New([]features.Feature{events.Feature}, (&switches{}).store()) }
+	list := func() *features.List {
+		return features.New([]features.Feature{events.Feature}, (&switches{}).store(), nil)
+	}
 	if err := events.Attach(list(), events.Config{Product: "shop", Catalog: []string{"shop.item.added"}, Causes: causes}); !errors.Is(err, events.ErrNotInCatalog) {
 		t.Fatalf("a cause not in the catalog: err = %v", err)
 	}
@@ -496,14 +502,14 @@ func TestAttachRefusesNamesThatBreakTheEventNames(t *testing.T) {
 		"a product not an ID":             {Product: "Shop"},
 		"a thing with a slash":            {Product: "shop", Thing: "a/b"},
 	} {
-		if err := events.Attach(features.New([]features.Feature{events.Feature}, (&switches{}).store()), cfg); err == nil {
+		if err := events.Attach(features.New([]features.Feature{events.Feature}, (&switches{}).store(), nil), cfg); err == nil {
 			t.Errorf("%s was taken", name)
 		}
 	}
 	if err := events.Attach(nil, events.Config{Product: "shop"}); err == nil {
 		t.Error("taken without a feature list")
 	}
-	if err := events.Attach(features.New(nil, (&switches{}).store()), events.Config{Product: "shop"}); err == nil {
+	if err := events.Attach(features.New(nil, (&switches{}).store(), nil), events.Config{Product: "shop"}); err == nil {
 		t.Error("taken by a list without the events feature")
 	}
 }
@@ -571,12 +577,12 @@ func TestAChangeMissedWhileAnotherCloserHeldTheFeatureGivesAGap(t *testing.T) {
 	live := s.open(t, "")
 	s.add(t, "item-1")
 	first := live.ids(t, 1)[0]
-	keepOff := s.sw.store().Keep
-	if err := keepOff(events.Feature.ID, true); err != nil {
+	keep := s.sw.store().Keep
+	if err := keep(events.Feature.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	s.add(t, "item-2")
-	if err := keepOff(events.Feature.ID, false); err != nil {
+	if err := keep(events.Feature.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	st := s.open(t, first)

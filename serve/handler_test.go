@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"testing"
 
@@ -450,14 +449,14 @@ func (m *recorder) Skipped(a serve.Answered) { m.skipped = append(m.skipped, a) 
 // withModule is the test site with a feature "hear" whose module is m, switched off when off is set.
 func withModule(t *testing.T, m any, off bool) http.Handler {
 	t.Helper()
-	var closed []string
+	switched := map[string]bool{}
 	if off {
-		closed = []string{"hear"}
+		switched["hear"] = false
 	}
 	list := features.New([]features.Feature{{ID: "hear", Title: "Hear", Covers: "changes"}}, features.Store{
-		Off:  func() ([]string, error) { return slices.Clone(closed), nil },
-		Keep: func(string, bool) error { return nil },
-	})
+		Switched: func() (map[string]bool, error) { return switched, nil },
+		Keep:     func(string, bool) error { return nil },
+	}, nil)
 	if err := list.Attach("hear", m); err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +496,7 @@ func TestAModuleOffIsNotServedAndHearsOnlyThatItMissedAChange(t *testing.T) {
 }
 
 func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
-	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Off: func() ([]string, error) { return nil, nil }})
+	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Switched: func() (map[string]bool, error) { return nil, nil }}, nil)
 	if err := list.Attach("hear", "not a part"); err != nil {
 		t.Fatal(err)
 	}
