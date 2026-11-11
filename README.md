@@ -28,6 +28,7 @@ three, instead of being made three times.
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
+| `queue` | The change queue: every change to one served thing waits its turn in `<served folder>/<app folder>/.queue/`, one at a time across processes, done once written and read back (see [Change queue](#change-queue)) |
 
 ## Settings
 
@@ -432,6 +433,38 @@ routes stay as they are, and `GET /api/events` answers 404.
 - Streams end when the client leaves or the server stops (`serve.Stopping`), so
   no stream holds the server open. An app that runs its own `http.Server`
   calls `serve.StopOnShutdown(srv)` once before serving.
+
+## Change queue
+
+`queue` keeps every change to one served thing in one line (ADR-S14), so CLI
+runs, servers, page clicks and other apps never change it at once. The line is
+kept in `<served folder>/<app folder>/.queue/`, which only this user may enter
+and which ignores itself in git. It holds tickets, never commands: each
+process runs its own change, and nothing in the folder is ever executed.
+
+```go
+q := queue.Queue{Folder: filepath.Join(repo, ".designer"), App: "designer", Version: version}
+err := q.Change(ctx, "add block shop", write, readBack)
+```
+
+- `Change` writes a ticket at the end of the line, waits until it is first and
+  holds the turn, runs `write`, then `readBack`: the change is done only once
+  it is read back. The ticket leaves the line whether the change ran or not.
+  An error from `write` comes back as it is.
+- The turn is a lock on a file, so it holds across processes, and the system
+  gives it back when a process dies. A waiting or running ticket is touched
+  every quarter of `Stale`; one with no sign of life for `Stale` (30s), or one
+  that cannot be read or understood, is moved to `.queue/bad/`, said on
+  stderr with the file and why, and skipped.
+- Errors carry codes (`serve.Error`): `queue_timeout` when the turn did not
+  come within `Wait` (30s), `not_read_back` when the change ran but could not
+  be read back, `ticket_lost` when another process took the waiting ticket for
+  stale, `queue_unusable` when the folder cannot be made, read or written.
+- `List` is what `<app> queue` shows: the tickets in order, whether the first
+  one's change runs now, and the files in `bad/`. Answered as kind
+  `queue.ListKind` it meets contracts `mankit/v1/queue-list`; every ticket
+  meets `mankit/v1/ticket` (apiVersion `elderlygate/mankit/ticket/v1`, whose
+  header never changes, ADR-S15).
 
 ## Why textinput is vendored
 
