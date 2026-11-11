@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/tugbayatilla/mankit/home"
@@ -52,6 +53,7 @@ type recordSpec struct {
 	Version   string    `json:"version"`
 	StartedAt time.Time `json:"startedAt"`
 	Log       string    `json:"log,omitempty"`
+	Detached  bool      `json:"detached"`
 }
 
 // status is a record and what its address said just now; only the second is to be believed.
@@ -153,8 +155,8 @@ func readRecords(dir string) ([]record, error) {
 		if err := json.Unmarshal(data, &r); err != nil {
 			return nil, fmt.Errorf("server record %s is not JSON: %w; remove it if no server is on its address", path, err)
 		}
-		if r.APIVersion != recordAPIVersion() || r.Kind != recordKind || r.Metadata.Addr == "" {
-			return nil, fmt.Errorf("server record %s is not a %s %s with an address; remove it if no server is on its address", path, recordAPIVersion(), recordKind)
+		if r.APIVersion != recordAPIVersion() || r.Kind != recordKind || r.Metadata.Addr == "" || r.Metadata.PID < 1 {
+			return nil, fmt.Errorf("server record %s is not a %s %s with an address and a pid; remove it if no server is on its address", path, recordAPIVersion(), recordKind)
 		}
 		r.file = path
 		out = append(out, r)
@@ -169,10 +171,9 @@ func (a App) live(dir string) ([]status, error) {
 	if err != nil {
 		return nil, err
 	}
-	token, _ := readToken(dir)
 	out := []status{}
 	for _, r := range all {
-		p := a.probe(r.Metadata.Addr, token, probeWait)
+		p := a.probe(r.Metadata.Addr, probeWait)
 		if p.refused {
 			_ = os.Remove(r.file)
 			continue
@@ -269,35 +270,28 @@ type probed struct {
 	version   string
 }
 
-// probe asks addr's GET /api/version with token; answering means this app answered there, not just anything on the port.
-func (a App) probe(addr, token string, timeout time.Duration) probed {
+// probe asks addr's GET /api/version without the token, which never goes to a listener not yet known to be this app.
+// This app answers it with token_refused from its guard, and says in ran which app and version it is.
+func (a App) probe(addr string, timeout time.Duration) probed {
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return probed{refused: refused(err)}
 	}
 	conn.Close()
-	req, err := http.NewRequest(http.MethodGet, "http://"+addr+"/api/version", nil)
-	if err != nil {
-		return probed{}
-	}
-	req.Header.Set(a.TokenHeader(), token)
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	resp, err := (&http.Client{Timeout: timeout}).Get("http://" + addr + "/api/version")
 	if err != nil {
 		return probed{}
 	}
 	defer resp.Body.Close()
 	var e Envelope
-	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&e) != nil || e.Ran.App != a.ID || e.Kind != VersionKind {
+	if resp.StatusCode != http.StatusUnauthorized || json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&e) != nil ||
+		len(e.Errors) != 1 || e.Errors[0].Code != CodeToken || e.Ran.App != a.ID || e.Ran.Version == "" {
 		return probed{}
 	}
 	return probed{answering: true, version: e.Ran.Version}
 }
 
-// refused reports whether a dial failed because nothing listens; Windows refuses with another number, so its text counts too.
+// refused reports whether a dial failed because nothing listens, by its error number (G-STACK-15).
 func refused(err error) bool {
-	if errors.Is(err, syscall.ECONNREFUSED) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "connection refused") ||
-		strings.Contains(err.Error(), "No connection could be made")
+	return slices.ContainsFunc(connRefused, func(n error) bool { return errors.Is(err, n) })
 }

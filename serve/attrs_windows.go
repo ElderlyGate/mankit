@@ -18,3 +18,6 @@ func private(info os.FileInfo) error {
 	}
 	return nil
 }
+
+// connRefused are the error numbers of a connection nothing listens for: Windows answers WSAECONNREFUSED, not ECONNREFUSED.
+var connRefused = []error{syscall.ECONNREFUSED, syscall.Errno(10061)}

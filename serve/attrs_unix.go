@@ -27,3 +27,6 @@ func private(info os.FileInfo) error {
 	}
 	return nil
 }
+
+// connRefused are the error numbers of a connection nothing listens for.
+var connRefused = []error{syscall.ECONNREFUSED}

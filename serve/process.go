@@ -44,11 +44,14 @@ func spawn(exe string, args []string, dir, recordDir, addr string) (record, erro
 	pid := cmd.Process.Pid
 	deadline := time.Now().Add(startTimeout)
 	for {
-		if recs, err := readRecords(recordDir); err == nil {
-			for _, r := range recs {
-				if r.Metadata.PID == pid {
-					return r, nil
-				}
+		recs, err := readRecords(recordDir)
+		if err != nil {
+			// The child is not killed: it may be serving well, and only another record is in the way of seeing it.
+			return record{}, fmt.Errorf("the server (pid %d) started, but its record cannot be seen: %w", pid, err)
+		}
+		for _, r := range recs {
+			if r.Metadata.PID == pid {
+				return r, nil
 			}
 		}
 		select {
@@ -92,8 +95,11 @@ func logTail(path string) string {
 // stop shuts one server down with SIGTERM and drops its record; it signals a pid only while the address answers as this app, as a pid is reused.
 func (a App) stop(dir string, r record) (stopped, error) {
 	out := stopped{Addr: r.Metadata.Addr, PID: r.Metadata.PID}
-	token, _ := readToken(dir)
-	p := a.probe(r.Metadata.Addr, token, probeWait)
+	if r.Metadata.PID < 1 {
+		// A pid below 1 signals a whole process group, or every process this user owns.
+		return out, fmt.Errorf("the record for %s has no pid (%d), so nothing is signalled", r.Metadata.Addr, r.Metadata.PID)
+	}
+	p := a.probe(r.Metadata.Addr, probeWait)
 	if p.refused {
 		out.Stale = true
 		return out, removeRecord(dir, r.Metadata.Addr)
@@ -113,7 +119,7 @@ func (a App) stop(dir string, r record) (stopped, error) {
 		}
 	}
 	deadline := time.Now().Add(stopWait)
-	for !a.probe(r.Metadata.Addr, "", 500*time.Millisecond).refused {
+	for !a.probe(r.Metadata.Addr, 500*time.Millisecond).refused {
 		if time.Now().After(deadline) {
 			return out, fmt.Errorf("%s was signalled but still listens after %s; pid %d is not shutting down", r.Metadata.Addr, stopWait, r.Metadata.PID)
 		}
