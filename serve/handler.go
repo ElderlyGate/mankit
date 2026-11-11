@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/tugbayatilla/mankit/ask"
@@ -43,7 +44,7 @@ type Part interface {
 	Mount(routes []Route) ([]Route, error)
 	// Changed is told of each change answered well with Write while the feature is on.
 	Changed(a Answered)
-	// Skipped is told instead of Changed while the feature is off, so the module knows it missed one.
+	// Skipped is told instead of Changed while the feature is off or broken, so the module knows it missed one.
 	Skipped(a Answered)
 }
 
@@ -247,7 +248,7 @@ func (a App) feature(list *features.List, id string, next http.Handler) http.Han
 
 type answeredKey struct{}
 
-// told runs the change, then tells each module of a change answered well, or that it missed one while its feature is off; the answer is already sent, so a module never changes it.
+// told runs the change, then tells each module of a change answered well, or that it missed one while its feature is off or broken; the answer is already sent, so a module never changes it.
 func told(h http.HandlerFunc, rt Route, list *features.List, parts []part) http.HandlerFunc {
 	if len(parts) == 0 {
 		return h
@@ -258,8 +259,10 @@ func told(h http.HandlerFunc, rt Route, list *features.List, parts []part) http.
 		if c.Status < 200 || c.Status > 299 {
 			return
 		}
+		// The states are read once for every module; unreadable, every module hears it missed the change.
+		states, _ := list.States()
 		for _, p := range parts {
-			if on, err := list.On(p.id); err == nil && on {
+			if i := slices.IndexFunc(states, func(s features.State) bool { return s.ID == p.id }); i >= 0 && states[i].On && !states[i].Broken() {
 				p.part.Changed(*c)
 			} else {
 				p.part.Skipped(*c)
