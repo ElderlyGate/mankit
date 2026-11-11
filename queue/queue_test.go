@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,37 +21,80 @@ import (
 	"github.com/tugbayatilla/mankit/serve"
 )
 
-const childEnv = "MANKIT_QUEUE_CHILD"
+// The environment that starts this test binary again as another process on the same queue: what it does, where, and with what.
+const (
+	childEnv  = "MANKIT_QUEUE_CHILD"
+	folderEnv = "MANKIT_QUEUE_FOLDER"
+	argEnv    = "MANKIT_QUEUE_ARG"
+	timesEnv  = "MANKIT_QUEUE_TIMES"
+)
 
 // TestMain lets a test start this binary again as another process that changes the same thing.
 func TestMain(m *testing.M) {
-	if folder := os.Getenv(childEnv); folder != "" {
-		os.Exit(child(folder))
+	if mode := os.Getenv(childEnv); mode != "" {
+		os.Exit(child(mode, os.Getenv(folderEnv), os.Getenv(argEnv)))
 	}
 	os.Exit(m.Run())
 }
 
-// child adds one to a counter file five times, each read and write apart, and logs when each change starts and ends.
-func child(folder string) int {
-	q := queue.Queue{Folder: folder, App: "shop", Wait: time.Minute}
+// child is another process on the queue: count adds one to a counter five times, hold keeps the turn for a while, mark writes its mark once its turn comes.
+func child(mode, folder, arg string) int {
+	if times := os.Getenv(timesEnv); times != "" {
+		stale, touch, _ := strings.Cut(times, ",")
+		s, _ := time.ParseDuration(stale)
+		t, _ := time.ParseDuration(touch)
+		queue.Times(s, t)
+	}
+	q := queue.Queue{Folder: folder, App: "shop", Wait: time.Minute, Log: io.Discard}
 	counter, log := filepath.Join(folder, "counter"), filepath.Join(folder, "log")
-	for range 5 {
-		err := q.Change(context.Background(), "count one", func() error {
-			appendLine(log, fmt.Sprintf("start %d", os.Getpid()))
-			n := readCount(counter)
-			time.Sleep(5 * time.Millisecond)
-			if err := os.WriteFile(counter, []byte(strconv.Itoa(n+1)), 0o600); err != nil {
-				return err
+	var err error
+	switch mode {
+	case "count":
+		for range 5 {
+			if err = q.Change(context.Background(), "count one", func() error {
+				appendLine(log, fmt.Sprintf("start %d", os.Getpid()))
+				n := readCount(counter)
+				time.Sleep(5 * time.Millisecond)
+				if err := os.WriteFile(counter, []byte(strconv.Itoa(n+1)), 0o600); err != nil {
+					return err
+				}
+				appendLine(log, fmt.Sprintf("end %d", os.Getpid()))
+				return nil
+			}, nothing); err != nil {
+				break
 			}
-			appendLine(log, fmt.Sprintf("end %d", os.Getpid()))
-			return nil
-		}, func() error { return nil })
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
 		}
+	case "hold":
+		d, _ := time.ParseDuration(arg)
+		err = q.Change(context.Background(), "hold the turn", func() error { time.Sleep(d); return nil }, nothing)
+	case "mark":
+		err = q.Change(context.Background(), "mark "+arg, func() error { appendLine(log, arg); return nil }, nothing)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
 	return 0
+}
+
+// start runs this test binary as another process doing mode; times shortens its fixed waits as "stale,touch", empty keeps them.
+func start(t *testing.T, mode, folder, arg, times string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), childEnv+"="+mode, folderEnv+"="+folder, argEnv+"="+arg, timesEnv+"="+times)
+	out := &syncBuffer{}
+	cmd.Stdout, cmd.Stderr = out, out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		if t.Failed() {
+			t.Logf("%s process said: %s", mode, out.String())
+		}
+	})
+	return cmd
 }
 
 func appendLine(path, line string) {
@@ -95,7 +139,7 @@ func (b *syncBuffer) String() string {
 func newQueue(t *testing.T) (queue.Queue, *syncBuffer) {
 	t.Helper()
 	log := &syncBuffer{}
-	return queue.Queue{Folder: filepath.Join(t.TempDir(), ".shop"), App: "shop", Version: "1.0.0", Wait: 5 * time.Second, Stale: 5 * time.Second, Log: log}, log
+	return queue.Queue{Folder: filepath.Join(t.TempDir(), ".shop"), App: "shop", Version: "1.0.0", Wait: 5 * time.Second, Log: log}, log
 }
 
 func nothing() error { return nil }
@@ -129,7 +173,7 @@ func waitFor(t *testing.T, q queue.Queue, n int) queue.Listing {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		l, err := q.List()
+		l, err := q.List(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -193,7 +237,7 @@ func TestAChangeIsWrittenThenReadBackAndLeavesAnEmptyQueue(t *testing.T) {
 	if strings.Join(steps, ",") != "write,read back" {
 		t.Fatalf("steps %v, want write then read back", steps)
 	}
-	l, err := q.List()
+	l, err := q.List(context.Background())
 	if err != nil || len(l.Tickets) != 0 || len(l.Bad) != 0 {
 		t.Fatalf("got %+v, %v; want an empty queue", l, err)
 	}
@@ -331,7 +375,7 @@ func TestTicketsOnDiskAndTheListMeetTheContract(t *testing.T) {
 func TestAnEmptyQueueListsEmptyArrays(t *testing.T) {
 	q, _ := newQueue(t)
 	app := serve.App{ID: "shop", Version: "1.0.0", Contracts: []string{"v1"}}
-	l, err := q.List()
+	l, err := q.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,18 +408,53 @@ func TestAChangeThatWaitsTooLongTimesOutAndLeavesTheLine(t *testing.T) {
 	}
 }
 
-func TestAStaleTicketIsMovedToBadSaidAndSkipped(t *testing.T) {
+func TestATicketWhoseProcessEndedIsRemovedAndSaid(t *testing.T) {
 	q, log := newQueue(t)
-	q.Stale = time.Second
-	path := plant(t, q, firstID+".json", ticketBody(firstID), time.Now().Add(-time.Hour))
+	path := plant(t, q, firstID+".json", ticketBody(firstID), time.Now())
 	if err := q.Change(context.Background(), "add item", nothing, nothing); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(q.Folder, ".queue", "bad", firstID+".json")); err != nil {
-		t.Fatalf("the stale ticket is not in bad/: %v", err)
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the ticket of an ended process is still there: %v", err)
 	}
-	if !strings.Contains(log.String(), path) || !strings.Contains(log.String(), "stale") {
-		t.Errorf("said %q, want the file and that it is stale", log.String())
+	l, err := q.List(context.Background())
+	if err != nil || len(l.Bad) != 0 {
+		t.Fatalf("bad %v, %v; want it removed, not set aside", l.Bad, err)
+	}
+	if !strings.Contains(log.String(), path) || !strings.Contains(log.String(), "ended") {
+		t.Errorf("said %q, want the file and that its process ended", log.String())
+	}
+}
+
+func TestACancelledContextChangesNothing(t *testing.T) {
+	q, _ := newQueue(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ran := false
+	if err := q.Change(ctx, "add item", func() error { ran = true; return nil }, nothing); !errors.Is(err, context.Canceled) || ran {
+		t.Fatalf("got %v (ran %v), want the cancel and nothing run", err, ran)
+	}
+	if _, err := os.Stat(filepath.Join(q.Folder, ".queue")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the queue folder was made: %v", err)
+	}
+}
+
+func TestARunningChangeWhoseTicketWasSetAsideStillHoldsTheTurn(t *testing.T) {
+	q, _ := newQueue(t)
+	release := hold(t, q)
+	l := waitFor(t, q, 1)
+	id := l.Tickets[0].Ticket.Metadata.ID + ".json"
+	if err := os.Rename(filepath.Join(q.Folder, ".queue", id), filepath.Join(q.Folder, ".queue", "bad", id)); err != nil {
+		t.Fatal(err)
+	}
+	next := q
+	next.Wait = 300 * time.Millisecond
+	ran := false
+	if err := next.Change(context.Background(), "next", func() error { ran = true; return nil }, nothing); code(err) != queue.CodeTimeout || ran {
+		t.Fatalf("got %v (ran %v), want %s: the next change ran beside the running one", err, ran, queue.CodeTimeout)
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -385,6 +464,7 @@ func TestAnUnreadableTicketIsMovedToBadSaidAndSkipped(t *testing.T) {
 		"another kind":   strings.Replace(ticketBody(firstID), `"Ticket"`, `"Command"`, 1),
 		"another id":     ticketBody("00000000000000000002"),
 		"another header": strings.Replace(ticketBody(firstID), "elderlygate/mankit/ticket/v1", "elderlygate/mankit/ticket/v2", 1),
+		"no change":      strings.Replace(ticketBody(firstID), `"change":"left behind",`, "", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			q, log := newQueue(t)
@@ -392,7 +472,7 @@ func TestAnUnreadableTicketIsMovedToBadSaidAndSkipped(t *testing.T) {
 			if err := q.Change(context.Background(), "add item", nothing, nothing); err != nil {
 				t.Fatal(err)
 			}
-			l, err := q.List()
+			l, err := q.List(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -406,6 +486,18 @@ func TestAnUnreadableTicketIsMovedToBadSaidAndSkipped(t *testing.T) {
 	}
 }
 
+func TestATicketWithoutATwentyDigitIDIsMovedToBad(t *testing.T) {
+	q, _ := newQueue(t)
+	plant(t, q, "42.json", ticketBody("42"), time.Now())
+	if err := q.Change(context.Background(), "add item", nothing, nothing); err != nil {
+		t.Fatal(err)
+	}
+	l, err := q.List(context.Background())
+	if err != nil || len(l.Bad) != 1 || l.Bad[0].File != "42.json" {
+		t.Fatalf("bad %v, %v; want the short id set aside", l.Bad, err)
+	}
+}
+
 func TestABadTicketNeverReplacesOneAlreadyInBad(t *testing.T) {
 	q, _ := newQueue(t)
 	plant(t, q, firstID+".json", "{", time.Now())
@@ -416,7 +508,7 @@ func TestABadTicketNeverReplacesOneAlreadyInBad(t *testing.T) {
 	if err := q.Change(context.Background(), "two", nothing, nothing); err != nil {
 		t.Fatal(err)
 	}
-	l, err := q.List()
+	l, err := q.List(context.Background())
 	if err != nil || len(l.Bad) != 2 {
 		t.Fatalf("bad %v, %v; want both kept", l.Bad, err)
 	}
@@ -501,19 +593,7 @@ func TestProcessesChangingOneThingTakeTurns(t *testing.T) {
 	folder := filepath.Join(t.TempDir(), ".shop")
 	var children []*exec.Cmd
 	for range 3 {
-		cmd := exec.Command(os.Args[0], "-test.run=^$")
-		cmd.Env = append(os.Environ(), childEnv+"="+folder)
-		var out bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &out, &out
-		if err := cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if t.Failed() {
-				t.Log(out.String())
-			}
-		})
-		children = append(children, cmd)
+		children = append(children, start(t, "count", folder, "", ""))
 	}
 	for _, cmd := range children {
 		if err := cmd.Wait(); err != nil {
@@ -532,5 +612,116 @@ func TestProcessesChangingOneThingTakeTurns(t *testing.T) {
 		if lines[i] != "start" || lines[i+2] != "end" || lines[i+1] != lines[i+3] {
 			t.Fatalf("changes overlapped at %v", lines[i:i+4])
 		}
+	}
+}
+
+func TestProcessesGoInTheOrderTheyJoined(t *testing.T) {
+	q, _ := newQueue(t)
+	release := hold(t, q)
+	var children []*exec.Cmd
+	for i := range 3 {
+		children = append(children, start(t, "mark", q.Folder, strconv.Itoa(i), ""))
+		waitFor(t, q, i+2)
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range children {
+		if err := cmd.Wait(); err != nil {
+			t.Fatalf("a process failed: %v", err)
+		}
+	}
+	log, err := os.ReadFile(filepath.Join(q.Folder, "log"))
+	if err != nil || strings.Join(strings.Fields(string(log)), " ") != "0 1 2" {
+		t.Fatalf("marks %q, %v; want 0 1 2, the order they joined", log, err)
+	}
+}
+
+// turnOf waits until a ticket of another process holds the turn, and gives back its id.
+func turnOf(t *testing.T, q queue.Queue) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		l, err := q.List(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(l.Tickets) > 0 && l.Tickets[0].Turn && l.Tickets[0].Ticket.Metadata.PID != os.Getpid() {
+			return l.Tickets[0].Ticket.Metadata.ID
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("no other process got the turn")
+	return ""
+}
+
+func TestAKilledProcessThatHeldTheTurnIsRecoveredAtOnce(t *testing.T) {
+	q, log := newQueue(t)
+	holder := start(t, "hold", q.Folder, "1h", "")
+	id := turnOf(t, q)
+	if err := holder.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = holder.Wait()
+	began := time.Now()
+	if err := q.Change(context.Background(), "next", nothing, nothing); err != nil {
+		t.Fatal(err)
+	}
+	if waited := time.Since(began); waited > 2*time.Second {
+		t.Errorf("waited %s after the holder died", waited)
+	}
+	if !strings.Contains(log.String(), id) || !strings.Contains(log.String(), "ended") {
+		t.Errorf("said %q, want the dead ticket named", log.String())
+	}
+}
+
+func TestARunningProcessWhoseTicketWasSetAsideStillHoldsTheTurn(t *testing.T) {
+	q, _ := newQueue(t)
+	start(t, "hold", q.Folder, "1h", "")
+	id := turnOf(t, q) + ".json"
+	if err := os.Rename(filepath.Join(q.Folder, ".queue", id), filepath.Join(q.Folder, ".queue", "bad", id)); err != nil {
+		t.Fatal(err)
+	}
+	q.Wait = 500 * time.Millisecond
+	ran := false
+	if err := q.Change(context.Background(), "next", func() error { ran = true; return nil }, nothing); code(err) != queue.CodeTimeout || ran {
+		t.Fatalf("got %v (ran %v), want %s: the next change ran beside the running one", err, ran, queue.CodeTimeout)
+	}
+}
+
+func TestALongChangeKeepsItsTicketThroughManyStaleTimes(t *testing.T) {
+	defer queue.Times(200*time.Millisecond, 50*time.Millisecond)()
+	q, log := newQueue(t)
+	holder := start(t, "hold", q.Folder, "1s", "200ms,50ms")
+	turnOf(t, q)
+	for range 20 {
+		if _, err := q.List(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err := holder.Wait(); err != nil {
+		t.Fatalf("the long change failed: %v", err)
+	}
+	if l, err := q.List(context.Background()); err != nil || len(l.Bad) != 0 || log.String() != "" {
+		t.Fatalf("bad %v, said %q, %v; want the live ticket left alone", l.Bad, log.String(), err)
+	}
+}
+
+func TestATicketWhoseOwnerShowsNoSignOfLifeIsSetAsideAndSaid(t *testing.T) {
+	defer queue.Times(300*time.Millisecond, time.Hour)()
+	q, log := newQueue(t)
+	start(t, "hold", q.Folder, "1h", "30s,1h")
+	id := turnOf(t, q)
+	time.Sleep(400 * time.Millisecond)
+	l, err := q.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Tickets) != 0 || len(l.Bad) != 1 || l.Bad[0].File != id+".json" {
+		t.Fatalf("got %+v, want the silent ticket in bad/", l)
+	}
+	if !strings.Contains(log.String(), "stale") {
+		t.Errorf("said %q, want it named stale", log.String())
 	}
 }
