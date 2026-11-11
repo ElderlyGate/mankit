@@ -26,6 +26,7 @@ three, instead of being made three times.
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 | `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link` (see [Serve](#serve)) |
+| `features` | An app's list of switchable features: the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 
 ## Settings
 
@@ -341,6 +342,29 @@ terminal only.
 
 The tests check the real answers against the schemas in
 [contracts](https://github.com/ElderlyGate/contracts).
+
+## Features
+
+A part of an app that can be switched off lives in one module and is reached
+only through the app's feature list. `features` is that list; the
+app hands in its features and where the owner's switches are kept.
+
+```go
+list := features.New(
+	[]features.Feature{{ID: "events", Title: "Live events", Covers: "GET /api/events"}},
+	features.Store{Off: readOff, Keep: keepOff},
+	features.Closer{By: "public", Closed: publicClosed},
+)
+states, err := list.States() // each feature on, or off and what closed it
+err = list.Set("events", false)
+```
+
+A feature is on until something closes it. The owner's switch (`features.Switch`)
+is asked first, then each closer in order, and the first that closes a feature
+is named in `State.By`. A closer only closes: switching a feature back on never
+opens what another closer closed. `Set` refuses an id the list does not hold,
+naming the ones it does, and a store that cannot be read is an error, never an
+empty list.
 
 ## Why textinput is vendored
 
