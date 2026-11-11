@@ -37,9 +37,10 @@ type Site struct {
 
 // VersionData is the data of the GET /api/version answer.
 type VersionData struct {
-	App      string `json:"app"`
-	Version  string `json:"version"`
-	Contract string `json:"contract"`
+	App       string   `json:"app"`
+	Version   string   `json:"version"`
+	Contract  string   `json:"contract"`
+	Contracts []string `json:"contracts"`
 }
 
 var writing = map[string]bool{http.MethodPost: true, http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true}
@@ -56,7 +57,7 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		s := answering(r)
-		Write(w, r, http.StatusOK, VersionKind, VersionData{App: a.ID, Version: a.Version, Contract: s.contract})
+		Write(w, r, http.StatusOK, VersionKind, VersionData{App: a.ID, Version: a.Version, Contract: s.contract, Contracts: a.Contracts})
 	})
 	for _, rt := range site.Routes {
 		if err := rt.check(); err != nil {

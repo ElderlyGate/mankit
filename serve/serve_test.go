@@ -130,6 +130,21 @@ func TestServeAnswersItsVersion(t *testing.T) {
 	if err := contracts.Validate("designer/v1/version.schema.json", w.Body.Bytes()); err != nil {
 		t.Fatalf("not designer's version answer: %v\n%s", err, w.Body)
 	}
+	two := app
+	two.Contracts = []string{"v1", "v2"}
+	h, err := two.Handler(site(nil), token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e struct {
+		Data serve.VersionData `json:"data"`
+	}
+	if err := json.Unmarshal(call(t, h, "GET", "/api/version", "", nil).Body.Bytes(), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.Data.Contract != "v2" || strings.Join(e.Data.Contracts, ",") != "v1,v2" {
+		t.Fatalf("version lists %+v, want contract v2 of v1,v2", e.Data)
+	}
 }
 
 func TestServeOpensThePageFromItsLinkWithAStrictCookie(t *testing.T) {
