@@ -538,6 +538,21 @@ func TestAModuleOffAndMissingAValueIsNotThere(t *testing.T) {
 	refusal(t, call(t, needing(t, &recorder{}, true), "GET", "/api/heard", "", nil), http.StatusNotFound, serve.CodeNotFound)
 }
 
+func TestHandlerRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) {
+	s := site(nil)
+	s.Needs = []features.Value{{Name: "SHOP_DIR", Purpose: "where the shop lives"}, {Name: "SHOP_KEY", Purpose: "what opens it"}}
+	s.Lookup = func(name string) bool { return name == "SHOP_KEY" }
+	_, err := app.Handler(s, token, nil)
+	var e *serve.Error
+	if !errors.As(err, &e) || e.Code != serve.CodeNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") || strings.Contains(e.Message, "SHOP_KEY") {
+		t.Fatalf("err = %v, want needs_values naming SHOP_DIR alone", err)
+	}
+	s.Lookup = func(string) bool { return true }
+	if _, err := app.Handler(s, token, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
 	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Off: func() ([]string, error) { return nil, nil }})
 	if err := list.Attach("hear", "not a part"); err != nil {

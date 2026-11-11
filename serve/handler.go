@@ -65,6 +65,8 @@ type Site struct {
 	Styles   func() (map[ask.Type]ask.Style, error) // the user's asking style per type, read on every change; nil is every default
 	Remember func(ask.Type) error                   // saves never for a type after "Remember my answer" (confirm=remember), in the app's config, such as ask.Remember
 	Features *features.List                         // the app's feature list; the Part attached to a feature adds routes and hears of changes while it is on
+	Needs    []features.Value                       // the values the app's core cannot run without; serve refuses to start while one is missing (G-CODE-8)
+	Lookup   features.Lookup                        // finds a value of Needs
 }
 
 // VersionData is the data of the GET /api/version answer.
@@ -85,6 +87,9 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 	}
 	if token == "" {
 		return nil, fmt.Errorf("serve: %s serves only with a token", a.command())
+	}
+	if missing := features.Missing(site.Needs, site.Lookup); len(missing) > 0 {
+		return nil, Fail(CodeNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {

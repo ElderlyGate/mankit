@@ -197,6 +197,26 @@ func TestServeRefusesAContractItDoesNotAnswerBeforeItStarts(t *testing.T) {
 
 // Errors and exit codes
 
+func TestServeRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) {
+	dir := machine(t)
+	r := root(func(*cobra.Command) (serve.Site, error) {
+		s := site(nil)
+		s.Needs = []features.Value{{Name: "SHOP_DIR", Purpose: "where the shop lives"}}
+		return s, nil
+	})
+	r.SetOut(&syncBuffer{})
+	r.SetErr(&syncBuffer{})
+	r.SetArgs([]string{"serve"})
+	err := r.Execute()
+	var e *serve.Error
+	if !errors.As(err, &e) || e.Code != serve.CodeNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") {
+		t.Fatalf("got %v, want needs_values naming SHOP_DIR", err)
+	}
+	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
+		t.Fatalf("it started anyway: %v", recs)
+	}
+}
+
 func TestServeRefusesAnAddressOtherMachinesReach(t *testing.T) {
 	machine(t)
 	if _, err := run(t, "serve", "--addr", "0.0.0.0:0"); err == nil || !strings.Contains(err.Error(), "--allow-remote") {
