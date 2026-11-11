@@ -319,7 +319,7 @@ What serve does for every app:
 - opens the page only from its link (`?token=`), which it swaps for the cookie
   `<app>-token-<port>` (Strict, HttpOnly); an API request carries the token in
   `X-<App>-Token` or that cookie, comes from the page itself, and sends JSON;
-- answers `GET /api/version`, and the contract asked for in `Accept-Contract`,
+- answers `GET /api/version` with the contracts it answers, and the contract asked for in `Accept-Contract`,
   else 406 `unsupported_contract` with the versions it answers;
 - answers a change (POST, PUT, PATCH, DELETE) with 428 `unconfirmed` until it
   comes with `confirm=yes`, unless the user picked `never` for its type. Every
