@@ -376,8 +376,8 @@ func TestSetWritesThroughABrokenSymlink(t *testing.T) {
 	}
 }
 
-// Every key mankit declares says its purpose in one line, so no setting reaches a user unexplained.
-func TestEveryKeyMankitDeclaresHasAPurposeLine(t *testing.T) {
+// Every one of mankit's own keys says its purpose in one line; an app's own keys are its own test's to check.
+func TestEveryOneOfMankitsOwnKeysHasAPurposeLine(t *testing.T) {
 	all := append(settings.Keys("app"), queue.WaitKey, queue.LimitKey)
 	for _, typ := range ask.Types() {
 		all = append(all, settings.Confirm(typ))
