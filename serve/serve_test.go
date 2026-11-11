@@ -1,383 +1,224 @@
 package serve_test
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"io"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/ask"
 	"github.com/tugbayatilla/mankit/serve"
 )
 
-// The tests serve as designer, so its version answer is checked against its own contract too.
-var app = serve.App{ID: "designer", Command: "e-designer", Version: "5.0.0", Contracts: []string{"v1"}, Addr: "127.0.0.1:0"}
-
-const token = "s3cret"
-
-type greeting struct {
-	Text string `json:"text"`
-}
-
-func site(styles func() (map[ask.Type]ask.Style, error)) serve.Site {
-	return serve.Site{
-		Name: "shop",
-		Routes: []serve.Route{
-			{Pattern: "GET /api/greeting", Handler: func(w http.ResponseWriter, r *http.Request) {
-				serve.Write(w, r, http.StatusOK, "Greeting", greeting{Text: "hello"})
-			}},
-			{Pattern: "POST /api/greeting", Action: ask.Action{Type: ask.Edit, What: "change the greeting"}, Handler: func(w http.ResponseWriter, r *http.Request) {
-				serve.Write(w, r, http.StatusOK, "Greeting", greeting{Text: "changed"})
-			}},
-			{Pattern: "DELETE /api/greeting", Action: ask.Action{Type: ask.Delete, System: true}, Handler: func(w http.ResponseWriter, r *http.Request) {
-				serve.WriteError(w, r, http.StatusConflict, errors.New("the greeting is in use"))
-			}},
-		},
-		UI:     http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "the page") }),
-		Styles: styles,
-	}
-}
-
-func handler(t *testing.T, styles func() (map[ask.Type]ask.Style, error)) http.Handler {
-	t.Helper()
-	h, err := app.Handler(site(styles), token, []string{"tunnel.example"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return h
-}
-
-// call is one API request with the token, as a reader on this machine sends it.
-func call(t *testing.T, h http.Handler, method, target, body string, header map[string]string) *httptest.ResponseRecorder {
-	t.Helper()
-	var r io.Reader
-	if body != "" {
-		r = strings.NewReader(body)
-	}
-	req := httptest.NewRequest(method, "http://127.0.0.1:7480"+target, r)
-	req.Header.Set(app.TokenHeader(), token)
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	for k, v := range header {
-		if v == "" {
-			req.Header.Del(k)
-			continue
-		}
-		req.Header.Set(k, v)
-	}
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	return w
-}
-
-// envelope checks body against the contracts envelope and returns it.
-func envelope(t *testing.T, body []byte) serve.Envelope {
-	t.Helper()
-	if err := contracts.Validate("envelope/v1/envelope.schema.json", body); err != nil {
-		t.Fatalf("not a contracts envelope: %v\n%s", err, body)
-	}
-	var e serve.Envelope
-	if err := json.Unmarshal(body, &e); err != nil {
-		t.Fatal(err)
-	}
-	return e
-}
-
-// refusal checks an error answer: its status, its one error's code, and where it ran.
-func refusal(t *testing.T, w *httptest.ResponseRecorder, status int, code string) serve.Error {
-	t.Helper()
-	if w.Code != status {
-		t.Fatalf("status %d, want %d: %s", w.Code, status, w.Body)
-	}
-	e := envelope(t, w.Body.Bytes())
-	if len(e.Errors) != 1 || e.Errors[0].Code != code {
-		t.Fatalf("errors %+v, want one %s", e.Errors, code)
-	}
-	if e.Ran != (serve.Ran{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}) {
-		t.Fatalf("ran %+v", e.Ran)
-	}
-	return e.Errors[0]
-}
+// The serve command: in the foreground, or detached with --detach.
 
 // Success
 
-func TestServeAnswersARouteInTheEnvelope(t *testing.T) {
-	w := call(t, handler(t, nil), "GET", "/api/greeting", "", nil)
-	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
-		t.Fatalf("status %d, type %q", w.Code, w.Header().Get("Content-Type"))
+func TestServeDetachesAndLeavesARecord(t *testing.T) {
+	dir := machine(t)
+	rec := detached(t)
+	spec := rec["spec"].(map[string]any)
+	if spec["detached"] != true || spec["name"] != "shop" {
+		t.Fatalf("spec %v", spec)
 	}
-	e := envelope(t, w.Body.Bytes())
-	want := serve.Ran{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}
-	if e.APIVersion != "elderlygate/designer/app/v1" || e.Kind != "Greeting" || e.Ran != want || len(e.Errors) != 0 {
-		t.Fatalf("got %+v", e)
+	log, _ := spec["log"].(string)
+	if filepath.Base(log) != strings.NewReplacer(":", "-").Replace(addrOf(rec))+".log" {
+		t.Fatalf("the log %q is not named for the address bound", log)
+	}
+	if _, err := os.Stat(log); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("records folder %v, %v; want 0700", info.Mode(), err)
 	}
 }
 
-func TestServeAnswersItsVersion(t *testing.T) {
-	w := call(t, handler(t, nil), "GET", "/api/version", "", nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", w.Code, w.Body)
+func TestServeInTheForegroundLeavesARecordUntilItStops(t *testing.T) {
+	dir := machine(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out := &syncBuffer{}
+	r := root(nil)
+	r.SetOut(out)
+	r.SetArgs([]string{"serve"})
+	done := make(chan error, 1)
+	go func() { done <- r.ExecuteContext(ctx) }()
+
+	var addr string
+	for addr == "" && ctx.Err() == nil {
+		time.Sleep(20 * time.Millisecond)
+		if line, ok := strings.CutPrefix(out.String(), "e-designer serving on http://"); ok {
+			addr, _, _ = strings.Cut(line, "\n")
+		}
 	}
-	if err := contracts.Validate("designer/v1/version.schema.json", w.Body.Bytes()); err != nil {
-		t.Fatalf("not designer's version answer: %v\n%s", err, w.Body)
+	if strings.Contains(out.String(), token) || strings.Contains(out.String(), "?token=") {
+		t.Fatalf("the link went to a stream that is not a terminal: %q", out.String())
 	}
-	two := app
-	two.Contracts = []string{"v1", "v2"}
-	h, err := two.Handler(site(nil), token, nil)
+	if !strings.Contains(out.String(), "e-designer servers link "+addr) {
+		t.Fatalf("it does not say where the link is: %q", out.String())
+	}
+	list, _ := answer(t, "mankit/v1/server-list.schema.json", "servers").Data.([]any)
+	if len(list) != 1 || list[0].(map[string]any)["record"].(map[string]any)["spec"].(map[string]any)["detached"] != false {
+		t.Fatalf("servers lists %v", list)
+	}
+	link := answer(t, "", "servers", "link", addr).Data.(map[string]any)["url"].(string)
+	resp, err := http.Get(link)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var e struct {
-		Data serve.VersionData `json:"data"`
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
 	}
-	if err := json.Unmarshal(call(t, h, "GET", "/api/version", "", nil).Body.Bytes(), &e); err != nil {
+	cancel()
+	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if e.Data.Contract != "v2" || strings.Join(e.Data.Contracts, ",") != "v1,v2" {
-		t.Fatalf("version lists %+v, want contract v2 of v1,v2", e.Data)
-	}
-}
-
-func TestServeOpensThePageFromItsLinkWithAStrictCookie(t *testing.T) {
-	h := handler(t, nil)
-	req := httptest.NewRequest("GET", "http://127.0.0.1:7480/board?x=1&token="+token, nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	cookies := w.Result().Cookies()
-	if w.Code != http.StatusOK || len(cookies) != 1 {
-		t.Fatalf("status %d, cookies %v", w.Code, cookies)
-	}
-	c := cookies[0]
-	if c.Name != "designer-token-7480" || c.Value != token || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
-		t.Fatalf("cookie %+v", c)
-	}
-	if !strings.Contains(w.Body.String(), `url=/board?x=1"`) || strings.Contains(w.Body.String(), token) {
-		t.Fatalf("the page goes on to %q", w.Body)
-	}
-
-	req = httptest.NewRequest("GET", "http://127.0.0.1:7480/board", nil)
-	req.AddCookie(c)
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != http.StatusOK || w.Body.String() != "the page" {
-		t.Fatalf("with the cookie: %d %q", w.Code, w.Body)
-	}
-}
-
-func TestServeTakesTheCookieForAnAPIRequest(t *testing.T) {
-	req := httptest.NewRequest("GET", "http://localhost:7480/api/greeting", nil)
-	req.AddCookie(&http.Cookie{Name: "designer-token-7480", Value: token})
-	w := httptest.NewRecorder()
-	handler(t, nil).ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", w.Code, w.Body)
-	}
-}
-
-func TestServeAnswersANameItWasGiven(t *testing.T) {
-	req := httptest.NewRequest("GET", "http://tunnel.example/api/version", nil)
-	req.Header.Set(app.TokenHeader(), token)
-	w := httptest.NewRecorder()
-	handler(t, nil).ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", w.Code, w.Body)
+	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
+		t.Fatalf("the record outlived the server: %v", recs)
 	}
 }
 
 // Contract
 
-func TestServeAnswersTheContractAskedFor(t *testing.T) {
-	w := call(t, handler(t, nil), "GET", "/api/greeting", "", map[string]string{serve.ContractHeader: "v1"})
-	if e := envelope(t, w.Body.Bytes()); w.Code != http.StatusOK || e.Ran.Contract != "v1" {
-		t.Fatalf("status %d, ran %+v", w.Code, e.Ran)
+func TestServeDetachAnswersTheContractAskedFor(t *testing.T) {
+	machine(t)
+	e := answer(t, "", "serve", "--detach", "--contract", "v1")
+	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+	if e.Ran.Contract != "v1" || e.APIVersion != apiVersion {
+		t.Fatalf("got %+v", e)
 	}
 }
 
-func TestServeRefusesAContractItDoesNotAnswer(t *testing.T) {
-	w := call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{serve.ContractHeader: "v9"})
-	e := refusal(t, w, http.StatusNotAcceptable, serve.CodeUnsupportedContract)
-	if strings.Join(e.Supported, ",") != "v1" {
-		t.Fatalf("supported %v, want v1", e.Supported)
-	}
-}
-
-func TestAppChoosesItsNewestContractByDefault(t *testing.T) {
-	two := app
-	two.Contracts = []string{"v1", "v2"}
-	if c, err := two.Contract(""); err != nil || c != "v2" {
-		t.Fatalf("got %q, %v", c, err)
-	}
-	_, err := two.Contract("v3")
+func TestServeRefusesAContractItDoesNotAnswerBeforeItStarts(t *testing.T) {
+	dir := machine(t)
+	_, err := run(t, "serve", "--detach", "-o", "json", "--contract", "v9")
 	var e *serve.Error
-	if !errors.As(err, &e) || e.Code != serve.CodeUnsupportedContract || strings.Join(e.Supported, ",") != "v1,v2" {
+	if !errors.As(err, &e) || e.Code != serve.CodeUnsupportedContract {
+		t.Fatalf("got %v", err)
+	}
+	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
+		t.Fatalf("it started anyway: %v", recs)
+	}
+}
+
+// Errors and exit codes
+
+func TestServeRefusesAnAddressOtherMachinesReach(t *testing.T) {
+	machine(t)
+	if _, err := run(t, "serve", "--addr", "0.0.0.0:0"); err == nil || !strings.Contains(err.Error(), "--allow-remote") {
 		t.Fatalf("got %v", err)
 	}
 }
 
-// Errors and codes
-
-func TestServeRefusesAnotherHost(t *testing.T) {
-	req := httptest.NewRequest("GET", "http://evil.example/api/version", nil)
-	req.Header.Set(app.TokenHeader(), token)
-	w := httptest.NewRecorder()
-	handler(t, nil).ServeHTTP(w, req)
-	refusal(t, w, http.StatusForbidden, serve.CodeHost)
+func TestServeDetachSaysWhyTheServerDidNotStart(t *testing.T) {
+	machine(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if _, err := run(t, "serve", "--detach", "--addr", ln.Addr().String()); err == nil || !strings.Contains(err.Error(), "cannot listen") {
+		t.Fatalf("got %v", err)
+	}
 }
 
-func TestServeRefusesAnotherOrigin(t *testing.T) {
-	for name, header := range map[string]map[string]string{
-		"origin":         {"Origin": "http://evil.example"},
-		"sec-fetch-site": {"Sec-Fetch-Site": "cross-site"},
+func TestServeDetachStopsAtOnceOnARecordItCannotRead(t *testing.T) {
+	dir := machine(t)
+	bad := writeRecord(t, dir, "127.0.0.1:1", 0)
+	start := time.Now()
+	if _, err := run(t, "serve", "--detach"); err == nil || !strings.Contains(err.Error(), bad) {
+		t.Fatalf("got %v", err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("it waited %s", time.Since(start))
+	}
+}
+
+func TestServeRefusesATokenOthersCanReach(t *testing.T) {
+	for name, plant := range map[string]func(t *testing.T, path string){
+		"open to others": func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte("t\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a link": func(t *testing.T, path string) {
+			real := filepath.Join(t.TempDir(), "elsewhere")
+			if err := os.WriteFile(real, []byte("t\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(real, path); err != nil {
+				t.Fatal(err)
+			}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", header), http.StatusForbidden, serve.CodeOrigin)
-		})
-	}
-}
-
-func TestServeTakesItsOwnOrigin(t *testing.T) {
-	w := call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{"Origin": "http://127.0.0.1:7480", "Sec-Fetch-Site": "same-origin"})
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", w.Code, w.Body)
-	}
-}
-
-func TestServeRefusesARequestWithoutTheToken(t *testing.T) {
-	for name, value := range map[string]string{"none": "", "wrong": "guess"} {
-		t.Run(name, func(t *testing.T) {
-			e := refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{app.TokenHeader(): value}), http.StatusUnauthorized, serve.CodeToken)
-			if strings.Contains(e.Message, token) {
-				t.Fatal("the refusal tells the token")
+			dir := machine(t)
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "token")
+			plant(t, path)
+			for _, args := range [][]string{{"serve"}, {"servers", "link"}} {
+				if _, err := run(t, args...); err == nil || !strings.Contains(err.Error(), path) {
+					t.Errorf("%v: got %v, want a refusal naming %s", args, err, path)
+				}
 			}
 		})
 	}
 }
 
-func TestServeShowsThePageWithoutTheCookieOnlyWhereItsLinkIs(t *testing.T) {
-	for _, target := range []string{"/", "/?token=guess"} {
-		w := httptest.NewRecorder()
-		handler(t, nil).ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1:7480"+target, nil))
-		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "e-designer servers link") || len(w.Result().Cookies()) != 0 {
-			t.Fatalf("%s: %d %q", target, w.Code, w.Body)
-		}
+func TestCommandsRefusesAnAppItCannotServe(t *testing.T) {
+	open := func(*cobra.Command) (serve.Site, error) { return serve.Site{}, nil }
+	if _, err := (serve.App{ID: "designer", Version: "1.0.0"}).Commands(open, nil); err == nil {
+		t.Fatal("an app without contracts got commands")
 	}
-}
-
-func TestServeRefusesABodyThatIsNotJSON(t *testing.T) {
-	w := call(t, handler(t, nil), "POST", "/api/greeting?confirm=yes", "text=hi", map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
-	refusal(t, w, http.StatusUnsupportedMediaType, serve.CodeNotJSON)
-}
-
-func TestServeAnswersAnUnknownRouteInTheEnvelope(t *testing.T) {
-	refusal(t, call(t, handler(t, nil), "GET", "/api/nothing", "", nil), http.StatusNotFound, serve.CodeNotFound)
-}
-
-func TestServeAnswersAnAppErrorWithItsCode(t *testing.T) {
-	refusal(t, call(t, handler(t, nil), "DELETE", "/api/greeting?confirm=yes", "", nil), http.StatusConflict, serve.CodeFailed)
-}
-
-func TestHandlerRefusesARouteItCannotGuard(t *testing.T) {
-	ok := func(http.ResponseWriter, *http.Request) {}
-	for name, rt := range map[string]serve.Route{
-		"no method":             {Pattern: "/api/x", Handler: ok},
-		"outside the api":       {Pattern: "GET /x", Handler: ok},
-		"the version":           {Pattern: "GET /api/version", Handler: ok},
-		"no handler":            {Pattern: "GET /api/x"},
-		"a change without":      {Pattern: "PUT /api/x", Handler: ok},
-		"a change of no type":   {Pattern: "PUT /api/x", Action: ask.Action{Type: "launch"}, Handler: ok},
-		"a read with an asking": {Pattern: "GET /api/x", Action: ask.Action{Type: ask.Edit}, Handler: ok},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := app.Handler(serve.Site{Routes: []serve.Route{rt}}, token, nil); err == nil {
-				t.Fatal("taken")
-			}
-		})
-	}
-	if _, err := app.Handler(serve.Site{}, "", nil); err == nil {
-		t.Fatal("served without a token")
-	}
-	if _, err := (serve.App{ID: "designer"}).Handler(serve.Site{}, token, nil); err == nil {
-		t.Fatal("served an app without its version and contracts")
+	if _, err := app.Commands(open, nil); err == nil {
+		t.Fatal("commands without confirm were made")
 	}
 }
 
 // Asking
 
-func TestServeRefusesAChangeWithoutTheUsersYes(t *testing.T) {
-	e := refusal(t, call(t, handler(t, nil), "POST", "/api/greeting", `{"text":"hi"}`, nil), http.StatusPreconditionRequired, serve.CodeUnconfirmed)
-	if !strings.Contains(e.Message, "change the greeting") {
-		t.Fatalf("the refusal does not say what it would change: %q", e.Message)
+func TestServeNeverAsks(t *testing.T) {
+	machine(t)
+	// No terminal and no --yes: starting a server changes no served thing, so it asks nothing.
+	if _, err := run(t, "serve", "--detach"); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestServeTakesAChangeWithTheUsersYes(t *testing.T) {
-	for _, answer := range []string{serve.ConfirmYes, serve.ConfirmRemember} {
-		w := call(t, handler(t, nil), "POST", "/api/greeting?confirm="+answer, `{"text":"hi"}`, nil)
-		if w.Code != http.StatusOK {
-			t.Fatalf("confirm=%s: %d %s", answer, w.Code, w.Body)
-		}
-	}
-}
-
-func TestServeTakesAChangeTheUserNeverWantsToBeAskedAbout(t *testing.T) {
-	never := func() (map[ask.Type]ask.Style, error) {
-		return map[ask.Type]ask.Style{ask.Edit: ask.Never, ask.Delete: ask.Never}, nil
-	}
-	h := handler(t, never)
-	if w := call(t, h, "POST", "/api/greeting", `{"text":"hi"}`, nil); w.Code != http.StatusOK {
-		t.Fatalf("edit set to never: %d %s", w.Code, w.Body)
-	}
-	// A change to the system itself still asks, whatever was remembered.
-	refusal(t, call(t, h, "DELETE", "/api/greeting", "", nil), http.StatusPreconditionRequired, serve.CodeUnconfirmed)
-}
-
-func TestServeSaysWhichConfigItCannotRead(t *testing.T) {
-	broken := func() (map[ask.Type]ask.Style, error) { return nil, errors.New("config.yaml: confirm is not a map") }
-	e := refusal(t, call(t, handler(t, broken), "POST", "/api/greeting", `{"text":"hi"}`, nil), http.StatusInternalServerError, serve.CodeConfig)
-	if !strings.Contains(e.Message, "config.yaml") {
-		t.Fatalf("message %q", e.Message)
-	}
-}
-
-func TestServeNeverAsksForARead(t *testing.T) {
-	broken := func() (map[ask.Type]ask.Style, error) { return nil, errors.New("unreadable") }
-	if w := call(t, handler(t, broken), "GET", "/api/greeting", "", nil); w.Code != http.StatusOK {
-		t.Fatalf("status %d", w.Code)
-	}
+	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
 }
 
 // CLI and HTTP parity
 
-func TestTheCLIAndHTTPGiveTheSameAnswer(t *testing.T) {
-	var cli bytes.Buffer
-	if err := serve.Encode(&cli, app.Answer("shop", "v1", "Greeting", greeting{Text: "hello"})); err != nil {
+func TestServeDetachAnswersLikeHTTP(t *testing.T) {
+	machine(t)
+	out, err := run(t, "serve", "--detach", "-o", "json")
+	if err != nil {
 		t.Fatal(err)
 	}
-	w := call(t, handler(t, nil), "GET", "/api/greeting", "", nil)
-	if cli.String() != w.Body.String() {
-		t.Fatalf("CLI:\n%s\nHTTP:\n%s", cli.String(), w.Body)
-	}
-}
-
-func TestTheCLIAndHTTPGiveTheSameError(t *testing.T) {
-	var cli bytes.Buffer
-	_, err := app.Contract("v9")
-	if err := serve.Encode(&cli, app.Failure("shop", "v1", err)); err != nil {
+	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+	var e serve.Envelope
+	if err := json.Unmarshal([]byte(out), &e); err != nil {
 		t.Fatal(err)
 	}
-	envelope(t, cli.Bytes())
-	w := call(t, handler(t, nil), "GET", "/api/greeting", "", map[string]string{serve.ContractHeader: "v9"})
-	if cli.String() != w.Body.String() {
-		t.Fatalf("CLI:\n%s\nHTTP:\n%s", cli.String(), w.Body)
+	if e.Ran != (serve.Ran{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}) {
+		t.Fatalf("ran %+v", e.Ran)
+	}
+	raw, _ := json.Marshal(e.Data)
+	if err := contracts.Validate("mankit/v1/server.schema.json", raw); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -390,39 +231,4 @@ func TestServeHelpNamesItsFlags(t *testing.T) {
 			t.Errorf("serve --help has no %s:\n%s", want, out)
 		}
 	}
-}
-
-// root is an app's root with serve and servers, answering the asking question in style.
-func root(open func(*cobra.Command) (serve.Site, error)) *cobra.Command {
-	r := &cobra.Command{Use: "e-designer", SilenceUsage: true, SilenceErrors: true}
-	r.AddCommand(app.Commands(open, func(cmd *cobra.Command, a ask.Action) error {
-		_, err := ask.Change(cmd, a, ask.YesNo)
-		return err
-	})...)
-	return r
-}
-
-func help(t *testing.T, args ...string) string {
-	t.Helper()
-	var out bytes.Buffer
-	r := root(nil)
-	r.SetOut(&out)
-	r.SetArgs(append(args, "--help"))
-	if err := r.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	return out.String()
-}
-
-func TestMain(m *testing.M) {
-	// The child of serve --detach is this test binary started again: it runs the app's root, as a real app's binary would.
-	if os.Getenv("SERVE_TEST_CHILD") == "1" {
-		r := root(func(*cobra.Command) (serve.Site, error) { return site(nil), nil })
-		if err := r.Execute(); err != nil {
-			os.Stderr.WriteString(err.Error() + "\n")
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
 }
