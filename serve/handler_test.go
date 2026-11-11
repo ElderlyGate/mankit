@@ -218,7 +218,8 @@ func TestHandlerRefusesARouteItCannotGuard(t *testing.T) {
 		"a change without":      {Pattern: "PUT /api/x", Handler: ok},
 		"a change of no type":   {Pattern: "PUT /api/x", Action: ask.Action{Type: "launch"}, Handler: ok},
 		"a read with an asking": {Pattern: "GET /api/x", Action: ask.Action{Type: ask.Edit}, Handler: ok},
-		"a read with an event":  {Pattern: "GET /api/x", Causes: serve.Cause{Type: "designer.x.read"}, Handler: ok},
+		"a read that changes":   {Pattern: "GET /api/x", Changes: serve.Change{Thing: "x", ID: func(any) string { return "1" }}, Handler: ok},
+		"a change without id":   {Pattern: "PUT /api/x", Action: ask.Action{Type: ask.Edit}, Changes: serve.Change{Thing: "x"}, Handler: ok},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := app.Handler(serve.Site{Routes: []serve.Route{rt}}, token, nil); err == nil {
@@ -433,8 +434,8 @@ func TestHandlerRefusesARouteGivenTwice(t *testing.T) {
 
 // Feature modules
 
-// recorder is a feature's module that adds GET /api/heard and keeps every change it is told of.
-type recorder struct{ heard []serve.Change }
+// recorder is a feature's module that adds GET /api/heard and keeps every change it is told of, and every one it missed.
+type recorder struct{ heard, skipped []serve.Answered }
 
 func (m *recorder) Mount(routes []serve.Route) ([]serve.Route, error) {
 	return []serve.Route{{Pattern: "GET /api/heard", Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -442,7 +443,9 @@ func (m *recorder) Mount(routes []serve.Route) ([]serve.Route, error) {
 	}}}, nil
 }
 
-func (m *recorder) Changed(c serve.Change) { m.heard = append(m.heard, c) }
+func (m *recorder) Changed(a serve.Answered) { m.heard = append(m.heard, a) }
+
+func (m *recorder) Skipped(a serve.Answered) { m.skipped = append(m.skipped, a) }
 
 // withModule is the test site with a feature "hear" whose module is m, switched off when off is set.
 func withModule(t *testing.T, m any, off bool) http.Handler {
@@ -482,13 +485,14 @@ func TestAModuleIsToldOfAChangeAnsweredWell(t *testing.T) {
 	}
 }
 
-func TestAModuleOffIsNeitherServedNorTold(t *testing.T) {
+func TestAModuleOffIsNotServedAndHearsOnlyThatItMissedAChange(t *testing.T) {
 	m := &recorder{}
 	h := withModule(t, m, true)
 	call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil)
+	call(t, h, "POST", "/api/greeting", `{"text":"hi"}`, nil)
 	refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusNotFound, serve.CodeNotFound)
-	if len(m.heard) != 0 {
-		t.Fatalf("heard %+v with the feature off", m.heard)
+	if len(m.heard) != 0 || len(m.skipped) != 1 {
+		t.Fatalf("heard %+v, skipped %+v with the feature off", m.heard, m.skipped)
 	}
 }
 

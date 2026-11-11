@@ -26,26 +26,27 @@ type Route struct {
 	Pattern string // a method and a path under /api/, such as "POST /api/designs/{design}/blocks"
 	Action  ask.Action
 	Handler http.HandlerFunc
-	Causes  Cause // the event a change causes once answered well; a feature's module, such as live events, acts on it
+	Changes Change // the thing a change route changes, for a feature's module to hear of without the handler calling it
 }
 
-// Cause is what a change caused, said by the route so no handler calls a switchable module itself.
-type Cause struct {
-	Type    string                // the event type, such as designer.resource.applied
-	Subject func(data any) string // the id of the thing, from the data the change answered with
-	Data    func(data any) any    // the event's data from the answer's data; nil is the answer's data
+// Change is the thing a change route changes: its kind, and its id in the data the change answers with.
+type Change struct {
+	Thing string                // the kind of thing, such as resource
+	ID    func(data any) string // the thing's id from the answer's data
 }
 
 // Part is what a feature's module attaches to the app's feature list for serve; while the feature is off serve neither serves its routes nor tells it of a change.
 type Part interface {
 	// Mount checks the app's routes when the server starts and gives the routes the module adds.
 	Mount(routes []Route) ([]Route, error)
-	// Changed is told of each change answered well with Write.
-	Changed(c Change)
+	// Changed is told of each change answered well with Write while the feature is on.
+	Changed(a Answered)
+	// Skipped is told instead of Changed while the feature is off, so the module knows it missed one.
+	Skipped(a Answered)
 }
 
-// Change is a change serve answered well: the request, its route, and what Write answered.
-type Change struct {
+// Answered is a change serve answered well: the request, its route, and what Write answered.
+type Answered struct {
 	Request *http.Request
 	Route   Route
 	Status  int
@@ -130,7 +131,7 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 
 // Write answers kind with data, in the envelope and the contract the request was answered in.
 func Write(w http.ResponseWriter, r *http.Request, status int, kind string, data any) {
-	if c, ok := r.Context().Value(changeKey{}).(*Change); ok {
+	if c, ok := r.Context().Value(answeredKey{}).(*Answered); ok {
 		c.Status, c.Kind, c.Data = status, kind, data
 	}
 	s := answering(r)
@@ -228,22 +229,24 @@ func (a App) feature(list *features.List, id string, next http.Handler) http.Han
 	})
 }
 
-type changeKey struct{}
+type answeredKey struct{}
 
-// told runs the change, then tells each module whose feature is on of a change answered well; the answer is already sent, so a module never changes it.
+// told runs the change, then tells each module of a change answered well, or that it missed one while its feature is off; the answer is already sent, so a module never changes it.
 func told(h http.HandlerFunc, rt Route, list *features.List, parts []part) http.HandlerFunc {
 	if len(parts) == 0 {
 		return h
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		c := &Change{Request: r, Route: rt}
-		h(w, r.WithContext(context.WithValue(r.Context(), changeKey{}, c)))
+		c := &Answered{Request: r, Route: rt}
+		h(w, r.WithContext(context.WithValue(r.Context(), answeredKey{}, c)))
 		if c.Status < 200 || c.Status > 299 {
 			return
 		}
 		for _, p := range parts {
 			if on, err := list.On(p.id); err == nil && on {
 				p.part.Changed(*c)
+			} else {
+				p.part.Skipped(*c)
 			}
 		}
 	}
@@ -316,8 +319,10 @@ func (rt Route) check() error {
 		return fmt.Errorf("serve: change %q needs its action type, one of %v", rt.Pattern, ask.Types())
 	case !writing[method] && rt.Action.Type != "":
 		return fmt.Errorf("serve: read %q never asks, so it takes no action type", rt.Pattern)
-	case !writing[method] && rt.Causes.Type != "":
-		return fmt.Errorf("serve: read %q changes nothing, so it causes no event", rt.Pattern)
+	case !writing[method] && rt.Changes.Thing != "":
+		return fmt.Errorf("serve: read %q changes nothing", rt.Pattern)
+	case rt.Changes.Thing != "" && rt.Changes.ID == nil:
+		return fmt.Errorf("serve: change %q says the thing it changes but not how to find its id", rt.Pattern)
 	}
 	return nil
 }
