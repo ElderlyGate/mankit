@@ -466,10 +466,17 @@ ticket leaves the line before the process does.
   (touched every 5s), or one that cannot be read or understood, is moved to
   `.queue/bad/`, said on stderr with the file and why, and skipped. A change
   still running when its ticket is set aside keeps the turn.
+- `.queue/backend`, when present, names how every writer of the folder takes
+  turns (contracts `mankit/v1/queue-backend`): `files`, as above, is the only
+  one this build runs, and the one without a marker. A marker naming another
+  backend, such as `lock-service`, or one that cannot be read, makes `Change`
+  and `List` refuse with `queue_backend_unsupported`; they never fall back to
+  files. The marker never holds an address or a token.
 - Errors carry codes (`serve.Error`): `queue_timeout` when the turn did not
   come within `Wait` (30s), `not_read_back` when the change ran but could not
   be read back, `ticket_lost` when another process set the waiting ticket
-  aside, `queue_unusable` when the folder cannot be made, read or written.
+  aside, `queue_unusable` when the folder cannot be made, read or written,
+  `queue_backend_unsupported` for a marker this build does not run.
 - `List(ctx)` is what `<app> queue` shows: the tickets in order, which one's
   change runs now, and the files in `bad/`. Answered as kind `queue.ListKind`
   it meets contracts `mankit/v1/queue-list`; every ticket meets
