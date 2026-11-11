@@ -647,8 +647,10 @@ spec:
     then its read-back. Tickets, never commands. Each ticket's file stays
     locked by its process: a free lock means the process died and the
     ticket is removed. A ticket silent for 30s or unreadable is moved to
-    .queue/bad/, said and skipped. Codes: queue_timeout, not_read_back,
-    ticket_lost, queue_unusable. List is what <app> queue shows.
+    .queue/bad/, said and skipped. The file queue is one backend: a
+    .queue/backend marker naming another, or unreadable, is refused, never
+    taken for files. Codes: queue_timeout, not_read_back, ticket_lost,
+    queue_unusable, queue_backend_unsupported. List is what <app> queue shows.
 --- # block/CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Block
