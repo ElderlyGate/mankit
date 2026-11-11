@@ -587,6 +587,60 @@ func TestACancelledWaitLeavesTheLine(t *testing.T) {
 	}
 }
 
+// The backend marker
+
+func marker(t *testing.T, q queue.Queue, body string) string {
+	t.Helper()
+	return plant(t, q, "backend", body, time.Now())
+}
+
+func markerOf(kind string) string {
+	return `{"apiVersion":"elderlygate/mankit/queue-backend/v1","kind":"QueueBackend","spec":{"type":"` + kind + `"}}`
+}
+
+func TestAMarkerNamingFilesKeepsTheFileQueueAndStays(t *testing.T) {
+	q, log := newQueue(t)
+	path := marker(t, q, markerOf(queue.BackendFiles))
+	if err := contracts.Validate("mankit/v1/queue-backend.schema.json", []byte(markerOf(queue.BackendFiles))); err != nil {
+		t.Fatalf("the marker the test writes breaks the contract: %v", err)
+	}
+	if err := q.Change(context.Background(), "add item", nothing, nothing); err != nil {
+		t.Fatal(err)
+	}
+	l, err := q.List(context.Background())
+	if err != nil || len(l.Bad) != 0 {
+		t.Fatalf("bad %v, %v; want the marker left alone", l.Bad, err)
+	}
+	if _, err := os.Stat(path); err != nil || log.String() != "" {
+		t.Fatalf("the marker went (%v) or was said: %q", err, log.String())
+	}
+}
+
+func TestABackendThisBuildDoesNotRunIsRefusedNeverTakenForFiles(t *testing.T) {
+	for name, body := range map[string]string{
+		"lock service":   markerOf(queue.BackendLockService),
+		"unknown type":   markerOf("carrier-pigeon"),
+		"not JSON":       "{",
+		"another header": strings.Replace(markerOf(queue.BackendFiles), "QueueBackend", "Backend", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			q, _ := newQueue(t)
+			marker(t, q, body)
+			ran := false
+			err := q.Change(context.Background(), "add item", func() error { ran = true; return nil }, nothing)
+			if code(err) != queue.CodeBackendUnsupported || ran {
+				t.Fatalf("got %v (ran %v), want %s and nothing run", err, ran, queue.CodeBackendUnsupported)
+			}
+			if _, err := q.List(context.Background()); code(err) != queue.CodeBackendUnsupported {
+				t.Fatalf("list got %v, want %s", err, queue.CodeBackendUnsupported)
+			}
+			if tickets, _ := filepath.Glob(filepath.Join(q.Folder, ".queue", "*.json")); len(tickets) != 0 {
+				t.Fatalf("tickets %v were written", tickets)
+			}
+		})
+	}
+}
+
 // Across processes
 
 func TestProcessesChangingOneThingTakeTurns(t *testing.T) {
