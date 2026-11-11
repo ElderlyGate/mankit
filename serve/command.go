@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/ask"
@@ -33,8 +35,20 @@ const (
 
 // Commands are serve and servers (with servers stop and servers link) for the app's root.
 // open builds what serve serves, in the child of a detached start too; confirm asks before servers stop, such as prefs.Asker.Ask.
-func (a App) Commands(open func(*cobra.Command) (Site, error), confirm func(*cobra.Command, ask.Action) error) []*cobra.Command {
-	return []*cobra.Command{a.serveCommand(open), a.serversCommand(confirm)}
+func (a App) Commands(open func(*cobra.Command) (Site, error), confirm func(*cobra.Command, ask.Action) error) ([]*cobra.Command, error) {
+	if err := a.check(); err != nil {
+		return nil, err
+	}
+	if open == nil || confirm == nil {
+		return nil, errors.New("serve: Commands needs open, which builds what serve serves, and confirm, which asks before servers stop")
+	}
+	return []*cobra.Command{a.serveCommand(open), a.serversCommand(confirm)}, nil
+}
+
+// terminal reports whether w is a terminal, the only place the token link is printed.
+func terminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 // printing are the flags of a command that prints an answer.
@@ -152,25 +166,35 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 			return fmt.Errorf("cannot listen on %s: %w", addr, err)
 		}
 		bound := ln.Addr().String()
-		w := cmd.OutOrStdout()
-		if child {
-			rec := record{
-				APIVersion: recordAPIVersion(), Kind: recordKind,
-				Metadata: recordMetadata{App: a.ID, Addr: bound, PID: os.Getpid()},
-				Spec:     recordSpec{Name: site.Name, Version: a.Version, StartedAt: time.Now().UTC(), Log: logPath},
+		if child && logPath != "" {
+			// The log was named for the address asked for; port 0 binds another, and the log follows the address bound.
+			if named := filepath.Join(filepath.Dir(logPath), logName(bound)); named != logPath && os.Rename(logPath, named) == nil {
+				logPath = named
 			}
-			if err := rec.save(dir); err != nil {
-				ln.Close()
-				return err
-			}
-			// A crash leaves the record behind, which is why nothing believes one without asking its address.
-			defer func() { _ = removeRecord(dir, bound) }()
-			fmt.Fprintf(w, "%s serving on http://%s\ndetached; `%s servers stop %s` stops it\n", a.command(), bound, a.command(), bound)
-		} else {
-			// The link goes to a terminal only: a log is no place for the token.
-			fmt.Fprintf(w, "%s serving on http://%s\nopen: %s\npress ctrl-c to stop\n", a.command(), bound, Link(bound, token))
 		}
-		return run(cmd.Context(), &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}, ln)
+		// Every server leaves a record, in the foreground too (ADR-S12); a crash leaves it behind, which is why nothing believes one without asking its address.
+		rec := record{
+			APIVersion: recordAPIVersion(), Kind: recordKind,
+			Metadata: recordMetadata{App: a.ID, Addr: bound, PID: os.Getpid()},
+			Spec:     recordSpec{Name: site.Name, Version: a.Version, StartedAt: time.Now().UTC(), Log: logPath, Detached: child},
+		}
+		if err := rec.save(dir); err != nil {
+			ln.Close()
+			return err
+		}
+		defer func() { _ = removeRecord(dir, bound) }()
+		w := cmd.OutOrStdout()
+		fmt.Fprintf(w, "%s serving on http://%s\n", a.command(), bound)
+		switch {
+		case child:
+			fmt.Fprintf(w, "detached; `%s servers stop %s` stops it\n", a.command(), bound)
+		case terminal(w):
+			fmt.Fprintf(w, "open: %s\npress ctrl-c to stop\n", Link(bound, token))
+		default:
+			// The token goes to a terminal only, never into a log or a pipe.
+			fmt.Fprintf(w, "`%s servers link %s` prints the link that opens it\n", a.command(), bound)
+		}
+		return run(cmd.Context(), &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}, ln)
 	}
 	c.Flags().StringVar(&addr, "addr", a.Addr, "address to bind (this machine's own address by default)")
 	c.Flags().StringSliceVar(&hosts, "host", nil, "a name besides localhost this server answers to, such as a tunnel's host name")
@@ -204,10 +228,12 @@ func run(ctx context.Context, srv *http.Server, ln net.Listener) error {
 
 // detach starts this binary again with the same command and the flags this process parsed, and reports the server once it serves.
 func (a App) detach(cmd *cobra.Command, out *printing, dir, addr string) error {
-	if recs, err := readRecords(dir); err == nil {
-		if held, err := a.find(recs, addr); err == nil && !a.probe(addr, "", probeWait).refused {
-			return fmt.Errorf("a server is already on %s (pid %d); `%s servers stop %s` stops it", addr, held.Metadata.PID, a.command(), addr)
-		}
+	recs, err := readRecords(dir)
+	if err != nil {
+		return err
+	}
+	if held, err := a.find(recs, addr); err == nil && !a.probe(addr, probeWait).refused {
+		return fmt.Errorf("a server is already on %s (pid %d); `%s servers stop %s` stops it", addr, held.Metadata.PID, a.command(), addr)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -254,13 +280,12 @@ func childArgs(cmd *cobra.Command) []string {
 func (a App) serversCommand(confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "servers",
-		Short: "List the detached servers on this machine",
-		Long: `List every detached server (serve --detach) of this app on this machine.
+		Short: "List the servers on this machine",
+		Long: `List every server of this app on this machine, in the foreground or detached
+(serve --detach), and say which.
 
-Each line is a server that answered just now: a record is a claim, not proof, so
-every one is asked as it is listed, and a record whose address refuses a
-connection is removed. A server in the foreground is not listed; its terminal is
-its record.`,
+A record is a claim, not proof, so every one is asked as it is listed, and a
+record whose address refuses a connection is removed.`,
 		Args: cobra.NoArgs,
 	}
 	out := a.printing(c)
@@ -278,14 +303,14 @@ its record.`,
 		}
 		return out.print(cmd.OutOrStdout(), "", ServerListKind, live, func(w io.Writer) {
 			if len(live) == 0 {
-				fmt.Fprintf(w, "no detached server is running; `%s serve --detach` starts one\n", a.command())
+				fmt.Fprintf(w, "no server is running; `%s serve --detach` starts one\n", a.command())
 				return
 			}
-			fmt.Fprintln(w, "ADDRESS\tNAME\tPID\tUP\tVERSION\tANSWERING")
+			fmt.Fprintln(w, "ADDRESS\tNAME\tPID\tUP\tVERSION\tDETACHED\tANSWERING")
 			for _, s := range live {
 				r := s.Record
-				fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%t\n", r.Metadata.Addr, r.Spec.Name, r.Metadata.PID,
-					time.Since(r.Spec.StartedAt).Round(time.Second), r.Spec.Version, s.Answering)
+				fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%t\t%t\n", r.Metadata.Addr, r.Spec.Name, r.Metadata.PID,
+					time.Since(r.Spec.StartedAt).Round(time.Second), r.Spec.Version, r.Spec.Detached, s.Answering)
 			}
 		})
 	}
@@ -297,9 +322,9 @@ func (a App) stopCommand(confirm func(*cobra.Command, ask.Action) error) *cobra.
 	var all bool
 	c := &cobra.Command{
 		Use:   "stop [addr|name]",
-		Short: "Stop a detached server",
-		Long: `Stop a detached server, named by its address or by the name of what it serves;
---all stops every one.
+		Short: "Stop a server",
+		Long: `Stop a server, detached or in the foreground, named by its address or by the
+name of what it serves; --all stops every one.
 
 It sends SIGTERM, which serve answers by shutting down gracefully, and never
 escalates to a kill. A record whose server is already gone is removed and said
@@ -330,7 +355,7 @@ so. It asks first, as a change of type run.`,
 			targets = []record{one}
 		}
 		if len(targets) == 0 {
-			return fmt.Errorf("no detached server is recorded; `%s servers` lists them", a.command())
+			return fmt.Errorf("no server is recorded; `%s servers` lists them", a.command())
 		}
 		addrs := make([]string, 0, len(targets))
 		for _, r := range targets {
@@ -363,7 +388,7 @@ so. It asks first, as a change of type run.`,
 		}
 		return errors.Join(failures...)
 	}
-	c.Flags().BoolVar(&all, "all", false, "stop every detached server")
+	c.Flags().BoolVar(&all, "all", false, "stop every server")
 	ask.Flag(c)
 	return c
 }
