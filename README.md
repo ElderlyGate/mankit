@@ -333,6 +333,10 @@ What serve does for every app:
   `confirm=remember` is a yes that also stops asking for the type
   (`Site.Remember`). Every change route names its action type; `Handler`
   refuses one that does not.
+- reaches a switchable module only through `Site.Features`: the `serve.Part`
+  attached to a feature adds its routes, answered 404 `not_found` while the
+  feature is off, and hears of each change answered well (`Route.Causes` says
+  what the change caused), so no handler calls the module (see [Events](#events)).
 
 Each error has a code (`serve.Code…`); a program decides by the code, never by
 the message. `<app> serve --help` and `<app> servers --help` are the reference
@@ -371,37 +375,49 @@ empty list.
 
 `events` tells the app's page, and any other reader, what changed as it
 happens. Every event is a CloudEvent 1.0 in structured JSON, in the shape of
-contracts `event/v1`. It is a feature of its own: the app puts `events.Feature`
-in its feature list and reaches the events only through the broker built from
-that list.
+contracts `event/v1`. It is a feature of its own, reached only through the
+app's feature list: no handler sends an event. A change route says the event
+it causes; serve tells the module attached to the list of each change answered
+well with `serve.Write`.
 
 ```go
 list := features.New([]features.Feature{events.Feature}, store)
-broker, err := events.New(events.Config{
-	Product:  "designer",
-	Thing:    "shop", // the source is /designer/shop
-	Catalog:  []string{"designer.resource.applied", "designer.layout.changed"},
-	Features: list,
+err := events.Attach(list, events.Config{
+	Product: "designer",
+	Thing:   "shop", // the source is /designer/shop
+	Catalog: []string{"designer.resource.applied"},
 })
-site.Routes = append(site.Routes, broker.Route()) // GET /api/events, behind serve's guard
-
-ctx := events.WithTrace(r.Context(), r.Header.Get("traceparent"), r.Header.Get("tracestate"))
-_, err = broker.Publish(ctx, "designer.resource.applied", "CMP-SERVE", data)
+site := serve.Site{Features: list, Routes: []serve.Route{{
+	Pattern: "POST /api/resources",
+	Action:  ask.Action{Type: ask.Create},
+	Causes:  serve.Cause{Type: "designer.resource.applied", Subject: func(data any) string { return data.(Resource).ID }},
+	Handler: apply,
+}}}
 ```
 
-- `type` is `<product>.<thing>.<verb>`, the verb in the past; `Publish` refuses
-  a type not in the catalog (`events.ErrNotInCatalog`), and `New` refuses a
-  catalog type of another product.
-- Every event carries `traceparent`: the request's, given with `WithTrace`, or
-  a new trace when there is none or it is not valid.
+Taking events out is taking out `events.Feature` and the `Attach` line: the
+routes stay as they are, and `GET /api/events` answers 404.
+
+- `type` is `<product>.<thing>.<verb>`, the verb in the past. `Attach` refuses
+  a catalog type of another product, and serve refuses at start a route that
+  causes a type not in the catalog (`events.ErrNotInCatalog`) or says no
+  subject. `Cause.Data` shapes the event's data from the answer's; without it
+  the data is the answer's.
+- Every event carries `traceparent`: the request's `traceparent` and
+  `tracestate` headers, or a new trace when there is none or it is not valid.
 - `GET /api/events` is `text/event-stream`: `id:` is the event's id and `data:`
   the event. An idle stream gets a `: heartbeat` comment. A stream that comes
-  back with `Last-Event-ID` first gets the events after that one, from the last
-  `Keep` kept in memory, or all of them when that one is no longer kept.
-- It is a route like any other, so serve's guard stands in front of it: no
-  stream without the token. The browser's `EventSource` sends the page's cookie.
-- With the feature off, `GET /api/events` answers 404 `not_found`, `Publish`
-  builds and keeps nothing, and open streams end within a heartbeat.
+  back with `Last-Event-ID` gets the events after that one, from the last
+  `Keep` kept in memory.
+- When the events after `Last-Event-ID` are no longer all kept (too old, or
+  another server), the stream first gets `<product>.stream.gap` with data
+  `{"lastKnown": "<that id>", "oldestKept": "<id>"}` (`oldestKept` left out when
+  nothing is kept), then every kept event. The client reloads its state; coming
+  back with the gap's id is no gap.
+- serve's guard stands in front of the stream: no stream without the token.
+  The browser's `EventSource` sends the page's cookie.
+- With the feature off, `GET /api/events` answers 404 `not_found`, no event is
+  built or kept, and open streams end within a heartbeat.
 - Streams end when the client leaves or the server stops (`serve.Stopping`), so
   no stream holds the server open.
 
