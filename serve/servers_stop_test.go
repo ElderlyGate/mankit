@@ -88,6 +88,10 @@ func TestServersStopSignalsNothingItCannotName(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = serve.Encode(w, serve.App{ID: "kanban", Version: "1.0.0", Contracts: []string{"v1"}}.Failure("", "v1", serve.Fail(serve.CodeToken, "no token")))
 		}),
+		"this app's id with another code": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = serve.Encode(w, app.Failure("", "v1", serve.Fail(serve.CodeUnconfirmed, "not the guard")))
+		}),
 	}
 	for name, h := range foreign {
 		t.Run(name, func(t *testing.T) {
