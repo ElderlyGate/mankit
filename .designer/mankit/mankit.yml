@@ -623,8 +623,9 @@ spec:
     guard, at most 64 streams, a heartbeat on an idle stream, Last-Event-ID
     resumes, and <product>.stream.gapped (contracts mankit/v1) for a
     client that missed events: too old, another server, the feature off
-    meanwhile, or an event that could not be built. Off: 404 not_found,
-    nothing kept, open streams end when the owner switches it off.
+    meanwhile, or an event that could not be built. It starts off, an
+    enterprise feature (ADR-E9). Off: 404 not_found, nothing kept, open
+    streams end when the owner switches it off.
 --- # block/CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Block
@@ -639,12 +640,18 @@ spec:
   caption:
     - "an app's switchable features"
     - "the owner's switch, then each closer"
+    - "each names the values it needs"
   description: |
-    New takes the app's features, the Store where the owner's switches are
-    kept, and further closers (public mode, a license). States says which
-    are on and, for one that is off, the first closer that closed it; Set
-    switches one, and never opens what another closer closed; Known refuses
-    an id the list does not hold. It knows no app and keeps no file itself.
+    New takes the app's features, each starting on or off and naming the
+    values it needs, the Store where the owner's switches are kept (On
+    too, for a feature that starts off), and further closers (public mode,
+    a license); WithLookup hands it how a value is found. States says
+    which are on, for one that is off what keeps it off, and for one that
+    is on the values it misses (broken); Set switches one, refuses on
+    without every needed value (feature_needs_values), and never opens
+    what another closer closed; Broken is the start log's list; Known
+    refuses an id the list does not hold. It knows no app and keeps no
+    file itself.
 --- # block/CMP-HEADER.yml
 apiVersion: core/design/v2
 kind: Block
@@ -879,7 +886,9 @@ spec:
     only through Site.Features: the serve.Part attached to a feature adds
     routes, served only while it is on, and hears of each change whose
     answer was good (Route.Changes names the thing), or that it missed one
-    while off. StopOnShutdown does the same for an app's own http.Server.
+    while off or broken; a broken feature answers 503 feature_needs_values
+    and is logged at start. Site.Needs are the values the core cannot run
+    without: missing, serve refuses to start (core_needs_values). StopOnShutdown does the same for an app's own http.Server.
 --- # block/CMP-SETTINGS.yml
 apiVersion: core/design/v2
 kind: Block
@@ -1520,7 +1529,7 @@ spec:
   to: CMP-FEATURES
   label: calls
   description: |
-    features.New(list, store, closers...) is the app's feature list; a switchable part of the app is reached only through it (README, Features).
+    features.New(list, store, closers...).WithLookup(lookup) is the app's feature list; a switchable part of the app is reached only through it (README, Features).
 --- # link/CMP-APP--calls--CMP-EVENTS.yml
 apiVersion: core/design/v2
 kind: Link
@@ -1575,7 +1584,7 @@ spec:
   to: CMP-FEATURES
   label: calls
   description: |
-    Site.Features: list.Parts() at start, list.On(id) before a module's route and before telling it of a change.
+    Site.Features: list.Parts() at start, list.On(id) before a module's route (503 feature_needs_values while broken) and before telling it of a change.
 --- # link/CMP-SERVE--calls--CMP-HOME.yml
 apiVersion: core/design/v2
 kind: Link

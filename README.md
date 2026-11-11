@@ -26,7 +26,7 @@ three, instead of being made three times.
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 | `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link` (see [Serve](#serve)) |
-| `features` | An app's list of switchable features: the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
+| `features` | An app's list of switchable features: each starts on or off and names the values it needs; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
 
 ## Settings
@@ -335,9 +335,15 @@ What serve does for every app:
   refuses one that does not.
 - reaches a switchable module only through `Site.Features`: the `serve.Part`
   attached to a feature adds its routes, answered 404 `not_found` while the
-  feature is off, and hears of each change answered well (`Route.Changes` says
-  the thing it changes), or that it missed one while off, so no handler calls
-  the module (see [Events](#events)).
+  feature is off and 503 `feature_needs_values` while it is on but misses a
+  value it needs, and hears of each change answered well (`Route.Changes` says
+  the thing it changes), or that it missed one while off or broken, so no
+  handler calls the module (see [Events](#events)). `serve` writes one line
+  at start for each broken feature, naming each missing value and its purpose;
+- refuses to start, with `core_needs_values` naming each missing value and its
+  purpose, while a value the app's core cannot run without is not set
+  (`Site.Needs`, found by `Site.Lookup`): a core part is not a feature and has
+  no switch.
 
 Each error has a code (`serve.Code…`); a program decides by the code, never by
 the message. `<app> serve --help` and `<app> servers --help` are the reference
@@ -353,24 +359,45 @@ The tests check the real answers against the schemas in
 
 A part of an app that can be switched off lives in one module and is reached
 only through the app's feature list. `features` is that list; the
-app hands in its features and where the owner's switches are kept.
+app hands in its features, where the owner's switches are kept and how a value
+is found. A part the app cannot run without is not a feature and is not on the
+list.
 
 ```go
 list := features.New(
-	[]features.Feature{{ID: "events", Title: "Live events", Covers: "GET /api/events"}},
-	features.Store{Off: readOff, Keep: keepOff},
+	[]features.Feature{{ID: "telemetry", Title: "Telemetry", Covers: "traces", StartsOff: true,
+		Needs: []features.Value{{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Purpose: "where traces go"}}}},
+	features.Store{Off: readOff, Keep: keepOff, On: readOn},
 	features.Closer{By: "public", Closed: publicClosed},
-)
-states, err := list.States() // each feature on, or off and what closed it
-err = list.Set("events", false)
+).WithLookup(func(name string) bool { return os.Getenv(name) != "" })
+states, err := list.States() // each feature on, off and what keeps it off, or on and broken
+err = list.Set("telemetry", true)
+broken, err := list.Broken() // for the start log
 ```
 
-A feature is on until something closes it. The owner's switch (`features.Switch`)
-is asked first, then each closer in order, and the first that closes a feature
-is named in `State.By`. A closer only closes: switching a feature back on never
-opens what another closer closed. `Set` refuses an id the list does not hold,
-naming the ones it does, and a store that cannot be read is an error, never an
-empty list.
+A feature is on or off by its own switch, never because a value is set. It
+starts on unless it says `StartsOff`. A feature that starts off is on only
+while the owner's on is kept, so a list holding one needs `Store.On`, and its
+`Keep(id, false)` keeps the id there as well as taking it out of `Off`;
+`Keep(id, true)` takes it out of `On`. Off by the owner's switch is named
+`features.Switch` in `State.By`, off by its start `features.Default`, else the
+first closer that closes it. A closer only closes: switching a feature back on
+never opens what another closer closed. A list with a feature that needs values
+needs `WithLookup`, and one with a feature that starts off needs `Store.On`;
+`Attach` refuses a list without them, so a wrong wiring shows at start.
+`WithLookup` and `Attach` come before serving; the store's funcs, the lookup
+and the closers are called on every request and must be safe for concurrent
+use.
+
+Switching a feature on without every value it needs is refused with
+`features.NeedsValues`, code `feature_needs_values`, naming each missing value
+and its purpose; nothing is kept. A feature that is on but finds a value gone
+is broken by itself: `State.Missing` names the values, `On` answers
+`NeedsValues`, `Broken` lists it for the app to log at start, and the rest of
+the app runs. A program acts on the code `feature_needs_values` and reads the
+missing names from the feature listing (`missing`), never from the message,
+which is for people. `Set` refuses an id the list does not hold, naming the ones it
+does, and a store that cannot be read is an error, never an empty list.
 
 ## Events
 
@@ -383,7 +410,7 @@ the module attached to the list of each change answered well with
 `serve.Write`, and events sends the event its config names for that route.
 
 ```go
-list := features.New([]features.Feature{events.Feature}, store)
+list := features.New([]features.Feature{events.Feature}, store) // store keeps On: events starts off
 err := events.Attach(list, events.Config{
 	Product: "designer",
 	Thing:   "shop", // the source is /designer/shop
@@ -398,8 +425,10 @@ site := serve.Site{Features: list, Routes: []serve.Route{{
 }}}
 ```
 
-Taking events out is taking out `events.Feature` and the `Attach` call: the
-routes stay as they are, and `GET /api/events` answers 404.
+Events is an enterprise feature and starts off (ADR-E9): `GET /api/events`
+answers 404 until the owner switches it on. Taking events out is taking out
+`events.Feature` and the `Attach` call: the routes stay as they are, and
+`GET /api/events` answers 404.
 
 - `type` is `<product>.<thing>.<verb>`, the verb in the past. `Attach` refuses
   a type of another product and a cause not in the catalog
