@@ -26,6 +26,8 @@ const (
 	CodeNotReadBack = "not_read_back"  // the change ran, but what it wrote could not be read back
 	CodeLost        = "ticket_lost"    // another process took the waiting ticket for stale and moved it to bad/
 	CodeUnusable    = "queue_unusable" // the queue's folder cannot be made, read or written
+
+	CodeBackendUnsupported = "queue_backend_unsupported" // .queue/backend names a backend this build does not run, or cannot be read
 )
 
 // DefaultWait is how long a change waits for its turn when the app sets no Wait.
@@ -37,13 +39,23 @@ const (
 	ListKind = "QueueList"
 )
 
+// BackendKind is the kind of .queue/backend, the marker naming the backend every writer of the folder uses (contracts mankit/v1).
+const BackendKind = "QueueBackend"
+
+// The backends a marker may name; this build runs files alone.
+const (
+	BackendFiles       = "files"
+	BackendLockService = "lock-service"
+)
+
 // The names in the queue's folder; every app version sharing a queue relies on them (contracts mankit/v1).
 const (
-	folderName = ".queue"
-	badName    = "bad"
-	lockName   = "lock"
-	turnName   = "turn"
-	ignoreName = ".gitignore"
+	folderName  = ".queue"
+	badName     = "bad"
+	lockName    = "lock"
+	turnName    = "turn"
+	ignoreName  = ".gitignore"
+	backendName = "backend"
 )
 
 // staleAfter and touchEvery are fixed by contracts mankit/v1, so every app sharing a queue agrees; vars only so tests can shorten them.
@@ -62,6 +74,9 @@ var idPattern = regexp.MustCompile(`^[0-9]{20}$`)
 
 // APIVersion is the ticket's apiVersion; two app versions share a queue at once, so it never changes (ADR-S15).
 func APIVersion() string { return home.Org + "/mankit/ticket/v1" }
+
+// BackendAPIVersion is the apiVersion of .queue/backend; it never changes (ADR-S15).
+func BackendAPIVersion() string { return home.Org + "/mankit/queue-backend/v1" }
 
 // Queue is the queue of one served thing, as one app sees it.
 type Queue struct {
@@ -118,6 +133,73 @@ func (q Queue) Change(ctx context.Context, change string, write, readBack func()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	b, err := q.backend()
+	if err != nil {
+		return err
+	}
+	return b.change(ctx, q, change, write, readBack)
+}
+
+// List is the queue now, from the backend the folder names.
+func (q Queue) List(ctx context.Context) (Listing, error) {
+	b, err := q.backend()
+	if err != nil {
+		return Listing{}, err
+	}
+	return b.list(ctx, q)
+}
+
+// backend is how a queue takes turns; the folder's marker picks one for every writer, so two apps never take turns two ways.
+type backend interface {
+	change(ctx context.Context, q Queue, change string, write, readBack func() error) error
+	list(ctx context.Context, q Queue) (Listing, error)
+}
+
+// backendMarker is .queue/backend; it never holds an address or a token, which come from the app's settings.
+type backendMarker struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Spec       struct {
+		Type string `json:"type"`
+	} `json:"spec"`
+}
+
+// backend is the one the folder's marker names, files without one; a marker it cannot read or run is refused, never taken for files.
+func (q Queue) backend() (backend, error) {
+	// A folder that cannot be a folder is the queue's own problem, not the marker's.
+	if info, err := os.Stat(q.dir()); errors.Is(err, os.ErrNotExist) {
+		return files{}, nil
+	} else if err != nil || !info.IsDir() {
+		return nil, unusable("cannot use %s as its folder: %v", q.dir(), err)
+	}
+	path := filepath.Join(q.dir(), backendName)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return files{}, nil
+	}
+	refuse := func(why string) error {
+		return serve.Fail(CodeBackendUnsupported, fmt.Sprintf("the change queue's marker %s %s; no change is made here until it names %q", path, why, BackendFiles))
+	}
+	if err != nil {
+		return nil, refuse(fmt.Sprintf("cannot be read: %v", err))
+	}
+	var m backendMarker
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, refuse(fmt.Sprintf("is not JSON: %v", err))
+	}
+	if m.APIVersion != BackendAPIVersion() || m.Kind != BackendKind {
+		return nil, refuse(fmt.Sprintf("is not a %s %s", BackendAPIVersion(), BackendKind))
+	}
+	if m.Spec.Type != BackendFiles {
+		return nil, refuse(fmt.Sprintf("names the backend %q, which this build does not run", m.Spec.Type))
+	}
+	return files{}, nil
+}
+
+// files takes turns with files and their locks in the queue's folder (contracts README, The change queue on disk).
+type files struct{}
+
+func (files) change(ctx context.Context, q Queue, change string, write, readBack func() error) error {
 	waiting, cancel := context.WithTimeout(ctx, q.wait())
 	defer cancel()
 	t, err := q.join(waiting, change)
@@ -137,8 +219,8 @@ func (q Queue) Change(ctx context.Context, change string, write, readBack func()
 	return nil
 }
 
-// List is the queue now; tickets of dead processes go and bad ones are set aside first, as every reader of the queue does.
-func (q Queue) List(ctx context.Context) (Listing, error) {
+// list is the queue now; tickets of dead processes go and bad ones are set aside first, as every reader of the queue does.
+func (files) list(ctx context.Context, q Queue) (Listing, error) {
 	out := Listing{Tickets: []Place{}, Bad: []Bad{}}
 	if _, err := os.Stat(q.dir()); errors.Is(err, os.ErrNotExist) {
 		return out, nil
@@ -530,7 +612,7 @@ func (q Queue) sweep() ([]Ticket, error) {
 	var tickets []Ticket
 	for _, e := range entries {
 		name := e.Name()
-		if strings.HasPrefix(name, ".") || name == badName || name == lockName || name == turnName {
+		if strings.HasPrefix(name, ".") || name == badName || name == lockName || name == turnName || name == backendName {
 			continue
 		}
 		path := filepath.Join(dir, name)
