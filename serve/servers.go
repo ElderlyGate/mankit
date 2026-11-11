@@ -272,6 +272,7 @@ type probed struct {
 
 // probe asks addr's GET /api/version without the token, which never goes to a listener not yet known to be this app.
 // This app answers it with token_refused from its guard, and says in ran which app and version it is.
+// Left open: another user's process could answer so on a reused port; a signal still reaches only this user's processes, and only on a reused pid.
 func (a App) probe(addr string, timeout time.Duration) probed {
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
