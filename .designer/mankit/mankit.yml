@@ -613,15 +613,18 @@ spec:
     - "GET /api/events, a switchable feature"
   description: |
     Attach puts it on the app's feature list, which must hold the events
-    feature, with the product, the thing served and the event catalog; no
-    handler calls it. As a serve.Part it refuses at start a route causing
-    a type not in the catalog, adds GET /api/events, and hears of each
-    change answered well: it builds the CloudEvent 1.0 the route's Causes
-    says (contracts event/v1, with the request's traceparent) and sends it
-    to every open stream, keeping the last few. Server-Sent Events behind
-    serve's guard, a heartbeat on an idle stream, Last-Event-ID resumes,
-    and <product>.stream.gap first when what came after is no longer kept.
-    With the feature off: 404 not_found and nothing kept.
+    feature, with the product, the thing served, the event catalog and the
+    event each change route causes; no handler calls it and no route names
+    an event. As a serve.Part it refuses at start a cause that does not fit
+    its route, adds GET /api/events, and hears of each change answered
+    well: it builds the CloudEvent 1.0 (contracts event/v1, the request's
+    traceparent, subject from the route's Changes.ID) and sends it to every
+    open stream, keeping the last few. Server-Sent Events behind serve's
+    guard, at most 64 streams, a heartbeat on an idle stream, Last-Event-ID
+    resumes, and <product>.stream.gapped (contracts mankit/v1) for a
+    client that missed events: too old, another server, the feature off
+    meanwhile, or an event that could not be built. Off: 404 not_found,
+    nothing kept, open streams end when the owner switches it off.
 --- # block/CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Block
@@ -875,7 +878,8 @@ spec:
     a stream, that the server is stopping. A switchable module is reached
     only through Site.Features: the serve.Part attached to a feature adds
     routes, served only while it is on, and hears of each change whose
-    answer was good, by the event its route Causes.
+    answer was good (Route.Changes names the thing), or that it missed one
+    while off. StopOnShutdown does the same for an app's own http.Server.
 --- # block/CMP-SETTINGS.yml
 apiVersion: core/design/v2
 kind: Block
@@ -1527,7 +1531,7 @@ spec:
   to: CMP-EVENTS
   label: calls
   description: |
-    events.Attach(list, config) and serve.Cause on each change route; nothing else (README, Events).
+    events.Attach(list, config) with the cause of each change route by its pattern; nothing else (README, Events).
 --- # link/CMP-EVENTS--calls--CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Link
@@ -1538,7 +1542,7 @@ spec:
   to: CMP-FEATURES
   label: calls
   description: |
-    list.Attach(events, module); list.On(events) on each heartbeat ends a stream once closed.
+    list.Attach(events, module); Set tells it SwitchedOff at once; list.On(events) on each heartbeat ends a stream another closer closed.
 --- # link/CMP-EVENTS--calls--CMP-SERVE.yml
 apiVersion: core/design/v2
 kind: Link
@@ -1549,7 +1553,7 @@ spec:
   to: CMP-SERVE
   label: calls
   description: |
-    a serve.Part: Mount adds GET /api/events behind the guard, Changed hears each change; serve.Stopping ends a stream.
+    a serve.Part: Mount adds GET /api/events behind the guard, Changed hears each change, Skipped one missed while off; serve.Stopping ends a stream.
 --- # link/CMP-SERVE--calls--CMP-ASK.yml
 apiVersion: core/design/v2
 kind: Link
