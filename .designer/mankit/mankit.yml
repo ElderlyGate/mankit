@@ -625,6 +625,28 @@ spec:
     client that missed events: too old, another server, the feature off
     meanwhile, or an event that could not be built. Off: 404 not_found,
     nothing kept, open streams end when the owner switches it off.
+--- # block/CMP-QUEUE.yml
+apiVersion: core/design/v2
+kind: Block
+metadata:
+  id: CMP-QUEUE
+  title: "queue"
+spec:
+  place:
+    group: GRP-CLI
+  code:
+    implements: queue/queue.go
+  caption:
+    - "the change queue (ADR-S14)"
+    - "one change at a time per served thing"
+  description: |
+    Change writes a ticket (contracts mankit/v1) at the end of the line in
+    <served folder>/<app folder>/.queue/ (0700, ignores itself in git),
+    waits until it is first and holds the turn, a file lock that holds
+    across processes, runs the app's write, then its read-back. Tickets,
+    never commands. A stale or unreadable ticket is moved to .queue/bad/,
+    said and skipped. Codes: queue_timeout, not_read_back, ticket_lost,
+    queue_unusable. List is what <app> queue shows.
 --- # block/CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Block
@@ -1532,6 +1554,28 @@ spec:
   label: calls
   description: |
     events.Attach(list, config) with the cause of each change route by its pattern; nothing else (README, Events).
+--- # link/CMP-APP--calls--CMP-QUEUE.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-APP--calls--CMP-QUEUE
+spec:
+  from: CMP-APP
+  to: CMP-QUEUE
+  label: calls
+  description: |
+    queue.Change(ctx, change, write, readBack) for every change to the served thing, from its CLI and its server alike; List for <app> queue (README, Change queue).
+--- # link/CMP-QUEUE--calls--CMP-SERVE.yml
+apiVersion: core/design/v2
+kind: Link
+metadata:
+  id: CMP-QUEUE--calls--CMP-SERVE
+spec:
+  from: CMP-QUEUE
+  to: CMP-SERVE
+  label: calls
+  description: |
+    serve.Fail: its errors carry codes in the one error an answer carries.
 --- # link/CMP-EVENTS--calls--CMP-FEATURES.yml
 apiVersion: core/design/v2
 kind: Link
