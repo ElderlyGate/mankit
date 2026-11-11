@@ -449,6 +449,9 @@ ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SI
 defer stop()
 q, err := queue.Queue{Folder: filepath.Join(repo, ".designer"), App: "designer", Version: version}.
 	Settings(wait, limit) // the values of the app's rows queue.wait and queue.limit
+if err != nil {
+	return err
+}
 err = q.Change(ctx, "add block shop", write, readBack)
 ```
 
@@ -467,8 +470,10 @@ context too, and must stop when it ends: a change may hold the turn for
   holds the turn, runs `write`, then `readBack`: the change is done only once
   it is read back. The ticket leaves the line whether the change ran or not.
   An error from `write` comes back as it is. Past `Limit` (2 minutes) the
-  context of `write` and `readBack` ends and the change fails with
-  `change_too_long`; the next change gets the turn once `write` returns.
+  context of `write` ends; a `write` that then stops with an error fails with
+  `change_too_long`, and the next change gets the turn once `write` returns. A
+  `write` that returned no error is always read back, under a context of its
+  own (5s), and reported as done or `not_read_back`, never `change_too_long`.
 - The turn is a lock on a file (`github.com/gofrs/flock`), so it holds across
   processes; within one process a lock in memory keeps changes apart as well.
   Locks sit on lock files beside what others read (`<id>.lock` beside each
