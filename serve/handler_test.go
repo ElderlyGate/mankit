@@ -553,6 +553,27 @@ func TestHandlerRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) 
 	}
 }
 
+func TestFeaturesThatCannotBeReadAfterAChangeAreLoggedAndEveryModuleMissedIt(t *testing.T) {
+	m := &recorder{}
+	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Off: func() ([]string, error) { return nil, errors.New("disk gone") }})
+	if err := list.Attach("hear", m); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	s := site(nil)
+	s.Features, s.Log = list, &log
+	h, err := app.Handler(s, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("the change answered %d", w.Code)
+	}
+	if want := "POST /api/greeting: the features cannot be read, so every module missed this change: disk gone\n"; log.String() != want || len(m.skipped) != 1 {
+		t.Fatalf("log %q, skipped %+v", log.String(), m.skipped)
+	}
+}
+
 func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
 	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Off: func() ([]string, error) { return nil, nil }})
 	if err := list.Attach("hear", "not a part"); err != nil {

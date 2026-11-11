@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 
@@ -67,6 +69,7 @@ type Site struct {
 	Features *features.List                         // the app's feature list; the Part attached to a feature adds routes and hears of changes while it is on
 	Needs    []features.Value                       // the values the app's core cannot run without; serve refuses to start while one is missing (G-CODE-8)
 	Lookup   features.Lookup                        // finds a value of Needs; nil finds none, so any Needs refuses the start
+	Log      io.Writer                              // the app's log, for what goes wrong after an answer is sent; nil is standard error
 }
 
 // VersionData is the data of the GET /api/version answer.
@@ -254,7 +257,7 @@ func (a App) feature(list *features.List, id string, next http.Handler) http.Han
 type answeredKey struct{}
 
 // told runs the change, then tells each module of a change answered well, or that it missed one while its feature is off or broken; the answer is already sent, so a module never changes it.
-func told(h http.HandlerFunc, rt Route, list *features.List, parts []part) http.HandlerFunc {
+func told(h http.HandlerFunc, rt Route, list *features.List, parts []part, log io.Writer) http.HandlerFunc {
 	if len(parts) == 0 {
 		return h
 	}
@@ -264,8 +267,11 @@ func told(h http.HandlerFunc, rt Route, list *features.List, parts []part) http.
 		if c.Status < 200 || c.Status > 299 {
 			return
 		}
-		// The states are read once for every module; unreadable, every module hears it missed the change.
-		states, _ := list.States()
+		// The states are read once for every module; unreadable, every module hears it missed the change, and the log says why.
+		states, err := list.States()
+		if err != nil {
+			fmt.Fprintf(log, "%s %s: the features cannot be read, so every module missed this change: %v\n", r.Method, r.URL.Path, err)
+		}
 		for _, p := range parts {
 			if i := slices.IndexFunc(states, func(s features.State) bool { return s.ID == p.id }); i >= 0 && states[i].On && !states[i].Broken() {
 				p.part.Changed(*c)
@@ -281,7 +287,11 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 	if !writing[rt.method()] {
 		return rt.Handler
 	}
-	rt.Handler = told(rt.Handler, rt, site.Features, parts)
+	log := site.Log
+	if log == nil {
+		log = os.Stderr
+	}
+	rt.Handler = told(rt.Handler, rt, site.Features, parts, log)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get(ConfirmParam) {
 		case ConfirmYes:
