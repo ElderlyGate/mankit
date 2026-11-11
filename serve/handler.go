@@ -89,7 +89,7 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 		return nil, fmt.Errorf("serve: %s serves only with a token", a.command())
 	}
 	if missing := features.Missing(site.Needs, site.Lookup); len(missing) > 0 {
-		return nil, Fail(CodeNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
+		return nil, Fail(CodeCoreNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {

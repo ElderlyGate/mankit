@@ -888,7 +888,7 @@ spec:
     answer was good (Route.Changes names the thing), or that it missed one
     while off or broken; a broken feature answers 503 feature_needs_values
     and is logged at start. Site.Needs are the values the core cannot run
-    without: missing, serve refuses to start (needs_values). StopOnShutdown does the same for an app's own http.Server.
+    without: missing, serve refuses to start (core_needs_values). StopOnShutdown does the same for an app's own http.Server.
 --- # block/CMP-SETTINGS.yml
 apiVersion: core/design/v2
 kind: Block

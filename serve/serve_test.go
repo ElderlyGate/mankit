@@ -209,8 +209,8 @@ func TestServeRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) {
 	r.SetArgs([]string{"serve"})
 	err := r.Execute()
 	var e *serve.Error
-	if !errors.As(err, &e) || e.Code != serve.CodeNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") {
-		t.Fatalf("got %v, want needs_values naming SHOP_DIR", err)
+	if !errors.As(err, &e) || e.Code != serve.CodeCoreNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") {
+		t.Fatalf("got %v, want core_needs_values naming SHOP_DIR", err)
 	}
 	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
 		t.Fatalf("it started anyway: %v", recs)

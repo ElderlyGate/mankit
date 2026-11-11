@@ -544,8 +544,8 @@ func TestHandlerRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) 
 	s.Lookup = func(name string) bool { return name == "SHOP_KEY" }
 	_, err := app.Handler(s, token, nil)
 	var e *serve.Error
-	if !errors.As(err, &e) || e.Code != serve.CodeNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") || strings.Contains(e.Message, "SHOP_KEY") {
-		t.Fatalf("err = %v, want needs_values naming SHOP_DIR alone", err)
+	if !errors.As(err, &e) || e.Code != serve.CodeCoreNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") || strings.Contains(e.Message, "SHOP_KEY") {
+		t.Fatalf("err = %v, want core_needs_values naming SHOP_DIR alone", err)
 	}
 	s.Lookup = func(string) bool { return true }
 	if _, err := app.Handler(s, token, nil); err != nil {

@@ -340,7 +340,7 @@ What serve does for every app:
   the thing it changes), or that it missed one while off or broken, so no
   handler calls the module (see [Events](#events)). `serve` writes one line
   at start for each broken feature, naming each missing value and its purpose;
-- refuses to start, with `needs_values` naming each missing value and its
+- refuses to start, with `core_needs_values` naming each missing value and its
   purpose, while a value the app's core cannot run without is not set
   (`Site.Needs`, found by `Site.Lookup`): a core part is not a feature and has
   no switch.
