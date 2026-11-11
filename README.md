@@ -287,8 +287,8 @@ if err := asker.Ask(cmd, ask.Action{Type: ask.Delete, What: "delete branch x", N
 
 ## Serve
 
-`serve` is the HTTP door of an app, the same for every app (ADR-S04 in the org's
-design). The app gives its routes; serve adds the rest.
+`serve` is the HTTP door every app shares, so no app writes its own guard,
+contract or server commands. The app gives its routes; serve adds the rest.
 
 ```go
 app := serve.App{ID: "designer", Command: "e-designer", Version: version, Contracts: []string{"v1"}, Addr: "127.0.0.1:7480"}
@@ -300,10 +300,15 @@ open := func(cmd *cobra.Command) (serve.Site, error) {
 			{Pattern: "POST /api/blocks", Action: ask.Action{Type: ask.Create}, Handler: addBlock},
 		},
 		UI:     page,
-		Styles: func() (map[ask.Type]ask.Style, error) { return ask.Load(configPath) },
+		Styles:   func() (map[ask.Type]ask.Style, error) { return ask.Load(configPath) },
+		Remember: func(t ask.Type) error { return ask.Remember(configPath, t) },
 	}, nil
 }
-root.AddCommand(app.Commands(open, asker.Ask)...)
+cmds, err := app.Commands(open, asker.Ask)
+if err != nil {
+	return err
+}
+root.AddCommand(cmds...)
 ```
 
 A handler answers with `serve.Write(w, r, status, kind, data)` or
@@ -322,13 +327,17 @@ What serve does for every app:
 - answers `GET /api/version` with the contracts it answers, and the contract asked for in `Accept-Contract`,
   else 406 `unsupported_contract` with the versions it answers;
 - answers a change (POST, PUT, PATCH, DELETE) with 428 `unconfirmed` until it
-  comes with `confirm=yes`, unless the user picked `never` for its type. Every
-  change route names its action type; `Handler` refuses one that does not.
+  comes with `confirm=yes`, unless the user picked `never` for its type.
+  `confirm=remember` is a yes that also stops asking for the type
+  (`Site.Remember`). Every change route names its action type; `Handler`
+  refuses one that does not.
 
 Each error has a code (`serve.Code…`); a program decides by the code, never by
 the message. `<app> serve --help` and `<app> servers --help` are the reference
-for the commands. A detached server leaves a record in
-`<data folder>/<app>/servers/`, in the shape of contracts `mankit/v1`.
+for the commands. Every server, detached or in the foreground, leaves a record
+in `<data folder>/<app>/servers/`, in the shape of contracts `mankit/v1`;
+`servers` lists them and says which is detached. The token link is printed to a
+terminal only.
 
 The tests check the real answers against the schemas in
 [contracts](https://github.com/ElderlyGate/contracts).
