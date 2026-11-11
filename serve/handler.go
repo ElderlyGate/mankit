@@ -66,7 +66,7 @@ type Site struct {
 	Remember func(ask.Type) error                   // saves never for a type after "Remember my answer" (confirm=remember), in the app's config, such as ask.Remember
 	Features *features.List                         // the app's feature list; the Part attached to a feature adds routes and hears of changes while it is on
 	Needs    []features.Value                       // the values the app's core cannot run without; serve refuses to start while one is missing (G-CODE-8)
-	Lookup   features.Lookup                        // finds a value of Needs
+	Lookup   features.Lookup                        // finds a value of Needs; nil finds none, so any Needs refuses the start
 }
 
 // VersionData is the data of the GET /api/version answer.
