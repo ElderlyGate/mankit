@@ -14,7 +14,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v2/home"
@@ -208,44 +207,51 @@ func (a App) find(recs []record, target string) (record, error) {
 	return record{}, fmt.Errorf("%q names %d servers (%s); give the address", target, len(hits), strings.Join(addrs, ", "))
 }
 
-var errNoToken = errors.New("this machine has no server token yet: serve makes one")
+var errNoToken = errors.New("this machine has no server token yet")
 
-// tokenInfo is the token file's stat; one another user could read or have written is refused.
-func tokenInfo(path string) (os.FileInfo, error) {
-	info, err := os.Lstat(path)
+// readToken reads the machine's token whole on every call, checking the folder and the open file, so no link or swapped file is read.
+func (a App) readToken(dir string) (string, error) {
+	path := filepath.Join(dir, tokenName)
+	renew := fmt.Sprintf("`%s servers token renew` writes a new one", a.command())
+	info, err := os.Lstat(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, errNoToken
+		return "", fmt.Errorf("%w: `%s serve` or %s", errNoToken, a.command(), renew)
 	}
 	if err != nil {
-		return nil, err
-	}
-	if err := private(info); err != nil {
-		return nil, fmt.Errorf("%s %w: remove it and serve makes a new one", path, err)
-	}
-	return info, nil
-}
-
-// readToken is the token every server of the app on this machine asks for.
-func readToken(dir string) (string, error) {
-	path := filepath.Join(dir, tokenName)
-	if _, err := tokenInfo(path); err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(path)
+	if err := privateDir(info); err != nil {
+		return "", fmt.Errorf("%s %w", dir, err)
+	}
+	f, err := openNoFollow(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("%w: `%s serve` or %s", errNoToken, a.command(), renew)
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s cannot be read: %w; %s", path, err, renew)
+	}
+	defer f.Close()
+	if info, err = f.Stat(); err != nil {
+		return "", err
+	}
+	if err := private(info); err != nil {
+		return "", fmt.Errorf("%s %w: %s", path, err, renew)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 1<<10))
 	if err != nil {
 		return "", err
 	}
 	// An empty token would match a request that carries none.
 	t := strings.TrimSpace(string(data))
 	if t == "" {
-		return "", fmt.Errorf("%s holds no token: remove it and serve makes a new one", path)
+		return "", fmt.Errorf("%s holds no token: %s", path, renew)
 	}
 	return t, nil
 }
 
 // ensureToken reads the token, making it on first use; it stays across restarts.
-func ensureToken(dir string) (string, error) {
-	if t, err := readToken(dir); !errors.Is(err, errNoToken) {
+func (a App) ensureToken(dir string) (string, error) {
+	if t, err := a.readToken(dir); !errors.Is(err, errNoToken) {
 		return t, err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -274,7 +280,7 @@ func ensureToken(dir string) (string, error) {
 	if err := os.Link(tmp.Name(), filepath.Join(dir, tokenName)); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", err
 	}
-	return readToken(dir)
+	return a.readToken(dir)
 }
 
 func newToken() (string, error) {
@@ -301,34 +307,6 @@ func renewToken(dir string) (string, error) {
 	if err := writeWhole(dir, filepath.Join(dir, tokenName), []byte(token+"\n")); err != nil {
 		return "", err
 	}
-	return token, nil
-}
-
-// machineToken is the token file the guard checks on every request, so a renew reaches running servers without a restart.
-type machineToken struct {
-	dir   string
-	mu    sync.Mutex
-	seen  os.FileInfo
-	token string
-}
-
-// current is the token in the file now: a stat on every call, and a read only when the file is another one or changed since.
-func (m *machineToken) current() (string, error) {
-	info, err := tokenInfo(filepath.Join(m.dir, tokenName))
-	if err != nil {
-		return "", err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// A renew renames a new file into place, so the file's identity changes even where the clock is too coarse to move its mtime.
-	if m.seen != nil && os.SameFile(m.seen, info) && m.seen.ModTime().Equal(info.ModTime()) && m.seen.Size() == info.Size() {
-		return m.token, nil
-	}
-	token, err := readToken(m.dir)
-	if err != nil {
-		return "", err
-	}
-	m.seen, m.token = info, token
 	return token, nil
 }
 

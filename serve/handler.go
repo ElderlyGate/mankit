@@ -93,7 +93,7 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := ensureToken(dir); err != nil {
+	if _, err := a.ensureToken(dir); err != nil {
 		return nil, err
 	}
 	if missing := features.Missing(site.Needs, site.Lookup); len(missing) > 0 {
@@ -142,7 +142,7 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 	if site.UI != nil {
 		mux.Handle("/", site.UI)
 	}
-	return a.guard(&machineToken{dir: dir}, hosts, site.Name, a.choose(site.Name, mux)), nil
+	return a.guard(dir, hosts, site.Name, a.choose(site.Name, mux)), nil
 }
 
 // Write answers kind with data, in the envelope and the contract the request was answered in.

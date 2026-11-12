@@ -170,6 +170,62 @@ func TestServeTakesARenewedTokenWithoutARestart(t *testing.T) {
 	}
 }
 
+func TestServeRefusesEveryEarlierTokenAfterRenewsBackToBack(t *testing.T) {
+	h := handler(t, nil)
+	first := tokenOf(t, answer(t, linkSchema, "servers", "token", "renew", "--yes"))
+	second := tokenOf(t, answer(t, linkSchema, "servers", "token", "renew", "--yes"))
+	for _, old := range []string{token, first} {
+		refusal(t, call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer " + old}), http.StatusUnauthorized, serve.CodeToken)
+	}
+	if w := call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer " + second}); w.Code != http.StatusOK {
+		t.Fatalf("the last token: status %d", w.Code)
+	}
+}
+
+func TestServeTakesATokenWrittenInPlaceOfTheSameSize(t *testing.T) {
+	dir := machine(t)
+	writeToken(t, dir, token)
+	h, err := app.Handler(site(nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := call(t, h, "GET", "/api/greeting", "", nil); w.Code != http.StatusOK {
+		t.Fatalf("before: status %d", w.Code)
+	}
+	// The same file, the same size and, on a coarse clock, the same mtime: only reading it shows the change.
+	path := filepath.Join(dir, "token")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("t0ken!\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	refusal(t, call(t, h, "GET", "/api/greeting", "", nil), http.StatusUnauthorized, serve.CodeToken)
+	if w := call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer t0ken!"}); w.Code != http.StatusOK {
+		t.Fatalf("the new token: status %d", w.Code)
+	}
+}
+
+func TestServeLetsNobodyInWhileTheTokenFolderIsOpenToOthers(t *testing.T) {
+	dir := machine(t)
+	writeToken(t, dir, token)
+	h, err := app.Handler(site(nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := refusal(t, call(t, h, "GET", "/api/greeting", "", nil), http.StatusInternalServerError, serve.CodeConfig)
+	if !strings.Contains(e.Message, dir) {
+		t.Fatalf("the refusal does not name %s: %s", dir, e.Message)
+	}
+}
+
 func TestServeAnswersANameItWasGiven(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://tunnel.example/api/version", nil)
 	req.Header.Set("Authorization", "Bearer "+token)

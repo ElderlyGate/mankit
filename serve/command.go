@@ -191,7 +191,7 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 		case child:
 			fmt.Fprintf(w, "detached; `%s servers stop %s` stops it\n", a.command(), bound)
 		case terminal(w):
-			token, err := readToken(dir)
+			token, err := a.readToken(dir)
 			if err != nil {
 				ln.Close()
 				return err
@@ -270,7 +270,7 @@ func (a App) detach(cmd *cobra.Command, out *printing, dir, addr string) error {
 	if err != nil {
 		return err
 	}
-	token, err := readToken(dir)
+	token, err := a.readToken(dir)
 	if err != nil {
 		return err
 	}
@@ -435,7 +435,7 @@ takes it out of the address, so the page never holds it.`,
 		if err != nil {
 			return err
 		}
-		token, err := readToken(dir)
+		token, err := a.readToken(dir)
 		if err != nil {
 			return err
 		}

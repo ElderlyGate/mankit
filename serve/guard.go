@@ -45,7 +45,7 @@ func bearer(r *http.Request) string {
 	return strings.TrimSpace(t)
 }
 
-func (a App) guard(tok *machineToken, hosts []string, name string, next http.Handler) http.Handler {
+func (a App) guard(dir string, hosts []string, name string, next http.Handler) http.Handler {
 	refuse := func(w http.ResponseWriter, status int, code, message string) {
 		contract, _ := a.Contract("")
 		writeEnvelope(w, status, a.Failure(name, contract, Fail(code, message)))
@@ -60,7 +60,7 @@ func (a App) guard(tok *machineToken, hosts []string, name string, next http.Han
 		}
 		page := !strings.HasPrefix(r.URL.Path, "/api/")
 		// Read on every request, so a renewed token counts at once; a file that cannot be trusted lets nobody in.
-		token, err := tok.current()
+		token, err := a.readToken(dir)
 		if err != nil {
 			if page {
 				writePage(w, http.StatusInternalServerError, a.command(), err.Error())
