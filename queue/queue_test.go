@@ -622,17 +622,18 @@ func TestAChangePastTheRunLimitIsToldToStopAndFails(t *testing.T) {
 func TestAWriteThatFinishesPastTheLimitIsReadBackAndKeepsTheTurnUntilThen(t *testing.T) {
 	q, _ := newQueue(t)
 	q.Limit = 100 * time.Millisecond
-	writing, wrote := make(chan struct{}), make(chan time.Time, 1)
+	writing, readEnd := make(chan struct{}), make(chan time.Time, 1)
 	result := make(chan error, 1)
 	readBack := false
 	go func() {
 		result <- q.Change(context.Background(), "deaf", func(context.Context) error {
 			close(writing)
-			time.Sleep(400 * time.Millisecond)
-			wrote <- time.Now()
+			time.Sleep(300 * time.Millisecond)
 			return nil
 		}, func(ctx context.Context) error {
+			time.Sleep(200 * time.Millisecond)
 			readBack = ctx.Err() == nil
+			readEnd <- time.Now()
 			return nil
 		})
 	}()
@@ -644,8 +645,8 @@ func TestAWriteThatFinishesPastTheLimitIsReadBackAndKeepsTheTurnUntilThen(t *tes
 	if err := <-result; err != nil || !readBack {
 		t.Fatalf("got %v (read back with a live context %v); a write that finished is done once read back", err, readBack)
 	}
-	if done := <-wrote; ranAt.Before(done) {
-		t.Fatal("the next change ran before the long write returned")
+	if ended := <-readEnd; ranAt.Before(ended) {
+		t.Fatal("the next change ran before the slow read-back ended")
 	}
 }
 
