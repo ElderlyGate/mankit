@@ -18,9 +18,10 @@ jobs:
     name: github · linux
     runs-on: ubuntu-latest
     steps:
+      # The whole history, so gorelease finds the release tags it compares with.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       # A PR that changes only cards, designs or Markdown skips the tests; the check still reports.
       - id: scope
         run: |
@@ -43,3 +44,24 @@ jobs:
       - name: test
         if: steps.scope.outputs.code == 'true'
         run: go test ./...
+      # A break in the public API fails, unless the module path moved to a new major (/vN): that is how a major is declared.
+      - name: gorelease
+        if: steps.scope.outputs.code == 'true'
+        run: |
+          go install golang.org/x/exp/cmd/gorelease@v0.0.0-20261109185158-a52e3aef5920
+          mod=$(go list -m)
+          major=v1
+          case "${mod##*/}" in v[0-9]*) major=${mod##*/} ;; esac
+          latest() { git tag -l "$1.*" | grep -E "^$1\.[0-9]+\.[0-9]+$" | sort -V | tail -n1; }
+          base=$(latest "$major")
+          if [ -n "$base" ]; then
+            echo "Comparing with $base, the latest release of $major."
+            gorelease -base="$base"
+          else
+            n=${major#v}
+            prev=v$((n - 1))
+            prevmod=${mod%/"$major"}
+            [ "$prev" = v1 ] || prevmod="$prevmod/$prev"
+            echo "No $major release yet: comparing with the latest $prev release, as the first $major.0.0."
+            gorelease -base="$prevmod@$(latest "$prev")" -version="$major.0.0"
+          fi

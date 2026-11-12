@@ -575,6 +575,8 @@ spec:
     main with `build: none`: a version tag and no binary, as a library has
     none. The module path is github.com/tugbayatilla/mankit/v2 until a later
     migration moves it with the org rename (README).
+    ci.yml runs gorelease on every pull request: a break in the public API
+    fails it unless the module path moves to the next major.
   source:
     where:
       - .github/workflows/release.yml

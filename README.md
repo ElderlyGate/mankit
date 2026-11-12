@@ -588,6 +588,10 @@ module path is `github.com/tugbayatilla/mankit/v2` until a later migration moves
 it with the org rename; the repository itself lives at
 `github.com/ElderlyGate/mankit`.
 
+CI runs [gorelease](https://pkg.go.dev/golang.org/x/exp/cmd/gorelease) on every
+pull request: a change that breaks the public API fails it, unless the module
+path itself moves to the next major (`/v3`), which is how a major is declared.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
