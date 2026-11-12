@@ -298,6 +298,22 @@ func TestChangesRunOneAtATimeInTheOrderTheyJoined(t *testing.T) {
 	}
 }
 
+func TestTwoQueuesInOneProcessNeverWaitForEachOther(t *testing.T) {
+	alpha, _ := newQueue(t)
+	beta, _ := newQueue(t)
+	release := hold(t, alpha)
+	beta.Wait = time.Second
+	if err := beta.Change(context.Background(), "change beta", nothing, nothing); err != nil {
+		t.Fatalf("beta waited for alpha's turn: %v", err)
+	}
+	if l := waitFor(t, alpha, 1); l.Tickets[0].Ticket.Spec.Change != "hold the turn" {
+		t.Fatalf("alpha's line is %+v, want only its holding change", l.Tickets)
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTheListShowsTheLineInOrderAndWhoseTurnItIs(t *testing.T) {
 	q, _ := newQueue(t)
 	release := hold(t, q)
