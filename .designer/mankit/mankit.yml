@@ -641,7 +641,7 @@ spec:
     - "the change queue (ADR-S14)"
     - "one change at a time per served thing"
   description: |
-    Change writes a ticket (contracts mankit/v1) at the end of the line in
+    Change writes a QueueTicket (contracts mankit/v1) at the end of the line in
     <served folder>/<app folder>/.queue/ (0700, ignores itself in git),
     waits until it is first and holds the turn, a file lock (gofrs/flock)
     across processes and a lock in memory within one, runs the app's write,
