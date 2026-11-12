@@ -240,7 +240,7 @@ func writeRecord(t *testing.T, dir, addr string, pid int) string {
 		t.Fatal(err)
 	}
 	rec := map[string]any{
-		"apiVersion": home.Org + "/mankit/server/v1", "kind": "Server",
+		"apiVersion": home.Org + "/mankit/servers/v1", "kind": "ServerRecord",
 		"metadata": map[string]any{"app": "designer", "addr": addr, "pid": pid},
 		"spec":     map[string]any{"version": "5.0.0", "startedAt": "2026-11-11T13:00:00Z", "detached": true},
 	}

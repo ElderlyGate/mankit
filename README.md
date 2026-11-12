@@ -348,7 +348,8 @@ What serve does for every app:
 Each error has a code (`serve.Code…`); a program decides by the code, never by
 the message. `<app> serve --help` and `<app> servers --help` are the reference
 for the commands. Every server, detached or in the foreground, leaves a record
-in `<data folder>/<app>/servers/`, in the shape of contracts `mankit/v1`;
+in `<data folder>/<app>/servers/`: apiVersion `<org>/mankit/servers/v1`, kind
+`ServerRecord`, in the shape of contracts `mankit/v1`;
 `servers` lists them and says which is detached. The token link is printed to a
 terminal only.
 

@@ -24,7 +24,7 @@ import (
 
 // The record's fixed header: two app versions read it at once, so these never change (ADR-S15, contracts mankit/v1).
 const (
-	recordKind  = "Server"
+	recordKind  = "ServerRecord"
 	tokenName   = "token"
 	serversDir  = "servers"
 	probeWait   = 2 * time.Second
@@ -32,7 +32,7 @@ const (
 	shutdownFor = 5 * time.Second
 )
 
-func recordAPIVersion() string { return home.Org + "/mankit/server/v1" }
+func recordAPIVersion() string { return home.Org + "/mankit/servers/v1" }
 
 type record struct {
 	APIVersion string         `json:"apiVersion"`

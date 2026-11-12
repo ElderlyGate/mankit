@@ -879,8 +879,8 @@ spec:
     through Site.Remember). Every answer is the contracts
     envelope with ran (Write, WriteError; Answer, Failure and Encode for the
     CLI). App.Commands adds serve [--detach], servers, servers stop and
-    servers link; every server, detached or not, leaves a record (contracts
-    mankit/v1) in the app's data folder, and a server is known by asking
+    servers link; every server, detached or not, leaves a ServerRecord
+    (<org>/mankit/servers/v1, contracts mankit/v1) in the app's data folder, and a server is known by asking
     its address without the token. Stopping tells a long answer, such as
     a stream, that the server is stopping. A switchable module is reached
     only through Site.Features: the serve.Part attached to a feature adds
