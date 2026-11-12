@@ -321,6 +321,13 @@ its version and the contract), `data` and `errors`. The CLI builds the same
 answer with `app.Answer` or `app.Failure` and writes it with `serve.Encode`, so
 both doors give the same bytes.
 
+One server may serve many things, such as one per project. `Site.NameFor`
+gives the thing an answer is about, read from the routed request (such as
+`r.PathValue("project")`), and `ran.name` names it; where it gives "" (or is
+nil), and in a refusal given before a route is found, `ran.name` is
+`Site.Name`. The server's record names the server, `Site.Name`, never each
+thing it serves.
+
 What serve does for every app:
 
 - answers only on this machine's own address, or a name given with `--host`;
@@ -471,7 +478,8 @@ kept in `<served folder>/<app folder>/.queue/`, which only this user may enter
 and which ignores itself in git. It holds tickets, never commands: each
 process runs its own change, and nothing in the folder is ever executed. The
 rules every app sharing a queue follows on disk are fixed in contracts
-`mankit/v1`.
+`mankit/v1`. One process may hold the queues of many served things at once:
+each folder has its own line, so a change in one never waits for another.
 
 ```go
 ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
