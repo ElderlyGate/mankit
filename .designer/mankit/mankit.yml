@@ -905,7 +905,8 @@ spec:
     cookie <app>-token-<port>, the token as Authorization: Bearer, the
     page's own origin, JSON bodies. The token is the machine's file in the
     app's data folder, checked on every request (a stat, a read only when it
-    changed), so servers token renew reaches running servers at once. GET /api/version lists the contracts answered;
+    changed), so servers token renew reaches running servers at once.
+    App.Folder names the app's folders where they differ from its ID. GET /api/version lists the contracts answered;
     Accept-Contract picks one, or 406
     unsupported_contract, and 428 for a change without confirm=yes unless the
     user picked never for its action type (confirm=remember saves that
