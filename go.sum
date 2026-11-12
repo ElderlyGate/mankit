@@ -1,13 +1,5 @@
-github.com/ElderlyGate/contracts v0.2.1-0.20261111191828-0c0dbc4914fc h1:y3b77PoVofkxGFgP8WCo7KRX6jg82U4d99hQBDT651I=
-github.com/ElderlyGate/contracts v0.2.1-0.20261111191828-0c0dbc4914fc/go.mod h1:XmruStYgbIDJ0hrw7hZ6oHJtNmaAGBOf5/pGGFTd7QY=
-github.com/ElderlyGate/contracts v0.2.1-0.20261111193606-12bddbb2b627 h1:42UJAGeVJtgVg4KMmpMcM28GGJ4uDSZfg5cqT8VL0Zc=
-github.com/ElderlyGate/contracts v0.2.1-0.20261111193606-12bddbb2b627/go.mod h1:XmruStYgbIDJ0hrw7hZ6oHJtNmaAGBOf5/pGGFTd7QY=
-github.com/ElderlyGate/contracts v0.2.1-0.20261112074038-c707491da00e h1:yzb2EY5olHZXsHMkXwbXcNwZwZlkL+MeWwbmjEQtprU=
-github.com/ElderlyGate/contracts v0.2.1-0.20261112074038-c707491da00e/go.mod h1:XmruStYgbIDJ0hrw7hZ6oHJtNmaAGBOf5/pGGFTd7QY=
-github.com/ElderlyGate/contracts v0.2.1-0.20261112074725-24659b977b33 h1:cUnPWlAMheYSbICjyhfPpCM4bBGePBFxe1NOdHyJsfg=
-github.com/ElderlyGate/contracts v0.2.1-0.20261112074725-24659b977b33/go.mod h1:XmruStYgbIDJ0hrw7hZ6oHJtNmaAGBOf5/pGGFTd7QY=
-github.com/ElderlyGate/contracts v0.2.1-0.20261112075636-67e788296096 h1:H34ozAqMPuAugxPYCdmbipozmAxVVKdEVruwt7D46XI=
-github.com/ElderlyGate/contracts v0.2.1-0.20261112075636-67e788296096/go.mod h1:XmruStYgbIDJ0hrw7hZ6oHJtNmaAGBOf5/pGGFTd7QY=
+github.com/ElderlyGate/contracts v0.3.0 h1:VbXSVZx2WvPbZ5thE63C7+YTszRDE0oZHmBAK1ym2ms=
+github.com/ElderlyGate/contracts v0.3.0/go.mod h1:XmruStYgbIDJ0hrw7hZ6oHJtNmaAGBOf5/pGGFTd7QY=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
