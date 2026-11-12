@@ -1,5 +1,5 @@
 --- # design.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Design
 metadata:
   id: mankit
@@ -46,7 +46,7 @@ spec:
         label: ships
         meaning: a tagged version travels towards an app's build, or is compiled into its binary
 --- # definitions.yml
-apiVersion: core/system/v1
+apiVersion: elderlygate/designer/design/v2
 kind: Definitions
 metadata:
   id: definitions
@@ -78,7 +78,7 @@ spec:
           values:
             - related
 --- # block/CMP-APP.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-APP
@@ -99,7 +99,7 @@ spec:
     where:
       - README.md
 --- # block/CMP-ASK.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-ASK
@@ -121,7 +121,7 @@ spec:
     for the name. Load, Set and Remember read and write the confirm:
     section.
 --- # block/CMP-CONFIGFILE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CONFIGFILE
@@ -140,7 +140,7 @@ spec:
     temp file and a rename, keeping its mode. Shared by ask, settings,
     theme and usercmd.
 --- # block/CMP-CONFIRM.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CONFIRM
@@ -157,7 +157,7 @@ spec:
     Asking before acting in a dashboard: y or enter says yes, any other key
     cancels.
 --- # block/CMP-CTX-BROWSER.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-BROWSER
@@ -178,7 +178,7 @@ spec:
     where:
       - desktop/open.go
 --- # block/CMP-CTX-CHECKMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-CHECKMAN
@@ -195,7 +195,7 @@ spec:
   description: |
     Imports every mankit package. Product ID checkman.
 --- # block/CMP-CTX-CLIP.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-CLIP
@@ -221,7 +221,7 @@ spec:
       - desktop/clipboard.go
       - desktop/clipboard_unix.go
 --- # block/CMP-CTX-CONTROLROOM.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-CONTROLROOM
@@ -238,7 +238,7 @@ spec:
   description: |
     Imports ask, helpout, home and settings. Product ID control-room.
 --- # block/CMP-CTX-DCMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-DCMAN
@@ -255,7 +255,7 @@ spec:
   description: |
     Imports every mankit package. Product ID dcman.
 --- # block/CMP-CTX-DESIGNER.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-DESIGNER
@@ -272,7 +272,7 @@ spec:
   description: |
     Imports ask and home. Product ID designer, repository e-designer.
 --- # block/CMP-CTX-DEV.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-DEV
@@ -294,7 +294,7 @@ spec:
     where:
       - README.md#develop-alongside-the-apps
 --- # block/CMP-CTX-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-FILES
@@ -321,7 +321,7 @@ spec:
       - README.md#where-the-files-are
       - home/home.go
 --- # block/CMP-CTX-GITMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-GITMAN
@@ -338,7 +338,7 @@ spec:
   description: |
     Imports every mankit package. Product ID gitman.
 --- # block/CMP-CTX-GOMODS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-GOMODS
@@ -362,7 +362,7 @@ spec:
     where:
       - go.mod
 --- # block/CMP-CTX-HUBMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-HUBMAN
@@ -379,7 +379,7 @@ spec:
   description: |
     Imports every mankit package but usercmd/cli. Product ID hubman.
 --- # block/CMP-CTX-KANBAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-CTX-KANBAN
@@ -396,7 +396,7 @@ spec:
   description: |
     Imports ask, helpout and home. Product ID kanban, repository kanban-app.
 --- # block/CMP-DEP-BUILD.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-BUILD
@@ -416,7 +416,7 @@ spec:
     where:
       - README.md#develop-alongside-the-apps
 --- # block/CMP-DEP-CHECKMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-CHECKMAN
@@ -431,7 +431,7 @@ spec:
   description: |
     The checkman binary, with mankit compiled in.
 --- # block/CMP-DEP-CONTROLROOM.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-CONTROLROOM
@@ -446,7 +446,7 @@ spec:
   description: |
     The control-room binary, with those mankit packages compiled in.
 --- # block/CMP-DEP-DCMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-DCMAN
@@ -461,7 +461,7 @@ spec:
   description: |
     The dcman binary, with mankit compiled in.
 --- # block/CMP-DEP-DESIGNER.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-DESIGNER
@@ -476,7 +476,7 @@ spec:
   description: |
     The e-designer binary, run in its project's container (one board per project, Docker only), with those mankit packages compiled in.
 --- # block/CMP-DEP-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-FILES
@@ -497,7 +497,7 @@ spec:
     where:
       - README.md#where-the-files-are
 --- # block/CMP-DEP-GITMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-GITMAN
@@ -512,7 +512,7 @@ spec:
   description: |
     The gitman binary, with mankit compiled in.
 --- # block/CMP-DEP-HUBMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-HUBMAN
@@ -527,7 +527,7 @@ spec:
   description: |
     The hubman binary, with mankit compiled in.
 --- # block/CMP-DEP-KANBAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-KANBAN
@@ -542,7 +542,7 @@ spec:
   description: |
     The kanban binary (repository kanban-app), with those mankit packages compiled in.
 --- # block/CMP-DEP-PROXY.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-PROXY
@@ -557,7 +557,7 @@ spec:
     Shared infrastructure outside every place: the Go toolchain fetches the
     tagged module through it by default.
 --- # block/CMP-DEP-REPO.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DEP-REPO
@@ -580,7 +580,7 @@ spec:
       - .github/workflows/release.yml
       - README.md#develop-alongside-the-apps
 --- # block/CMP-DESKTOP.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-DESKTOP
@@ -598,7 +598,7 @@ spec:
     where there is one; Paste reads the system clipboard; Open opens a URL
     in the browser; IsWSL. The tools are looked up only when used.
 --- # block/CMP-EVENTS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-EVENTS
@@ -627,7 +627,7 @@ spec:
     enterprise feature (ADR-E9). Off: 404 not_found, nothing kept, open
     streams end when the owner switches it off.
 --- # block/CMP-QUEUE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-QUEUE
@@ -656,7 +656,7 @@ spec:
     ticket_lost, queue_unusable, queue_backend_unsupported, change_too_long.
     List is what <app> queue shows.
 --- # block/CMP-FEATURES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-FEATURES
@@ -682,7 +682,7 @@ spec:
     refuses an id the list does not hold. It knows no app and keeps no
     file itself.
 --- # block/CMP-HEADER.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-HEADER
@@ -698,7 +698,7 @@ spec:
   description: |
     Pieces of the top line: Location shortens a path from the left.
 --- # block/CMP-HELPOUT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-HELPOUT
@@ -718,7 +718,7 @@ spec:
     with the layout on stderr, an ask refusal (ask.ErrRefused) into exit 3,
     and returns any other run-time error untouched with exit 1.
 --- # block/CMP-HOME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-HOME
@@ -739,7 +739,7 @@ spec:
     folder only where nothing is. The folder name is the one constant
     home.Org.
 --- # block/CMP-LIGHT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-LIGHT
@@ -755,7 +755,7 @@ spec:
   description: |
     Green focused, yellow refreshing in the background, red not updating.
 --- # block/CMP-LIST.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-LIST
@@ -772,7 +772,7 @@ spec:
     The left-hand list: the highlighted row wraps to show its whole text,
     with scrolling and mouse clicks that account for it.
 --- # block/CMP-MANKIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-MANKIT
@@ -795,7 +795,7 @@ spec:
       - README.md
       - go.mod
 --- # block/CMP-NOTICE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-NOTICE
@@ -812,7 +812,7 @@ spec:
     Puts the latest message first on the status line for a few seconds, so
     copied 2 lines shows even over a search or a running action.
 --- # block/CMP-PALETTE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-PALETTE
@@ -831,7 +831,7 @@ spec:
     of every setting row; running one opens the Settings view on that row;
     a setting is never starred.
 --- # block/CMP-PREFS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-PREFS
@@ -851,7 +851,7 @@ spec:
     the yes, and saves never when the user asks to stop asking. --dry-run
     asks and writes nothing.
 --- # block/CMP-SEARCH.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-SEARCH
@@ -868,7 +868,7 @@ spec:
     Searches the pane: every hit marked, n and N between them, and the
     status line.
 --- # block/CMP-SELECTION.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-SELECTION
@@ -884,7 +884,7 @@ spec:
     Drag with the mouse to select text on the screen. It imports no mankit
     package: the app hands the selection to desktop to copy.
 --- # block/CMP-SERVE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-SERVE
@@ -919,7 +919,7 @@ spec:
     and is logged at start. Site.Needs are the values the core cannot run
     without: missing, serve refuses to start (core_needs_values). StopOnShutdown does the same for an app's own http.Server.
 --- # block/CMP-SETTINGS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-SETTINGS
@@ -939,7 +939,7 @@ spec:
     empty value, and changes only that key's line; a confirm.<type> key
     goes to ask.Set.
 --- # block/CMP-SETTINGSCLI.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-SETTINGSCLI
@@ -958,7 +958,7 @@ spec:
     AddToE reports a clash with an existing config command or -o flag
     instead of working around it.
 --- # block/CMP-SPLIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-SPLIT
@@ -975,7 +975,7 @@ spec:
     [ widens the pane, ] the list, = resets, or drag the border; the list
     keeps its width when the window grows.
 --- # block/CMP-TEXTINPUT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-TEXTINPUT
@@ -992,7 +992,7 @@ spec:
     bubbles' text input, vendored so atotto/clipboard stays out of the
     Linux build; paste goes through desktop.
 --- # block/CMP-THEME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-THEME
@@ -1011,7 +1011,7 @@ spec:
     picks one from --theme, then NO_COLOR, then theme: and background: in
     the app's config.yaml.
 --- # block/CMP-USERCMD.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-USERCMD
@@ -1030,7 +1030,7 @@ spec:
     key, a shell line with the selection filled in. One JSON schema for all
     apps.
 --- # block/CMP-USERCMDCLI.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Block
 metadata:
   id: CMP-USERCMDCLI
@@ -1048,7 +1048,7 @@ spec:
     path.
 --- # link/CMP-APP--calls--CMP-HELPOUT.yml
 ---
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-HELPOUT
@@ -1059,7 +1059,7 @@ spec:
   description: |
     helpout.Apply(root, Info) and helpout.Execute(ctx, root) (README, Help).
 --- # link/CMP-APP--calls--CMP-HOME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-HOME
@@ -1070,7 +1070,7 @@ spec:
   description: |
     home.Migrate before its first write, home.Current, home.CopyOnce (README, Where the files are).
 --- # link/CMP-APP--calls--CMP-PREFS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-PREFS
@@ -1081,7 +1081,7 @@ spec:
   description: |
     prefs.AddTo and prefs.Asker.Ask in its own verbs (README, prefs).
 --- # link/CMP-APP--calls--CMP-SETTINGS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-SETTINGS
@@ -1092,7 +1092,7 @@ spec:
   description: |
     settings.Keys and settings.Path (README, Settings).
 --- # link/CMP-APP--calls--CMP-SETTINGSCLI.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-SETTINGSCLI
@@ -1103,7 +1103,7 @@ spec:
   description: |
     cli.AddTo(root, keys, path) (README, Settings).
 --- # link/CMP-APP--calls--CMP-THEME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-THEME
@@ -1114,7 +1114,7 @@ spec:
   description: |
     theme.Resolve(app, flag, set) at start (README, theme).
 --- # link/CMP-ASK--calls--CMP-CONFIGFILE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-ASK--calls--CMP-CONFIGFILE
@@ -1125,7 +1125,7 @@ spec:
   description: |
     Set writes the confirm: section with configfile.WriteFile.
 --- # link/CMP-CONFIGFILE--calls--CMP-HOME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CONFIGFILE--calls--CMP-HOME
@@ -1136,7 +1136,7 @@ spec:
   description: |
     Path is home.File(app, "config.yaml") unless a folder is given.
 --- # link/CMP-CTX-CHECKMAN--imports--CMP-MANKIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CTX-CHECKMAN--imports--CMP-MANKIT
@@ -1146,7 +1146,7 @@ spec:
   label: imports
   sides: l-r
 --- # link/CMP-CTX-CONTROLROOM--imports--CMP-MANKIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CTX-CONTROLROOM--imports--CMP-MANKIT
@@ -1156,7 +1156,7 @@ spec:
   label: imports
   sides: l-r
 --- # link/CMP-CTX-DCMAN--imports--CMP-MANKIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CTX-DCMAN--imports--CMP-MANKIT
@@ -1166,7 +1166,7 @@ spec:
   label: imports
   sides: l-r
 --- # link/CMP-CTX-DESIGNER--imports--CMP-MANKIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CTX-DESIGNER--imports--CMP-MANKIT
@@ -1177,7 +1177,7 @@ spec:
   sides: l-r
 --- # link/CMP-CTX-DEV--imports--CMP-MANKIT.yml
 ---
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CTX-DEV--imports--CMP-MANKIT
@@ -1191,7 +1191,7 @@ spec:
     description: |
       A tagged version, fetched with `go get` into an app's go.mod, or this checkout through a `go.work` while developing. Nothing proves who is talking beyond the Go module checksum (go.sum).
 --- # link/CMP-CTX-GITMAN--imports--CMP-MANKIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CTX-GITMAN--imports--CMP-MANKIT
@@ -1205,7 +1205,7 @@ spec:
     description: |
       Each app imports mankit's packages as Go code at build time. No channel at run time: mankit runs inside the app.
 --- # link/CMP-CTX-HUBMAN--imports--CMP-MANKIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CTX-HUBMAN--imports--CMP-MANKIT
@@ -1215,7 +1215,7 @@ spec:
   label: imports
   sides: l-r
 --- # link/CMP-CTX-KANBAN--imports--CMP-MANKIT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-CTX-KANBAN--imports--CMP-MANKIT
@@ -1225,7 +1225,7 @@ spec:
   label: imports
   sides: l-r
 --- # link/CMP-DEP-BUILD--ships--CMP-DEP-CHECKMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-CHECKMAN
@@ -1235,7 +1235,7 @@ spec:
   label: ships
   sides: r-l
 --- # link/CMP-DEP-BUILD--ships--CMP-DEP-CONTROLROOM.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-CONTROLROOM
@@ -1245,7 +1245,7 @@ spec:
   label: ships
   sides: r-l
 --- # link/CMP-DEP-BUILD--ships--CMP-DEP-DCMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-DCMAN
@@ -1255,7 +1255,7 @@ spec:
   label: ships
   sides: r-l
 --- # link/CMP-DEP-BUILD--ships--CMP-DEP-DESIGNER.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-DESIGNER
@@ -1265,7 +1265,7 @@ spec:
   label: ships
   sides: r-l
 --- # link/CMP-DEP-BUILD--ships--CMP-DEP-GITMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-GITMAN
@@ -1279,7 +1279,7 @@ spec:
     description: |
       mankit compiled into the app's binary: no library file, no process of its own on the machine. A new mankit reaches an app only when the app is built again.
 --- # link/CMP-DEP-BUILD--ships--CMP-DEP-HUBMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-HUBMAN
@@ -1289,7 +1289,7 @@ spec:
   label: ships
   sides: r-l
 --- # link/CMP-DEP-BUILD--ships--CMP-DEP-KANBAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-BUILD--ships--CMP-DEP-KANBAN
@@ -1299,7 +1299,7 @@ spec:
   label: ships
   sides: r-l
 --- # link/CMP-DEP-CHECKMAN--data--CMP-DEP-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-CHECKMAN--data--CMP-DEP-FILES
@@ -1309,7 +1309,7 @@ spec:
   label: data
   sides: r-l
 --- # link/CMP-DEP-CONTROLROOM--data--CMP-DEP-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-CONTROLROOM--data--CMP-DEP-FILES
@@ -1319,7 +1319,7 @@ spec:
   label: data
   sides: r-l
 --- # link/CMP-DEP-DCMAN--data--CMP-DEP-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-DCMAN--data--CMP-DEP-FILES
@@ -1329,7 +1329,7 @@ spec:
   label: data
   sides: r-l
 --- # link/CMP-DEP-GITMAN--data--CMP-DEP-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-GITMAN--data--CMP-DEP-FILES
@@ -1343,7 +1343,7 @@ spec:
     description: |
       Plain files read and written by mankit's code in the binary (temp file, sync, rename). No token; the person's own account.
 --- # link/CMP-DEP-HUBMAN--data--CMP-DEP-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-HUBMAN--data--CMP-DEP-FILES
@@ -1353,7 +1353,7 @@ spec:
   label: data
   sides: r-l
 --- # link/CMP-DEP-KANBAN--data--CMP-DEP-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-KANBAN--data--CMP-DEP-FILES
@@ -1363,7 +1363,7 @@ spec:
   label: data
   sides: r-l
 --- # link/CMP-DEP-PROXY--ships--CMP-DEP-BUILD.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-PROXY--ships--CMP-DEP-BUILD
@@ -1377,7 +1377,7 @@ spec:
     description: |
       The module source at the version the app's go.mod names.
 --- # link/CMP-DEP-REPO--ships--CMP-DEP-PROXY.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-DEP-REPO--ships--CMP-DEP-PROXY
@@ -1391,7 +1391,7 @@ spec:
     description: |
       A version tag, fetched by module path. What proves it is the module's checksum, recorded in each app's go.sum.
 --- # link/CMP-HELPOUT--calls--CMP-ASK.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-HELPOUT--calls--CMP-ASK
@@ -1402,7 +1402,7 @@ spec:
   description: |
     Execute checks errors.Is(err, ask.ErrRefused) for exit 3.
 --- # link/CMP-MANKIT--data--CMP-CTX-BROWSER.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-MANKIT--data--CMP-CTX-BROWSER
@@ -1416,7 +1416,7 @@ spec:
     description: |
       A URL handed to the system's opener; mankit waits for nothing back.
 --- # link/CMP-MANKIT--data--CMP-CTX-CLIP.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-MANKIT--data--CMP-CTX-CLIP
@@ -1430,7 +1430,7 @@ spec:
     description: |
       Copied text out as OSC 52 on the terminal and to the system clipboard tool; pasted text back from that tool.
 --- # link/CMP-MANKIT--data--CMP-CTX-FILES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-MANKIT--data--CMP-CTX-FILES
@@ -1444,7 +1444,7 @@ spec:
     description: |
       Reads and writes each app's config.yaml, split and favorites (a temp file synced, then renamed), and names its data folder. Plain files under the person's own account; no token.
 --- # link/CMP-MANKIT--imports--CMP-CTX-GOMODS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-MANKIT--imports--CMP-CTX-GOMODS
@@ -1458,7 +1458,7 @@ spec:
     description: |
       mankit's own dependencies, from go.mod.
 --- # link/CMP-NOTICE--calls--CMP-THEME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-NOTICE--calls--CMP-THEME
@@ -1467,7 +1467,7 @@ spec:
   to: CMP-THEME
   label: calls
 --- # link/CMP-PALETTE--calls--CMP-HOME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-PALETTE--calls--CMP-HOME
@@ -1478,7 +1478,7 @@ spec:
   description: |
     the favorites file is home.File(app, "favorites").
 --- # link/CMP-PALETTE--calls--CMP-SETTINGS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-PALETTE--calls--CMP-SETTINGS
@@ -1489,7 +1489,7 @@ spec:
   description: |
     palette.Settings(rows) makes a command of every setting row.
 --- # link/CMP-PALETTE--calls--CMP-TEXTINPUT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-PALETTE--calls--CMP-TEXTINPUT
@@ -1498,7 +1498,7 @@ spec:
   to: CMP-TEXTINPUT
   label: calls
 --- # link/CMP-PREFS--calls--CMP-ASK.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-PREFS--calls--CMP-ASK
@@ -1507,7 +1507,7 @@ spec:
   to: CMP-ASK
   label: calls
 --- # link/CMP-PREFS--calls--CMP-HOME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-PREFS--calls--CMP-HOME
@@ -1518,7 +1518,7 @@ spec:
   description: |
     Locations calls home.ProductData.
 --- # link/CMP-PREFS--calls--CMP-SETTINGSCLI.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-PREFS--calls--CMP-SETTINGSCLI
@@ -1529,7 +1529,7 @@ spec:
   description: |
     Not an import: AddTo finds settings/cli's set config command in the cobra tree, wraps its RunE, and calls it after the yes.
 --- # link/CMP-SEARCH--calls--CMP-TEXTINPUT.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SEARCH--calls--CMP-TEXTINPUT
@@ -1538,7 +1538,7 @@ spec:
   to: CMP-TEXTINPUT
   label: calls
 --- # link/CMP-APP--calls--CMP-SERVE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-SERVE
@@ -1549,7 +1549,7 @@ spec:
   description: |
     app.Commands(open, confirm) adds serve and servers; handlers answer with serve.Write (README, Serve).
 --- # link/CMP-APP--calls--CMP-FEATURES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-FEATURES
@@ -1560,7 +1560,7 @@ spec:
   description: |
     features.New(list, store, closers...).WithLookup(lookup) is the app's feature list; a switchable part of the app is reached only through it (README, Features).
 --- # link/CMP-APP--calls--CMP-EVENTS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-EVENTS
@@ -1571,7 +1571,7 @@ spec:
   description: |
     events.Attach(list, config) with the cause of each change route by its pattern; nothing else (README, Events).
 --- # link/CMP-APP--calls--CMP-QUEUE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-APP--calls--CMP-QUEUE
@@ -1582,7 +1582,7 @@ spec:
   description: |
     queue.Change(ctx, change, write, readBack) for every change to the served thing, from its CLI and its server alike; List for <app> queue (README, Change queue).
 --- # link/CMP-QUEUE--calls--CMP-SERVE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-QUEUE--calls--CMP-SERVE
@@ -1593,7 +1593,7 @@ spec:
   description: |
     serve.Fail: its errors carry codes in the one error an answer carries.
 --- # link/CMP-EVENTS--calls--CMP-FEATURES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-EVENTS--calls--CMP-FEATURES
@@ -1604,7 +1604,7 @@ spec:
   description: |
     list.Attach(events, module); Set tells it SwitchedOff at once; list.On(events) on each heartbeat ends a stream another closer closed.
 --- # link/CMP-EVENTS--calls--CMP-SERVE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-EVENTS--calls--CMP-SERVE
@@ -1615,7 +1615,7 @@ spec:
   description: |
     a serve.Part: Mount adds GET /api/events behind the guard, Changed hears each change, Skipped one missed while off; serve.Stopping ends a stream.
 --- # link/CMP-SERVE--calls--CMP-ASK.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SERVE--calls--CMP-ASK
@@ -1626,7 +1626,7 @@ spec:
   description: |
     ask.Resolve picks the style of a change's type for the 428 gate; servers stop takes --yes (ask.Flag).
 --- # link/CMP-SERVE--calls--CMP-FEATURES.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SERVE--calls--CMP-FEATURES
@@ -1637,7 +1637,7 @@ spec:
   description: |
     Site.Features: list.Parts() at start, list.On(id) before a module's route (503 feature_needs_values while broken) and before telling it of a change.
 --- # link/CMP-SERVE--calls--CMP-HOME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SERVE--calls--CMP-HOME
@@ -1648,7 +1648,7 @@ spec:
   description: |
     home.Org starts every apiVersion; home.ProductData holds the servers records and the token.
 --- # link/CMP-SETTINGS--calls--CMP-ASK.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SETTINGS--calls--CMP-ASK
@@ -1660,7 +1660,7 @@ spec:
   description: |
     confirm.<type> keys; Set hands them to ask.Set.
 --- # link/CMP-SETTINGS--calls--CMP-CONFIGFILE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SETTINGS--calls--CMP-CONFIGFILE
@@ -1669,7 +1669,7 @@ spec:
   to: CMP-CONFIGFILE
   label: calls
 --- # link/CMP-SETTINGS--calls--CMP-THEME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SETTINGS--calls--CMP-THEME
@@ -1680,7 +1680,7 @@ spec:
   description: |
     theme.Names() are the allowed values of the theme key.
 --- # link/CMP-SETTINGSCLI--calls--CMP-SETTINGS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SETTINGSCLI--calls--CMP-SETTINGS
@@ -1689,7 +1689,7 @@ spec:
   to: CMP-SETTINGS
   label: calls
 --- # link/CMP-SPLIT--calls--CMP-HOME.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-SPLIT--calls--CMP-HOME
@@ -1700,7 +1700,7 @@ spec:
   description: |
     the split file is home.File(app, "split").
 --- # link/CMP-TEXTINPUT--calls--CMP-DESKTOP.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-TEXTINPUT--calls--CMP-DESKTOP
@@ -1711,7 +1711,7 @@ spec:
   description: |
     paste calls desktop.Paste().
 --- # link/CMP-THEME--calls--CMP-CONFIGFILE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-THEME--calls--CMP-CONFIGFILE
@@ -1720,7 +1720,7 @@ spec:
   to: CMP-CONFIGFILE
   label: calls
 --- # link/CMP-USERCMD--calls--CMP-CONFIGFILE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-USERCMD--calls--CMP-CONFIGFILE
@@ -1729,7 +1729,7 @@ spec:
   to: CMP-CONFIGFILE
   label: calls
 --- # link/CMP-USERCMDCLI--calls--CMP-USERCMD.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Link
 metadata:
   id: CMP-USERCMDCLI--calls--CMP-USERCMD
@@ -1738,7 +1738,7 @@ spec:
   to: CMP-USERCMD
   label: calls
 --- # flow/pick-theme.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Flow
 metadata:
   id: pick-theme
@@ -1775,7 +1775,7 @@ spec:
       phase: return
       label: "a Choice: the app builds its colours on theme.Base"
 --- # flow/print-help.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Flow
 metadata:
   id: print-help
@@ -1801,7 +1801,7 @@ spec:
       label: "exit 0; 2 after a mistake; 3 refused; 1 with the error"
       note: A run-time error never shows the layout; it comes back untouched for the app to print with its own message and exit code.
 --- # flow/set-config.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Flow
 metadata:
   id: set-config
@@ -1850,7 +1850,7 @@ spec:
       phase: return
       label: The key's new row is printed (table, json or yaml)
 --- # group/GRP-CLI.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-CLI
@@ -1862,7 +1862,7 @@ spec:
   ui-design:
     look: soft
 --- # group/GRP-CONFIG.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-CONFIG
@@ -1874,7 +1874,7 @@ spec:
   ui-design:
     look: soft
 --- # group/GRP-CTX-APPS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-CTX-APPS
@@ -1884,7 +1884,7 @@ spec:
   ui-design:
     look: soft
 --- # group/GRP-CTX-MACHINE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-CTX-MACHINE
@@ -1894,7 +1894,7 @@ spec:
   ui-design:
     look: soft
 --- # group/GRP-CTX-XMAN.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-CTX-XMAN
@@ -1904,7 +1904,7 @@ spec:
   ui-design:
     look: soft
 --- # group/GRP-DEP-CONTAINER.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-DEP-CONTAINER
@@ -1916,7 +1916,7 @@ spec:
   ui-design:
     look: soft
 --- # group/GRP-DEP-GITHUB.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-DEP-GITHUB
@@ -1926,7 +1926,7 @@ spec:
   ui-design:
     look: soft
 --- # group/GRP-DEP-MACHINE.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-DEP-MACHINE
@@ -1937,7 +1937,7 @@ spec:
     look: accent
 --- # group/GRP-MANKIT.yml
 ---
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-MANKIT
@@ -1947,7 +1947,7 @@ spec:
   ui-design:
     look: accent
 --- # group/GRP-OS.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-OS
@@ -1959,7 +1959,7 @@ spec:
   ui-design:
     look: soft
 --- # group/GRP-TUI.yml
-apiVersion: core/design/v2
+apiVersion: elderlygate/designer/design/v2
 kind: Group
 metadata:
   id: GRP-TUI
