@@ -493,7 +493,7 @@ question.`,
 		}); err != nil {
 			return err
 		}
-		token, err := renewToken(dir)
+		token, err := a.renewToken(dir)
 		if err != nil {
 			return err
 		}

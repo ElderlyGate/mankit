@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
+
 	"github.com/tugbayatilla/mankit/v2/home"
 )
 
@@ -103,6 +105,11 @@ func writeWhole(dir, path string, data []byte) error {
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	// On disk before the rename, so a crash never leaves the name on an empty file.
+	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -291,14 +298,20 @@ func newToken() (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-// renewToken replaces the token whole with a new one; every running server refuses the old one from its next request.
-func renewToken(dir string) (string, error) {
+// renewToken replaces the token whole with a new one and reads it back; every running server refuses the old one from its next request.
+func (a App) renewToken(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", err
 	}
+	// One renew at a time, so the token each prints is the one in the file when it prints it.
+	lock := flock.New(filepath.Join(dir, ".token.lock"), flock.SetPermissions(0o600))
+	if err := lock.Lock(); err != nil {
+		return "", err
+	}
+	defer lock.Unlock()
 	token, err := newToken()
 	if err != nil {
 		return "", err
@@ -307,7 +320,14 @@ func renewToken(dir string) (string, error) {
 	if err := writeWhole(dir, filepath.Join(dir, tokenName), []byte(token+"\n")); err != nil {
 		return "", err
 	}
-	return token, nil
+	got, err := a.readToken(dir)
+	if err != nil {
+		return "", err
+	}
+	if got != token {
+		return "", fmt.Errorf("%s holds another token than the one just written; run the renew again", filepath.Join(dir, tokenName))
+	}
+	return got, nil
 }
 
 // probed is what one look at an address found: refused (nothing listens, the only verdict that removes a record) or answering as this app.

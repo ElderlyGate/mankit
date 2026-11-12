@@ -74,14 +74,24 @@ func TestServersTokenRenewIsSafeAtOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var wg sync.WaitGroup
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		printed = map[string]bool{}
+	)
 	for range 8 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			if _, err := run(t, "servers", "token", "renew", "--yes"); err != nil {
+			out, err := run(t, "servers", "token", "renew", "--yes")
+			if err != nil {
 				t.Error(err)
+				return
 			}
+			u, _ := url.Parse(strings.TrimSpace(out))
+			mu.Lock()
+			printed[u.Query().Get("token")] = true
+			mu.Unlock()
 		}()
 		go func() {
 			defer wg.Done()
@@ -94,8 +104,8 @@ func TestServersTokenRenewIsSafeAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := strings.TrimSpace(string(data))
-	if len(last) != 64 {
-		t.Fatalf("the token file holds %q, not one whole token", data)
+	if len(last) != 64 || !printed[last] || len(printed) != 8 {
+		t.Fatalf("the token file holds %q, not one whole token of the %d printed", data, len(printed))
 	}
 	if w := call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer " + last}); w.Code != http.StatusOK {
 		t.Fatalf("the last token: status %d", w.Code)
