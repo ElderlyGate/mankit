@@ -61,7 +61,7 @@ type Answered struct {
 
 // Site is what an app serves: its routes, its page, and the thing it serves.
 type Site struct {
-	Name     string                                 // ran.name of every answer: the thing served; empty is the app's ID
+	Name     string                                 // named in every answer's ran.name; empty is the app's ID
 	Routes   []Route                                // every API route but GET /api/version, which serve answers
 	UI       http.Handler                           // the page and its files at /; nil serves the API alone
 	Styles   func() (map[ask.Type]ask.Style, error) // the user's asking style per type, read on every change; nil is every default

@@ -316,10 +316,10 @@ root.AddCommand(cmds...)
 
 A handler answers with `serve.Write(w, r, status, kind, data)` or
 `serve.WriteError(w, r, status, err)`. Every answer is the contracts envelope:
-`apiVersion` (`<org>/<app>/app/<contract>`), `kind`, `ran` (the thing, the app,
-its version and the contract), `data` and `errors`. The CLI builds the same
-answer with `app.Answer` or `app.Failure` and writes it with `serve.Encode`, so
-both doors give the same bytes.
+`apiVersion` (`<org>/<app>/app/<contract>`), `kind`, `ran` (where the answer
+came from; contracts envelope/v1 describes its fields), `data` and `errors`.
+The CLI builds the same answer with `app.Answer` or `app.Failure` and writes it
+with `serve.Encode`, so both doors give the same bytes.
 
 One server may serve many things, such as one per project: it names each
 answer's thing with `serve.WriteNamed` / `serve.WriteErrorNamed`; an empty name,
