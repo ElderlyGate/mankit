@@ -62,6 +62,7 @@ type Answered struct {
 // Site is what an app serves: its routes, its page, and the thing it serves.
 type Site struct {
 	Name     string                                 // ran.name of every answer: the thing served; empty is the app's ID
+	NameFor  func(*http.Request) string             // ran.name of an answer about one of many things served, such as a project in its path (r.PathValue); nil or "" is Name, as are the refusals given before a route is found
 	Routes   []Route                                // every API route but GET /api/version, which serve answers
 	UI       http.Handler                           // the page and its files at /; nil serves the API alone
 	Styles   func() (map[ask.Type]ask.Style, error) // the user's asking style per type, read on every change; nil is every default
@@ -137,7 +138,7 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 	if site.UI != nil {
 		mux.Handle("/", site.UI)
 	}
-	return a.guard(token, hosts, site.Name, a.choose(site.Name, mux)), nil
+	return a.guard(token, hosts, site.Name, a.choose(site.Name, site.NameFor, mux)), nil
 }
 
 // Write answers kind with data, in the envelope and the contract the request was answered in.
@@ -165,14 +166,20 @@ func writeEnvelope(w http.ResponseWriter, status int, e Envelope) {
 type state struct {
 	app      App
 	name     string
+	nameFor  func(*http.Request) string
 	contract string
 }
 
 type stateKey struct{}
 
-// answering is the request's state; a handler called outside Handler answers as an app without a name.
+// answering is the request's state, named for the thing r is about once routed; a handler called outside Handler answers as an app without a name.
 func answering(r *http.Request) state {
 	if s, ok := r.Context().Value(stateKey{}).(state); ok {
+		if s.nameFor != nil {
+			if name := s.nameFor(r); name != "" {
+				s.name = name
+			}
+		}
 		return s
 	}
 	return state{app: App{ID: "unknown", Version: "unknown"}, contract: "v1"}
@@ -196,7 +203,7 @@ func Stopping(r *http.Request) <-chan struct{} {
 }
 
 // choose picks the contract an API reader asked for, or answers 406 with the ones the app answers; the page gets the default.
-func (a App) choose(name string, next http.Handler) http.Handler {
+func (a App) choose(name string, nameFor func(*http.Request) string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		asked := ""
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -208,7 +215,7 @@ func (a App) choose(name string, next http.Handler) http.Handler {
 			writeEnvelope(w, http.StatusNotAcceptable, a.Failure(name, fallback, err))
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), stateKey{}, state{app: a, name: name, contract: contract})))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), stateKey{}, state{app: a, name: name, nameFor: nameFor, contract: contract})))
 	})
 }
 
