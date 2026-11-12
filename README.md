@@ -316,10 +316,16 @@ root.AddCommand(cmds...)
 
 A handler answers with `serve.Write(w, r, status, kind, data)` or
 `serve.WriteError(w, r, status, err)`. Every answer is the contracts envelope:
-`apiVersion` (`<org>/<app>/app/<contract>`), `kind`, `ran` (the thing, the app,
-its version and the contract), `data` and `errors`. The CLI builds the same
-answer with `app.Answer` or `app.Failure` and writes it with `serve.Encode`, so
-both doors give the same bytes.
+`apiVersion` (`<org>/<app>/app/<contract>`), `kind`, `ran` (where the answer
+came from; contracts envelope/v1 describes its fields), `data` and `errors`.
+The CLI builds the same answer with `app.Answer` or `app.Failure` and writes it
+with `serve.Encode`, so both doors give the same bytes.
+
+One server may serve many things, such as one per project: it names each
+answer's thing with `serve.WriteNamed` / `serve.WriteErrorNamed`; an empty name,
+`Write`, `WriteError` and every refusal serve gives itself use `Site.Name`.
+Contracts `envelope/v1` says what `ran` and each of its fields are for. The
+server's record names the server, `Site.Name`, never each thing it serves.
 
 What serve does for every app:
 
@@ -471,7 +477,8 @@ kept in `<served folder>/<app folder>/.queue/`, which only this user may enter
 and which ignores itself in git. It holds tickets, never commands: each
 process runs its own change, and nothing in the folder is ever executed. The
 rules every app sharing a queue follows on disk are fixed in contracts
-`mankit/v1`.
+`mankit/v1`. One process may hold the queues of many served things at once:
+each folder has its own line, so a change in one never waits for another.
 
 ```go
 ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

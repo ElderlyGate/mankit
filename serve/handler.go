@@ -61,7 +61,7 @@ type Answered struct {
 
 // Site is what an app serves: its routes, its page, and the thing it serves.
 type Site struct {
-	Name     string                                 // ran.name of every answer: the thing served; empty is the app's ID
+	Name     string                                 // named in every answer's ran.name; empty is the app's ID
 	Routes   []Route                                // every API route but GET /api/version, which serve answers
 	UI       http.Handler                           // the page and its files at /; nil serves the API alone
 	Styles   func() (map[ask.Type]ask.Style, error) // the user's asking style per type, read on every change; nil is every default
@@ -96,7 +96,7 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
-		s := answering(r)
+		s := answering(r, "")
 		Write(w, r, http.StatusOK, VersionKind, VersionData{App: a.ID, Version: a.Version, Contract: s.contract, Contracts: a.Contracts})
 	})
 	parts, err := attached(site.Features)
@@ -142,16 +142,26 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 
 // Write answers kind with data, in the envelope and the contract the request was answered in.
 func Write(w http.ResponseWriter, r *http.Request, status int, kind string, data any) {
+	WriteNamed(w, r, "", status, kind, data)
+}
+
+// WriteNamed answers like Write, naming the thing the answer is about, such as a project when one server serves many.
+func WriteNamed(w http.ResponseWriter, r *http.Request, name string, status int, kind string, data any) {
 	if c, ok := r.Context().Value(answeredKey{}).(*Answered); ok {
 		c.Status, c.Kind, c.Data = status, kind, data
 	}
-	s := answering(r)
+	s := answering(r, name)
 	writeEnvelope(w, status, s.app.Answer(s.name, s.contract, kind, data))
 }
 
 // WriteError answers err with status, in the envelope; an err that is not an *Error gets CodeFailed.
 func WriteError(w http.ResponseWriter, r *http.Request, status int, err error) {
-	s := answering(r)
+	WriteErrorNamed(w, r, "", status, err)
+}
+
+// WriteErrorNamed answers err like WriteError, naming the thing the answer is about.
+func WriteErrorNamed(w http.ResponseWriter, r *http.Request, name string, status int, err error) {
+	s := answering(r, name)
 	writeEnvelope(w, status, s.app.Failure(s.name, s.contract, err))
 }
 
@@ -170,12 +180,16 @@ type state struct {
 
 type stateKey struct{}
 
-// answering is the request's state; a handler called outside Handler answers as an app without a name.
-func answering(r *http.Request) state {
-	if s, ok := r.Context().Value(stateKey{}).(state); ok {
-		return s
+// answering is the request's state, about the thing name when it is given, else the site's; a handler called outside Handler answers as an app without a name.
+func answering(r *http.Request, name string) state {
+	s, ok := r.Context().Value(stateKey{}).(state)
+	if !ok {
+		s = state{app: App{ID: "unknown", Version: "unknown"}, contract: "v1"}
 	}
-	return state{app: App{ID: "unknown", Version: "unknown"}, contract: "v1"}
+	if name != "" {
+		s.name = name
+	}
+	return s
 }
 
 type stoppingKey struct{}

@@ -106,6 +106,88 @@ func TestServeAnswersANameItWasGiven(t *testing.T) {
 	}
 }
 
+// many is one server for many projects: each answer about a project names it, every other answer names the server.
+func many(t *testing.T) http.Handler {
+	t.Helper()
+	s := site(nil)
+	greet := func(w http.ResponseWriter, r *http.Request) {
+		serve.WriteNamed(w, r, r.PathValue("project"), http.StatusOK, "Greeting", greeting{Text: "hello from " + r.PathValue("project")})
+	}
+	s.Routes = append(s.Routes,
+		serve.Route{Pattern: "GET /api/projects/{project}/greeting", Handler: greet},
+		serve.Route{Pattern: "POST /api/projects/{project}/greeting", Action: ask.Action{Type: ask.Edit}, Handler: greet},
+		serve.Route{Pattern: "DELETE /api/projects/{project}/greeting", Action: ask.Action{Type: ask.Delete}, Handler: func(w http.ResponseWriter, r *http.Request) {
+			serve.WriteErrorNamed(w, r, r.PathValue("project"), http.StatusConflict, errors.New("the greeting is in use"))
+		}},
+		serve.Route{Pattern: "GET /api/projects/{project}/nameless", Handler: func(w http.ResponseWriter, r *http.Request) {
+			serve.WriteNamed(w, r, "", http.StatusOK, "Greeting", greeting{Text: "hello"})
+		}},
+		serve.Route{Pattern: "PUT /api/projects/{project}/nameless", Action: ask.Action{Type: ask.Edit}, Handler: func(w http.ResponseWriter, r *http.Request) {
+			serve.WriteErrorNamed(w, r, "", http.StatusConflict, errors.New("the greeting is in use"))
+		}},
+	)
+	h, err := app.Handler(s, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestOneServerNamesEachProjectInItsAnswers(t *testing.T) {
+	h := many(t)
+	for _, c := range []struct{ method, target, project string }{
+		{"GET", "/api/projects/alpha/greeting", "alpha"},
+		{"GET", "/api/projects/beta/greeting", "beta"},
+		{"POST", "/api/projects/beta/greeting?confirm=yes", "beta"},
+	} {
+		w := call(t, h, c.method, c.target, "", nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s %s: status %d: %s", c.method, c.target, w.Code, w.Body)
+		}
+		want := serve.Ran{Name: c.project, App: "designer", Version: "5.0.0", Contract: "v1"}
+		if e := envelope(t, w.Body.Bytes()); e.Ran != want {
+			t.Fatalf("%s %s ran %+v, want %+v", c.method, c.target, e.Ran, want)
+		}
+	}
+}
+
+func TestOneServerNamesTheProjectInAnError(t *testing.T) {
+	w := call(t, many(t), "DELETE", "/api/projects/alpha/greeting?confirm=yes", "", nil)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if e := envelope(t, w.Body.Bytes()); e.Ran.Name != "alpha" {
+		t.Fatalf("ran %+v, want the project alpha", e.Ran)
+	}
+}
+
+func TestOneServerNamesItselfWhereNoProjectIsNamed(t *testing.T) {
+	h := many(t)
+	for _, c := range []struct {
+		method, target string
+		header         map[string]string
+		status         int
+	}{
+		{"GET", "/api/greeting", nil, http.StatusOK},
+		{"GET", "/api/version", nil, http.StatusOK},
+		{"GET", "/api/projects/alpha/nameless", nil, http.StatusOK},
+		{"PUT", "/api/projects/alpha/nameless?confirm=yes", nil, http.StatusConflict},
+		{"GET", "/api/projects/alpha/nothing", nil, http.StatusNotFound},
+		{"GET", "/api/projects/alpha/greeting", map[string]string{serve.ContractHeader: "v9"}, http.StatusNotAcceptable},
+		{"GET", "/api/projects/alpha/greeting", map[string]string{app.TokenHeader(): ""}, http.StatusUnauthorized},
+		// serve's gate refuses a change before the handler can name its project.
+		{"DELETE", "/api/projects/alpha/greeting", nil, http.StatusPreconditionRequired},
+	} {
+		w := call(t, h, c.method, c.target, "", c.header)
+		if w.Code != c.status {
+			t.Fatalf("%s %s %v: status %d, want %d: %s", c.method, c.target, c.header, w.Code, c.status, w.Body)
+		}
+		if e := envelope(t, w.Body.Bytes()); e.Ran.Name != "shop" {
+			t.Fatalf("%s %s %v ran %+v, want the server's name shop", c.method, c.target, c.header, e.Ran)
+		}
+	}
+}
+
 // Contract
 
 func TestServeAnswersTheContractAskedFor(t *testing.T) {

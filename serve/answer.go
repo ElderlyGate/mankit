@@ -35,7 +35,7 @@ const (
 	CodeCoreNeedsValues     = "core_needs_values"
 )
 
-// Ran says where an answer came from: the thing, the app, its version and the contract (ADR-S08).
+// Ran says where an answer came from; contracts envelope/v1 describes each field and why it exists.
 type Ran struct {
 	Name     string `json:"name"`
 	App      string `json:"app"`
