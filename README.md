@@ -357,8 +357,10 @@ Each error has a code (`serve.Code…`); a program decides by the code, never by
 the message. `<app> serve --help` and `<app> servers --help` are the reference
 for the commands. Every server, detached or in the foreground, leaves a record
 in `<data folder>/<folder>/servers/`, in the shape of contracts `mankit/v1`;
-`servers` lists them and says which is detached. The token link is printed to a
-terminal only.
+`servers` lists them and says which is detached. The link that carries the
+token is printed only when asked for: by `serve` (to a terminal only, since a
+running server's output may be its log), `serve --detach`, `servers link` and
+`servers token renew`; never into a server's log.
 
 `<folder>` is `App.Folder`, else `App.ID`: an app whose folders are named apart
 from its ID until the rename (e-designer answers as `designer`) sets it, and the

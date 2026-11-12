@@ -34,8 +34,7 @@ const (
 	LinkKind       = "Link"
 )
 
-// Commands are serve and servers (with servers stop, servers link and servers token renew) for the app's root.
-// open builds what serve serves, in the child of a detached start too; confirm asks before servers stop and servers token renew, such as prefs.Asker.Ask.
+// Commands are serve and servers for the app's root: open builds what serve serves, confirm (such as prefs.Asker.Ask) asks before a change.
 func (a App) Commands(open func(*cobra.Command) (Site, error), confirm func(*cobra.Command, ask.Action) error) ([]*cobra.Command, error) {
 	if err := a.check(); err != nil {
 		return nil, err
@@ -198,7 +197,7 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 			}
 			fmt.Fprintf(w, "open: %s\npress ctrl-c to stop\n", pageLink(bound, token))
 		default:
-			// The token goes to a terminal only, never into a log or a pipe.
+			// A running server's output may be its log, so the link goes there only when it is a terminal.
 			fmt.Fprintf(w, "`%s servers link %s` prints the link that opens it\n", a.command(), bound)
 		}
 		return run(cmd.Context(), &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}, ln)
