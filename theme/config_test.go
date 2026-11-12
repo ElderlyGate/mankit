@@ -54,7 +54,7 @@ func TestResolveOrder(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("NO_COLOR", "")
-	path, _ := ConfigPath("app")
+	path, _ := configPath("app")
 	dir := filepath.Dir(filepath.Dir(path))
 	if ch, _ := Resolve("app", "", false); ch.Base.Name != "default" {
 		t.Fatalf("no config: %s", ch.Base.Name)

@@ -20,18 +20,18 @@ func lookPath(found ...string) func(string) (string, error) {
 func TestOpenCommandPerPlatform(t *testing.T) {
 	cases := []struct {
 		name string
-		p    Platform
+		p    platform
 		want string
 	}{
-		{"macOS uses open", Platform{GOOS: "darwin", LookPath: lookPath()}, "open U"},
-		{"Windows uses rundll32", Platform{GOOS: "windows", LookPath: lookPath()}, "rundll32 url.dll,FileProtocolHandler U"},
-		{"WSL prefers wslview", Platform{GOOS: "linux", WSL: true, LookPath: lookPath("wslview")}, "/usr/bin/wslview U"},
-		{"WSL without wslview uses rundll32.exe", Platform{GOOS: "linux", WSL: true, LookPath: lookPath()}, "rundll32.exe url.dll,FileProtocolHandler U"},
-		{"Linux uses xdg-open", Platform{GOOS: "linux", LookPath: lookPath("wslview")}, "xdg-open U"},
+		{"macOS uses open", platform{GOOS: "darwin", LookPath: lookPath()}, "open U"},
+		{"Windows uses rundll32", platform{GOOS: "windows", LookPath: lookPath()}, "rundll32 url.dll,FileProtocolHandler U"},
+		{"WSL prefers wslview", platform{GOOS: "linux", WSL: true, LookPath: lookPath("wslview")}, "/usr/bin/wslview U"},
+		{"WSL without wslview uses rundll32.exe", platform{GOOS: "linux", WSL: true, LookPath: lookPath()}, "rundll32.exe url.dll,FileProtocolHandler U"},
+		{"Linux uses xdg-open", platform{GOOS: "linux", LookPath: lookPath("wslview")}, "xdg-open U"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := strings.Join(OpenCommand(c.p, "U"), " "); got != c.want {
+			if got := strings.Join(openCommand(c.p, "U"), " "); got != c.want {
 				t.Errorf("got %q want %q", got, c.want)
 			}
 		})

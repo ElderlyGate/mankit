@@ -22,8 +22,8 @@ type Config struct {
 	Background string `yaml:"background"`
 }
 
-// ConfigPath is <config dir>/<app>/config.yaml.
-func ConfigPath(app string) (string, error) { return configfile.Path(app, "") }
+// configPath is <config dir>/<app>/config.yaml.
+func configPath(app string) (string, error) { return configfile.Path(app, "") }
 
 // LoadConfig reads the colour settings from path; a missing file is fine.
 func LoadConfig(path string) (Config, error) {
@@ -89,7 +89,7 @@ var darkTerminal = lipgloss.HasDarkBackground
 // NO_COLOR, else theme and background from the app's config.yaml, else
 // default. flag is the --theme value, set whether it was given.
 func Resolve(app, flag string, set bool) (Choice, error) {
-	path, _ := ConfigPath(app) // "" without a config dir
+	path, _ := configPath(app) // "" without a config dir
 	return ResolveIn(path, flag, set)
 }
 

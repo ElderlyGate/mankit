@@ -39,7 +39,7 @@ func (p *Palette[T]) Filter(items []T, text func(T) string) {
 	q := strings.ToLower(p.Input.Value())
 	p.Matches = p.Matches[:0]
 	for _, it := range items {
-		if Subsequence(strings.ToLower(text(it)), q) {
+		if subsequence(strings.ToLower(text(it)), q) {
 			p.Matches = append(p.Matches, it)
 		}
 	}
@@ -123,8 +123,8 @@ func padRight(s string, w int) string {
 	return s
 }
 
-// Subsequence reports whether s holds q's letters in order.
-func Subsequence(s, q string) bool {
+// subsequence reports whether s holds q's letters in order.
+func subsequence(s, q string) bool {
 	for _, r := range q {
 		i := strings.IndexRune(s, r)
 		if i < 0 {
