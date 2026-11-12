@@ -530,7 +530,7 @@ context too, and must stop when it ends: a change may hold the turn for
 - `List(ctx)` is what `<app> queue` shows: the tickets in order, which one's
   change runs now and since when, and the files in `bad/`. Answered as kind
   `queue.ListKind` it meets contracts `mankit/v1/queue-list`; every ticket meets
-  `mankit/v1/queue-ticket` (apiVersion `elderlygate/mankit/queue/v1`, kind `Ticket`, whose header
+  `mankit/v1/queue-ticket` (apiVersion `elderlygate/mankit/queue/v1`, kind `QueueTicket`, whose header
   never changes, ADR-S15).
 
 What it holds for:
