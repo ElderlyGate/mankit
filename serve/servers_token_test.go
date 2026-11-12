@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v2/home"
 	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
@@ -98,6 +99,26 @@ func TestServersTokenRenewIsSafeAtOnce(t *testing.T) {
 	}
 	if w := call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer " + last}); w.Code != http.StatusOK {
 		t.Fatalf("the last token: status %d", w.Code)
+	}
+}
+
+func TestServersTokenLivesInTheAppsFolder(t *testing.T) {
+	for name, c := range map[string]struct{ folder, want string }{
+		"its own folder": {"e-designer", "e-designer"},
+		"none":           {"", "designer"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data := t.TempDir()
+			t.Setenv("XDG_DATA_HOME", data)
+			a := app
+			a.Folder = c.folder
+			if _, err := a.Handler(site(nil), nil); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(data, home.Org, c.want, "servers", "token")); err != nil {
+				t.Fatalf("no token under %s: %v", c.want, err)
+			}
+		})
 	}
 }
 

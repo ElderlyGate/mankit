@@ -356,11 +356,15 @@ What serve does for every app:
 Each error has a code (`serve.Code…`); a program decides by the code, never by
 the message. `<app> serve --help` and `<app> servers --help` are the reference
 for the commands. Every server, detached or in the foreground, leaves a record
-in `<data folder>/<app>/servers/`, in the shape of contracts `mankit/v1`;
+in `<data folder>/<folder>/servers/`, in the shape of contracts `mankit/v1`;
 `servers` lists them and says which is detached. The token link is printed to a
 terminal only.
 
-The token is the machine's, one per app, in `<data folder>/<app>/servers/token`
+`<folder>` is `App.Folder`, else `App.ID`: an app whose folders are named apart
+from its ID until the rename (e-designer answers as `designer`) sets it, and the
+ID still names its answers, cookie and command.
+
+The token is the machine's, one per app, in `<data folder>/<folder>/servers/token`
 (only the user's, 0600), and it stays there: `Handler` reads it itself, an app
 never holds or stores one, and every page and client gets in through the link
 `servers link` prints. `servers token renew` replaces it whole; every running

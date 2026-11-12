@@ -73,7 +73,7 @@ type stopped struct {
 
 // serversDir is where the app's records, logs and token live: its data folder (G-STACK-8), then servers.
 func (a App) serversDir() (string, error) {
-	dir, err := home.ProductData(a.ID)
+	dir, err := home.ProductData(a.folder())
 	if err != nil {
 		return "", err
 	}

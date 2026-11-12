@@ -14,8 +14,9 @@ import (
 
 // App is what an app tells serve about itself.
 type App struct {
-	ID        string   // the product ID: ran.app, apiVersion, the cookie name, the data folder
+	ID        string   // the product ID: ran.app, apiVersion, the cookie name
 	Command   string   // the CLI's name, such as e-designer; empty is ID
+	Folder    string   // its folder under the org's config and data folders, where an app's folders are named apart from its ID until the rename; empty is ID
 	Version   string   // the app's version
 	Contracts []string // the contract versions it answers, oldest first; the last is the default
 	Addr      string   // the address serve binds by default, such as 127.0.0.1:7480
@@ -114,6 +115,13 @@ func Encode(w io.Writer, e Envelope) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(e)
+}
+
+func (a App) folder() string {
+	if a.Folder != "" {
+		return a.Folder
+	}
+	return a.ID
 }
 
 func (a App) command() string {
