@@ -72,12 +72,12 @@ func (q Queue) Settings(wait, limit string) (Queue, error) {
 
 // Kind is the kind of a ticket, and ListKind the kind of the answer <app> queue gives (contracts mankit/v1).
 const (
-	Kind     = "Ticket"
+	Kind     = "QueueTicket"
 	ListKind = "QueueList"
 )
 
 // BackendKind is the kind of .queue/backend, the marker naming the backend every writer of the folder uses (contracts mankit/v1).
-const BackendKind = "Backend"
+const BackendKind = "QueueBackend"
 
 // The backends a marker may name; this build runs files alone.
 const (
