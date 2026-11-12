@@ -72,12 +72,12 @@ func (q Queue) Settings(wait, limit string) (Queue, error) {
 
 // Kind is the kind of a ticket, and ListKind the kind of the answer <app> queue gives (contracts mankit/v1).
 const (
-	Kind     = "QueueTicket"
+	Kind     = "Ticket"
 	ListKind = "QueueList"
 )
 
 // BackendKind is the kind of .queue/backend, the marker naming the backend every writer of the folder uses (contracts mankit/v1).
-const BackendKind = "QueueBackend"
+const BackendKind = "Backend"
 
 // The backends a marker may name; this build runs files alone.
 const (
@@ -112,11 +112,8 @@ const (
 
 var idPattern = regexp.MustCompile(`^[0-9]{20}$`)
 
-// APIVersion is the ticket's apiVersion; two app versions share a queue at once, so it never changes (ADR-S15).
-func APIVersion() string { return home.Org + "/mankit/queue-ticket/v1" }
-
-// BackendAPIVersion is the apiVersion of .queue/backend; it never changes (ADR-S15).
-func BackendAPIVersion() string { return home.Org + "/mankit/queue-backend/v1" }
+// APIVersion is the apiVersion of the queue's files, a ticket or the backend marker, told apart by kind; two app versions share them, so it never changes (ADR-S15).
+func APIVersion() string { return home.Org + "/mankit/queue/v1" }
 
 // Queue is the queue of one served thing, as one app sees it.
 type Queue struct {
@@ -230,8 +227,8 @@ func (q Queue) backend() (backend, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, refuse(fmt.Sprintf("is not JSON: %v", err))
 	}
-	if m.APIVersion != BackendAPIVersion() || m.Kind != BackendKind {
-		return nil, refuse(fmt.Sprintf("is not a %s %s", BackendAPIVersion(), BackendKind))
+	if m.APIVersion != APIVersion() || m.Kind != BackendKind {
+		return nil, refuse(fmt.Sprintf("is not a %s %s", APIVersion(), BackendKind))
 	}
 	if m.Spec.Type != BackendFiles {
 		return nil, refuse(fmt.Sprintf("names the backend %q, which this build does not run", m.Spec.Type))

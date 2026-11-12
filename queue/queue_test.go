@@ -229,7 +229,7 @@ func plant(t *testing.T, q queue.Queue, name, body string, touched time.Time) st
 const firstID = "00000000000000000001"
 
 func ticketBody(id string) string {
-	return `{"apiVersion":"elderlygate/mankit/queue-ticket/v1","kind":"QueueTicket","metadata":{"id":"` + id + `","app":"shop","pid":4242,"host":"build-01"},` +
+	return `{"apiVersion":"elderlygate/mankit/queue/v1","kind":"Ticket","metadata":{"id":"` + id + `","app":"shop","pid":4242,"host":"build-01"},` +
 		`"spec":{"change":"left behind","joinedAt":"2026-11-11T12:00:00Z"}}`
 }
 
@@ -474,11 +474,12 @@ func TestARunningChangeWhoseTicketWasSetAsideStillHoldsTheTurn(t *testing.T) {
 
 func TestAnUnreadableTicketIsMovedToBadSaidAndSkipped(t *testing.T) {
 	for name, body := range map[string]string{
-		"not JSON":       "{",
-		"another kind":   strings.Replace(ticketBody(firstID), `"QueueTicket"`, `"Command"`, 1),
-		"another id":     ticketBody("00000000000000000002"),
-		"another header": strings.Replace(ticketBody(firstID), "elderlygate/mankit/queue-ticket/v1", "elderlygate/mankit/queue-ticket/v2", 1),
-		"no change":      strings.Replace(ticketBody(firstID), `"change":"left behind",`, "", 1),
+		"not JSON":        "{",
+		"another kind":    strings.Replace(ticketBody(firstID), `"Ticket"`, `"Command"`, 1),
+		"the marker kind": strings.Replace(ticketBody(firstID), `"Ticket"`, `"Backend"`, 1),
+		"another id":      ticketBody("00000000000000000002"),
+		"another header":  strings.Replace(ticketBody(firstID), "elderlygate/mankit/queue/v1", "elderlygate/mankit/queue/v2", 1),
+		"no change":       strings.Replace(ticketBody(firstID), `"change":"left behind",`, "", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			q, log := newQueue(t)
@@ -821,7 +822,7 @@ func marker(t *testing.T, q queue.Queue, body string) string {
 }
 
 func markerOf(kind string) string {
-	return `{"apiVersion":"elderlygate/mankit/queue-backend/v1","kind":"QueueBackend","spec":{"type":"` + kind + `"}}`
+	return `{"apiVersion":"elderlygate/mankit/queue/v1","kind":"Backend","spec":{"type":"` + kind + `"}}`
 }
 
 func TestAMarkerNamingFilesKeepsTheFileQueueAndStays(t *testing.T) {
@@ -844,10 +845,11 @@ func TestAMarkerNamingFilesKeepsTheFileQueueAndStays(t *testing.T) {
 
 func TestABackendThisBuildDoesNotRunIsRefusedNeverTakenForFiles(t *testing.T) {
 	for name, body := range map[string]string{
-		"lock service":   markerOf(queue.BackendLockService),
-		"unknown type":   markerOf("carrier-pigeon"),
-		"not JSON":       "{",
-		"another header": strings.Replace(markerOf(queue.BackendFiles), "QueueBackend", "Backend", 1),
+		"lock service":       markerOf(queue.BackendLockService),
+		"unknown type":       markerOf("carrier-pigeon"),
+		"not JSON":           "{",
+		"another kind":       strings.Replace(markerOf(queue.BackendFiles), `"Backend"`, `"Ticket"`, 1),
+		"another apiVersion": strings.Replace(markerOf(queue.BackendFiles), "queue/v1", "queue/v2", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			q, _ := newQueue(t)
