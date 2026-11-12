@@ -82,14 +82,19 @@ type VersionData struct {
 
 var writing = map[string]bool{http.MethodPost: true, http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true}
 
-// Handler serves site behind the guard: only on this machine's address or one of hosts, the page only with token's cookie,
-// every API request with token, from the page itself, with a JSON body and a contract the app answers, and a change only with the user's yes.
-func (a App) Handler(site Site, token string, hosts []string) (http.Handler, error) {
+// Handler serves site behind the guard: only on this machine's address or one of hosts, the page only with the token's cookie,
+// every API request with the token, from the page itself, with a JSON body and a contract the app answers, and a change only with the user's yes.
+// The token is this machine's, in the app's data folder, made on first use; servers token renew replaces it and the handler takes the new one at once.
+func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 	if err := a.check(); err != nil {
 		return nil, err
 	}
-	if token == "" {
-		return nil, fmt.Errorf("serve: %s serves only with a token", a.command())
+	dir, err := a.serversDir()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ensureToken(dir); err != nil {
+		return nil, err
 	}
 	if missing := features.Missing(site.Needs, site.Lookup); len(missing) > 0 {
 		return nil, Fail(CodeCoreNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
@@ -137,7 +142,7 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 	if site.UI != nil {
 		mux.Handle("/", site.UI)
 	}
-	return a.guard(token, hosts, site.Name, a.choose(site.Name, mux)), nil
+	return a.guard(&machineToken{dir: dir}, hosts, site.Name, a.choose(site.Name, mux)), nil
 }
 
 // Write answers kind with data, in the envelope and the contract the request was answered in.

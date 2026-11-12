@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v2/home"
@@ -209,24 +210,37 @@ func (a App) find(recs []record, target string) (record, error) {
 
 var errNoToken = errors.New("this machine has no server token yet: serve makes one")
 
-// readToken is the token every server of the app on this machine asks for; one another user could read or have written is refused.
-func readToken(dir string) (string, error) {
-	path := filepath.Join(dir, tokenName)
+// tokenInfo is the token file's stat; one another user could read or have written is refused.
+func tokenInfo(path string) (os.FileInfo, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", errNoToken
+		return nil, errNoToken
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := private(info); err != nil {
-		return "", fmt.Errorf("%s %w: remove it and serve makes a new one", path, err)
+		return nil, fmt.Errorf("%s %w: remove it and serve makes a new one", path, err)
+	}
+	return info, nil
+}
+
+// readToken is the token every server of the app on this machine asks for.
+func readToken(dir string) (string, error) {
+	path := filepath.Join(dir, tokenName)
+	if _, err := tokenInfo(path); err != nil {
+		return "", err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(data)), nil
+	// An empty token would match a request that carries none.
+	t := strings.TrimSpace(string(data))
+	if t == "" {
+		return "", fmt.Errorf("%s holds no token: remove it and serve makes a new one", path)
+	}
+	return t, nil
 }
 
 // ensureToken reads the token, making it on first use; it stays across restarts.
@@ -240,8 +254,8 @@ func ensureToken(dir string) (string, error) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", err
 	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	token, err := newToken()
+	if err != nil {
 		return "", err
 	}
 	tmp, err := os.CreateTemp(dir, ".token-*")
@@ -249,7 +263,7 @@ func ensureToken(dir string) (string, error) {
 		return "", err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(hex.EncodeToString(raw) + "\n"); err != nil {
+	if _, err := tmp.WriteString(token + "\n"); err != nil {
 		tmp.Close()
 		return "", err
 	}
@@ -261,6 +275,61 @@ func ensureToken(dir string) (string, error) {
 		return "", err
 	}
 	return readToken(dir)
+}
+
+func newToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+// renewToken replaces the token whole with a new one; every running server refuses the old one from its next request.
+func renewToken(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
+	token, err := newToken()
+	if err != nil {
+		return "", err
+	}
+	// The temporary file is the user's alone (0600), so the rename never leaves a token others could read.
+	if err := writeWhole(dir, filepath.Join(dir, tokenName), []byte(token+"\n")); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// machineToken is the token file the guard checks on every request, so a renew reaches running servers without a restart.
+type machineToken struct {
+	dir   string
+	mu    sync.Mutex
+	seen  os.FileInfo
+	token string
+}
+
+// current is the token in the file now: a stat on every call, and a read only when the file is another one or changed since.
+func (m *machineToken) current() (string, error) {
+	info, err := tokenInfo(filepath.Join(m.dir, tokenName))
+	if err != nil {
+		return "", err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// A renew renames a new file into place, so the file's identity changes even where the clock is too coarse to move its mtime.
+	if m.seen != nil && os.SameFile(m.seen, info) && m.seen.ModTime().Equal(info.ModTime()) && m.seen.Size() == info.Size() {
+		return m.token, nil
+	}
+	token, err := readToken(m.dir)
+	if err != nil {
+		return "", err
+	}
+	m.seen, m.token = info, token
+	return token, nil
 }
 
 // probed is what one look at an address found: refused (nothing listens, the only verdict that removes a record) or answering as this app.

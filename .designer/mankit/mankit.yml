@@ -900,15 +900,17 @@ spec:
   description: |
     App.Handler serves an app's routes behind the guard: this machine's
     address or a --host name, the page from its link (?token=) and a Strict
-    cookie <app>-token-<port>, the token in X-<App>-Token, the page's own
-    origin, JSON bodies. GET /api/version lists the contracts answered;
+    cookie <app>-token-<port>, the token as Authorization: Bearer, the
+    page's own origin, JSON bodies. The token is the machine's file in the
+    app's data folder, checked on every request (a stat, a read only when it
+    changed), so servers token renew reaches running servers at once. GET /api/version lists the contracts answered;
     Accept-Contract picks one, or 406
     unsupported_contract, and 428 for a change without confirm=yes unless the
     user picked never for its action type (confirm=remember saves that
     through Site.Remember). Every answer is the contracts
     envelope with ran (Write, WriteError; Answer, Failure and Encode for the
-    CLI). App.Commands adds serve [--detach], servers, servers stop and
-    servers link; every server, detached or not, leaves a record (contracts
+    CLI). App.Commands adds serve [--detach], servers, servers stop,
+    servers link and servers token renew; every server, detached or not, leaves a record (contracts
     mankit/v1) in the app's data folder, and a server is known by asking
     its address without the token. Stopping tells a long answer, such as
     a stream, that the server is stopping. A switchable module is reached

@@ -14,7 +14,7 @@ import (
 
 // App is what an app tells serve about itself.
 type App struct {
-	ID        string   // the product ID: ran.app, apiVersion, the cookie and header names, the data folder
+	ID        string   // the product ID: ran.app, apiVersion, the cookie name, the data folder
 	Command   string   // the CLI's name, such as e-designer; empty is ID
 	Version   string   // the app's version
 	Contracts []string // the contract versions it answers, oldest first; the last is the default

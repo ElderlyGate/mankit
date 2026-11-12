@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -22,12 +23,28 @@ import (
 	"github.com/tugbayatilla/mankit/v2/ask"
 	"github.com/tugbayatilla/mankit/v2/events"
 	"github.com/tugbayatilla/mankit/v2/features"
+	"github.com/tugbayatilla/mankit/v2/home"
 	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 var app = serve.App{ID: "shop", Version: "1.0.0", Contracts: []string{"v1"}}
 
 const token = "s3cret"
+
+// serveHandler is a's handler on a machine of the test's own, whose token is token.
+func serveHandler(t *testing.T, a serve.App, s serve.Site, hosts []string) (http.Handler, error) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "data")
+	t.Setenv("XDG_DATA_HOME", dir)
+	servers := filepath.Join(dir, home.Org, a.ID, "servers")
+	if err := os.MkdirAll(servers, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(servers, "token"), []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return a.Handler(s, hosts)
+}
 
 var catalog = []string{"shop.item.added", "shop.item.removed"}
 
@@ -162,7 +179,7 @@ func shopHandler(t *testing.T, withEvents bool, tweak ...func(*events.Config)) (
 			t.Fatal(err)
 		}
 	}
-	h, err := app.Handler(serve.Site{Routes: routes(), Features: list}, token, nil)
+	h, err := serveHandler(t, app, serve.Site{Routes: routes(), Features: list}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +213,7 @@ func (s *shop) do(t *testing.T, method, path string, header map[string]string) (
 // change makes a change with the user's yes and the token, as the page does, and gives the status.
 func (s *shop) change(t *testing.T, method, path string, header map[string]string) int {
 	t.Helper()
-	h := map[string]string{app.TokenHeader(): token}
+	h := map[string]string{"Authorization": "Bearer " + token}
 	for k, v := range header {
 		h[k] = v
 	}
@@ -222,7 +239,7 @@ type stream struct {
 
 func (s *shop) open(t *testing.T, lastID string) *stream {
 	t.Helper()
-	header := map[string]string{app.TokenHeader(): token}
+	header := map[string]string{"Authorization": "Bearer " + token}
 	if lastID != "" {
 		header["Last-Event-ID"] = lastID
 	}
@@ -365,7 +382,7 @@ func TestTheTraceOfTheRequestIsCarried(t *testing.T) {
 func TestAnAppWithoutEventsServesTheSameRoutes(t *testing.T) {
 	s := serving(t, false)
 	s.add(t, "item-1")
-	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{app.TokenHeader(): token})
+	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
 	refusal(t, resp, http.StatusNotFound, serve.CodeNotFound)
@@ -479,7 +496,7 @@ func TestACauseThatDoesNotFitItsRouteIsRefusedAtStart(t *testing.T) {
 		if err := events.Attach(l, events.Config{Product: "shop", Catalog: []string{"shop.item.added", "shop.order.added"}, Causes: cause}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := app.Handler(serve.Site{Routes: routes(), Features: l}, token, nil); err == nil {
+		if _, err := serveHandler(t, app, serve.Site{Routes: routes(), Features: l}, nil); err == nil {
 			t.Errorf("%s was taken", name)
 		}
 	}
@@ -491,7 +508,7 @@ func TestAChangeThatFailsSendsNothing(t *testing.T) {
 	if status := s.change(t, http.MethodDelete, "/api/items/missing", nil); status != http.StatusNotFound {
 		t.Fatalf("status %d", status)
 	}
-	resp, cancel := s.do(t, http.MethodPost, "/api/items/item-0", map[string]string{app.TokenHeader(): token})
+	resp, cancel := s.do(t, http.MethodPost, "/api/items/item-0", map[string]string{"Authorization": "Bearer " + token})
 	resp.Body.Close()
 	cancel()
 	s.add(t, "item-1")
@@ -531,7 +548,7 @@ func TestTheGuardRefusesAStreamWithoutTheToken(t *testing.T) {
 func TestSwitchesThatCannotBeReadAreSaid(t *testing.T) {
 	s := serving(t, true)
 	s.sw.failing(errors.New("config.yaml: cannot read"))
-	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{app.TokenHeader(): token})
+	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
 	refusal(t, resp, http.StatusInternalServerError, serve.CodeConfig)
@@ -561,7 +578,7 @@ func TestTheFeatureOffServesNoStream(t *testing.T) {
 	if err := s.list.Set(events.Feature.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{app.TokenHeader(): token})
+	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
 	refusal(t, resp, http.StatusNotFound, serve.CodeNotFound)
@@ -786,7 +803,7 @@ func TestAnEventWithoutItsSubjectIsSaidAndTakesItsPlaceAsAGap(t *testing.T) {
 func TestTooManyStreamsAreRefused(t *testing.T) {
 	s := serving(t, true, func(c *events.Config) { c.Streams = 1 })
 	s.open(t, "")
-	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{app.TokenHeader(): token})
+	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
 	refusal(t, resp, http.StatusServiceUnavailable, events.CodeTooManyStreams)

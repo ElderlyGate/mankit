@@ -54,9 +54,27 @@ func site(styles func() (map[ask.Type]ask.Style, error)) serve.Site {
 	}
 }
 
+// serveHandler is a's handler on a machine of the test's own, whose token is token.
+func serveHandler(t *testing.T, a serve.App, s serve.Site, hosts []string) (http.Handler, error) {
+	t.Helper()
+	writeToken(t, machine(t), token)
+	return a.Handler(s, hosts)
+}
+
+// writeToken leaves value as the machine's token file, only the user's, as serve makes it.
+func writeToken(t *testing.T, dir, value string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "token"), []byte(value+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func handler(t *testing.T, styles func() (map[ask.Type]ask.Style, error)) http.Handler {
 	t.Helper()
-	h, err := app.Handler(site(styles), token, []string{"tunnel.example"})
+	h, err := serveHandler(t, app, site(styles), []string{"tunnel.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +89,7 @@ func call(t *testing.T, h http.Handler, method, target, body string, header map[
 		r = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, "http://127.0.0.1:7480"+target, r)
-	req.Header.Set(app.TokenHeader(), token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -198,13 +216,20 @@ func sameAsHTTP(t *testing.T, name string, args ...string) {
 	if err := json.Unmarshal([]byte(out), &cli); err != nil {
 		t.Fatal(err)
 	}
-	h, err := app.Handler(serve.Site{Name: name, Routes: []serve.Route{{Pattern: "GET /api/echo", Handler: func(w http.ResponseWriter, r *http.Request) {
-		serve.Write(w, r, http.StatusOK, cli.Kind, cli.Data)
-	}}}}, token, nil)
-	if err != nil {
-		t.Fatal(err)
+	// The HTTP door gets a machine of its own in a subtest, which gives the test's machine back when it ends.
+	var w *httptest.ResponseRecorder
+	t.Run("http", func(t *testing.T) {
+		h, err := serveHandler(t, app, serve.Site{Name: name, Routes: []serve.Route{{Pattern: "GET /api/echo", Handler: func(w http.ResponseWriter, r *http.Request) {
+			serve.Write(w, r, http.StatusOK, cli.Kind, cli.Data)
+		}}}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w = call(t, h, "GET", "/api/echo", "", nil)
+	})
+	if w == nil {
+		t.FailNow()
 	}
-	w := call(t, h, "GET", "/api/echo", "", nil)
 	var a, b any
 	_ = json.Unmarshal([]byte(out), &a)
 	_ = json.Unmarshal(w.Body.Bytes(), &b)

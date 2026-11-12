@@ -6,9 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -45,7 +50,7 @@ func TestServeAnswersItsVersion(t *testing.T) {
 	}
 	two := app
 	two.Contracts = []string{"v1", "v2"}
-	h, err := two.Handler(site(nil), token, nil)
+	h, err := serveHandler(t, two, site(nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,9 +101,78 @@ func TestServeTakesTheCookieForAnAPIRequest(t *testing.T) {
 	}
 }
 
+func TestServeTakesTheTokenAsABearerHeader(t *testing.T) {
+	h := handler(t, nil)
+	for _, value := range []string{"Bearer " + token, "bearer " + token} {
+		if w := call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": value}); w.Code != http.StatusOK {
+			t.Fatalf("%q: status %d: %s", value, w.Code, w.Body)
+		}
+	}
+}
+
+func TestServeTakesARenewedTokenWithoutARestart(t *testing.T) {
+	dir := machine(t)
+	writeToken(t, dir, token)
+	h, err := app.Handler(site(nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	cookie := "designer-token-" + strconv.Itoa(srv.Listener.Addr().(*net.TCPAddr).Port)
+	get := func(bearer, cookieValue string) int {
+		t.Helper()
+		req, _ := http.NewRequest("GET", srv.URL+"/api/greeting", nil)
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		if cookieValue != "" {
+			req.AddCookie(&http.Cookie{Name: cookie, Value: cookieValue})
+		}
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := get(token, ""); got != http.StatusOK {
+		t.Fatalf("before the renew: status %d", got)
+	}
+	link, err := url.Parse(answer(t, linkSchema, "servers", "token", "renew", "--yes").Data.(map[string]any)["url"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed := link.Query().Get("token")
+	if renewed == "" || renewed == token {
+		t.Fatalf("renewed to %q", renewed)
+	}
+	if got := get(token, ""); got != http.StatusUnauthorized {
+		t.Fatalf("the old token: status %d, want %d", got, http.StatusUnauthorized)
+	}
+	if got := get("", token); got != http.StatusUnauthorized {
+		t.Fatalf("the old cookie: status %d, want %d", got, http.StatusUnauthorized)
+	}
+	if got := get(renewed, ""); got != http.StatusOK {
+		t.Fatalf("the new token: status %d", got)
+	}
+	if got := get("", renewed); got != http.StatusOK {
+		t.Fatalf("the new cookie: status %d", got)
+	}
+	resp, err := srv.Client().Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(string(page), "e-designer servers link") {
+		t.Fatalf("the page with no cookie: %d %s", resp.StatusCode, page)
+	}
+}
+
 func TestServeAnswersANameItWasGiven(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://tunnel.example/api/version", nil)
-	req.Header.Set(app.TokenHeader(), token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	handler(t, nil).ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -126,7 +200,7 @@ func many(t *testing.T) http.Handler {
 			serve.WriteErrorNamed(w, r, "", http.StatusConflict, errors.New("the greeting is in use"))
 		}},
 	)
-	h, err := app.Handler(s, token, nil)
+	h, err := serveHandler(t, app, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +248,7 @@ func TestOneServerNamesItselfWhereNoProjectIsNamed(t *testing.T) {
 		{"PUT", "/api/projects/alpha/nameless?confirm=yes", nil, http.StatusConflict},
 		{"GET", "/api/projects/alpha/nothing", nil, http.StatusNotFound},
 		{"GET", "/api/projects/alpha/greeting", map[string]string{serve.ContractHeader: "v9"}, http.StatusNotAcceptable},
-		{"GET", "/api/projects/alpha/greeting", map[string]string{app.TokenHeader(): ""}, http.StatusUnauthorized},
+		{"GET", "/api/projects/alpha/greeting", map[string]string{"Authorization": ""}, http.StatusUnauthorized},
 		// serve's gate refuses a change before the handler can name its project.
 		{"DELETE", "/api/projects/alpha/greeting", nil, http.StatusPreconditionRequired},
 	} {
@@ -222,7 +296,7 @@ func TestAppChoosesItsNewestContractByDefault(t *testing.T) {
 
 func TestServeRefusesAnotherHost(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://evil.example/api/version", nil)
-	req.Header.Set(app.TokenHeader(), token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	handler(t, nil).ServeHTTP(w, req)
 	refusal(t, w, http.StatusForbidden, serve.CodeHost)
@@ -249,11 +323,83 @@ func TestServeTakesItsOwnOrigin(t *testing.T) {
 func TestServeRefusesARequestWithoutTheToken(t *testing.T) {
 	for name, value := range map[string]string{"none": "", "wrong": "guess"} {
 		t.Run(name, func(t *testing.T) {
-			e := refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{app.TokenHeader(): value}), http.StatusUnauthorized, serve.CodeToken)
+			e := refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{"Authorization": "Bearer " + value}), http.StatusUnauthorized, serve.CodeToken)
 			if strings.Contains(e.Message, token) {
 				t.Fatal("the refusal tells the token")
 			}
 		})
+	}
+}
+
+func TestServeRefusesTheTokenInAnyOtherHeader(t *testing.T) {
+	for name, header := range map[string]map[string]string{
+		"the product's own header": {"Authorization": "", "X-Designer-Token": token},
+		"another scheme":           {"Authorization": "Basic " + token},
+		"no scheme":                {"Authorization": token},
+	} {
+		t.Run(name, func(t *testing.T) {
+			refusal(t, call(t, handler(t, nil), "GET", "/api/greeting", "", header), http.StatusUnauthorized, serve.CodeToken)
+		})
+	}
+}
+
+func TestServeLetsNobodyInWhileTheTokenFileCannotBeTrusted(t *testing.T) {
+	for name, spoil := range map[string]func(t *testing.T, path string){
+		"open to others": func(t *testing.T, path string) {
+			if err := os.Chmod(path, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"empty": func(t *testing.T, path string) {
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"gone": func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := machine(t)
+			writeToken(t, dir, token)
+			h, err := app.Handler(site(nil), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The handler has read the token once, so what it holds from before must not let anyone in either.
+			if w := call(t, h, "GET", "/api/greeting", "", nil); w.Code != http.StatusOK {
+				t.Fatalf("before: status %d", w.Code)
+			}
+			path := filepath.Join(dir, "token")
+			spoil(t, path)
+			for _, header := range []map[string]string{nil, {"Authorization": ""}} {
+				e := refusal(t, call(t, h, "GET", "/api/greeting", "", header), http.StatusInternalServerError, serve.CodeConfig)
+				if strings.Contains(e.Message, token) {
+					t.Fatal("the refusal tells the token")
+				}
+			}
+			req := httptest.NewRequest("GET", "http://127.0.0.1:7480/", nil)
+			req.AddCookie(&http.Cookie{Name: "designer-token-7480", Value: token})
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), token) {
+				t.Fatalf("the page: %d %s", w.Code, w.Body)
+			}
+		})
+	}
+}
+
+func TestHandlerRefusesToStartOnATokenFileOthersCanRead(t *testing.T) {
+	dir := machine(t)
+	writeToken(t, dir, token)
+	path := filepath.Join(dir, "token")
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Handler(site(nil), nil); err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("got %v, want a refusal naming %s", err, path)
 	}
 }
 
@@ -275,7 +421,7 @@ func TestServeRefusesABodyThatIsNotJSON(t *testing.T) {
 func TestServeRefusesAChunkedBodyThatIsNotJSON(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://127.0.0.1:7480/api/greeting?confirm=yes", strings.NewReader("text=hi"))
 	req.ContentLength = -1
-	req.Header.Set(app.TokenHeader(), token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "text/plain")
 	w := httptest.NewRecorder()
 	handler(t, nil).ServeHTTP(w, req)
@@ -304,15 +450,12 @@ func TestHandlerRefusesARouteItCannotGuard(t *testing.T) {
 		"a change without id":   {Pattern: "PUT /api/x", Action: ask.Action{Type: ask.Edit}, Changes: serve.Change{Thing: "x"}, Handler: ok},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := app.Handler(serve.Site{Routes: []serve.Route{rt}}, token, nil); err == nil {
+			if _, err := serveHandler(t, app, serve.Site{Routes: []serve.Route{rt}}, nil); err == nil {
 				t.Fatal("taken")
 			}
 		})
 	}
-	if _, err := app.Handler(serve.Site{}, "", nil); err == nil {
-		t.Fatal("served without a token")
-	}
-	if _, err := (serve.App{ID: "designer"}).Handler(serve.Site{}, token, nil); err == nil {
+	if _, err := serveHandler(t, (serve.App{ID: "designer"}), serve.Site{}, nil); err == nil {
 		t.Fatal("served an app without its version and contracts")
 	}
 }
@@ -446,7 +589,7 @@ func TestServeRemembersTheAnswerInTheAppsConfig(t *testing.T) {
 	var saved []ask.Type
 	s := site(nil)
 	s.Remember = func(t ask.Type) error { saved = append(saved, t); return nil }
-	h, err := app.Handler(s, token, nil)
+	h, err := serveHandler(t, app, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +607,7 @@ func TestServeChangesNothingWhenTheAnswerCannotBeSaved(t *testing.T) {
 	changed := false
 	s := serve.Site{Routes: []serve.Route{{Pattern: "POST /api/x", Action: ask.Action{Type: ask.Edit}, Handler: func(http.ResponseWriter, *http.Request) { changed = true }}},
 		Remember: func(ask.Type) error { return errors.New("config.yaml: read-only") }}
-	h, err := app.Handler(s, token, nil)
+	h, err := serveHandler(t, app, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +638,7 @@ func TestServeRefusesABodyTooLarge(t *testing.T) {
 	s := serve.Site{Routes: []serve.Route{{Pattern: "POST /api/x", Action: ask.Action{Type: ask.Edit}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		_, got = io.ReadAll(r.Body)
 	}}}}
-	h, err := app.Handler(s, token, nil)
+	h, err := serveHandler(t, app, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +651,7 @@ func TestServeRefusesABodyTooLarge(t *testing.T) {
 
 func TestHandlerRefusesARouteGivenTwice(t *testing.T) {
 	ok := func(http.ResponseWriter, *http.Request) {}
-	_, err := app.Handler(serve.Site{Routes: []serve.Route{{Pattern: "GET /api/x", Handler: ok}, {Pattern: "GET /api/x", Handler: ok}}}, token, nil)
+	_, err := serveHandler(t, app, serve.Site{Routes: []serve.Route{{Pattern: "GET /api/x", Handler: ok}, {Pattern: "GET /api/x", Handler: ok}}}, nil)
 	if err == nil {
 		t.Fatal("taken")
 	}
@@ -545,7 +688,7 @@ func withModule(t *testing.T, m any, off bool) http.Handler {
 	}
 	s := site(nil)
 	s.Features = list
-	h, err := app.Handler(s, token, nil)
+	h, err := serveHandler(t, app, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +737,7 @@ func needing(t *testing.T, m any, closed bool) http.Handler {
 	}
 	s := site(nil)
 	s.Features = list
-	h, err := app.Handler(s, token, nil)
+	h, err := serveHandler(t, app, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,13 +767,13 @@ func TestHandlerRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) 
 	s := site(nil)
 	s.Needs = []features.Value{{Name: "SHOP_DIR", Purpose: "where the shop lives"}, {Name: "SHOP_KEY", Purpose: "what opens it"}}
 	s.Lookup = func(name string) bool { return name == "SHOP_KEY" }
-	_, err := app.Handler(s, token, nil)
+	_, err := serveHandler(t, app, s, nil)
 	var e *serve.Error
 	if !errors.As(err, &e) || e.Code != serve.CodeCoreNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") || strings.Contains(e.Message, "SHOP_KEY") {
 		t.Fatalf("err = %v, want core_needs_values naming SHOP_DIR alone", err)
 	}
 	s.Lookup = func(string) bool { return true }
-	if _, err := app.Handler(s, token, nil); err != nil {
+	if _, err := serveHandler(t, app, s, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -644,7 +787,7 @@ func TestFeaturesThatCannotBeReadAfterAChangeAreLoggedAndEveryModuleMissedIt(t *
 	var log bytes.Buffer
 	s := site(nil)
 	s.Features, s.Log = list, &log
-	h, err := app.Handler(s, token, nil)
+	h, err := serveHandler(t, app, s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,7 +804,7 @@ func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
 	if err := list.Attach("hear", "not a part"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.Handler(serve.Site{Features: list}, token, nil); err == nil {
+	if _, err := serveHandler(t, app, serve.Site{Features: list}, nil); err == nil {
 		t.Fatal("a module that is not a serve.Part was taken")
 	}
 }

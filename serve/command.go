@@ -34,14 +34,14 @@ const (
 	LinkKind       = "Link"
 )
 
-// Commands are serve and servers (with servers stop and servers link) for the app's root.
-// open builds what serve serves, in the child of a detached start too; confirm asks before servers stop, such as prefs.Asker.Ask.
+// Commands are serve and servers (with servers stop, servers link and servers token renew) for the app's root.
+// open builds what serve serves, in the child of a detached start too; confirm asks before servers stop and servers token renew, such as prefs.Asker.Ask.
 func (a App) Commands(open func(*cobra.Command) (Site, error), confirm func(*cobra.Command, ask.Action) error) ([]*cobra.Command, error) {
 	if err := a.check(); err != nil {
 		return nil, err
 	}
 	if open == nil || confirm == nil {
-		return nil, errors.New("serve: Commands needs open, which builds what serve serves, and confirm, which asks before servers stop")
+		return nil, errors.New("serve: Commands needs open, which builds what serve serves, and confirm, which asks before servers stop and servers token renew")
 	}
 	return []*cobra.Command{a.serveCommand(open), a.serversCommand(confirm)}, nil
 }
@@ -119,8 +119,10 @@ func (a App) serveCommand(open func(*cobra.Command) (Site, error)) *cobra.Comman
 		Long: `Serve the web page and the HTTP API on one port, on this machine's own address.
 
 It answers only to this machine's own address (--host names another), and every
-API request carries this machine's token. The page opens from the link serve
-prints (` + "`servers link`" + ` prints it again), which leaves the token in a cookie.
+API request carries this machine's token, as Authorization: Bearer <token>. The
+page opens from the link serve prints (` + "`servers link`" + ` prints it again), which
+leaves the token in a cookie. ` + "`servers token renew`" + ` replaces the token without a
+restart.
 
 --addr binds this machine's own address only; another needs --allow-remote, as
 every machine that reaches it can then try the token.
@@ -154,11 +156,7 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 		if err != nil {
 			return err
 		}
-		token, err := ensureToken(dir)
-		if err != nil {
-			return err
-		}
-		handler, err := a.Handler(site, token, hosts)
+		handler, err := a.Handler(site, hosts)
 		if err != nil {
 			return err
 		}
@@ -193,7 +191,12 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 		case child:
 			fmt.Fprintf(w, "detached; `%s servers stop %s` stops it\n", a.command(), bound)
 		case terminal(w):
-			fmt.Fprintf(w, "open: %s\npress ctrl-c to stop\n", Link(bound, token))
+			token, err := readToken(dir)
+			if err != nil {
+				ln.Close()
+				return err
+			}
+			fmt.Fprintf(w, "open: %s\npress ctrl-c to stop\n", pageLink(bound, token))
 		default:
 			// The token goes to a terminal only, never into a log or a pipe.
 			fmt.Fprintf(w, "`%s servers link %s` prints the link that opens it\n", a.command(), bound)
@@ -271,7 +274,7 @@ func (a App) detach(cmd *cobra.Command, out *printing, dir, addr string) error {
 	if err != nil {
 		return err
 	}
-	link := Link(rec.Metadata.Addr, token)
+	link := pageLink(rec.Metadata.Addr, token)
 	return out.print(cmd.OutOrStdout(), rec.Spec.Name, ServerKind, rec, func(w io.Writer) {
 		fmt.Fprintf(w, "%s serving on http://%s\n", a.command(), rec.Metadata.Addr)
 		fmt.Fprintf(w, "open:\t%s\npid:\t%d\nlog:\t%s\nstop:\t%s servers stop %s\n", link, rec.Metadata.PID, rec.Spec.Log, a.command(), rec.Metadata.Addr)
@@ -334,7 +337,7 @@ record whose address refuses a connection is removed.`,
 			}
 		})
 	}
-	c.AddCommand(a.stopCommand(confirm), a.linkCommand())
+	c.AddCommand(a.stopCommand(confirm), a.linkCommand(), a.tokenCommand(confirm))
 	return c
 }
 
@@ -440,9 +443,64 @@ takes it out of the address, so the page never holds it.`,
 		if len(args) == 1 {
 			addr = args[0]
 		}
-		link := Link(addr, token)
+		link := pageLink(addr, token)
 		return out.print(cmd.OutOrStdout(), "", LinkKind, map[string]string{"url": link}, func(w io.Writer) { fmt.Fprintln(w, link) })
 	}
+	return c
+}
+
+func (a App) tokenCommand(confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
+	c := &cobra.Command{
+		Use:   "token",
+		Short: "The token every server of this app on this machine asks for",
+		Long: `The token every server of this app on this machine asks for. It stays in this
+app's data folder and is never printed alone: every page and client gets in
+through the link ` + "`servers link`" + ` prints.`,
+		Args: cobra.NoArgs,
+	}
+	c.AddCommand(a.renewCommand(confirm))
+	return c
+}
+
+func (a App) renewCommand(confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
+	c := &cobra.Command{
+		Use:   "renew",
+		Short: "Replace the token with a new one, without restarting the servers",
+		Long: `Replace this machine's token with a new one and print the link that opens the
+page of the server on ` + a.Addr + ` with it; ` + "`servers link <addr>`" + ` prints the link
+for another.
+
+Every running server takes the new token on its next request and refuses the
+old one from then on, so every open page and every client needs the new link.
+It asks for the name first, as a change to the system itself; --yes skips the
+question.`,
+		Args: cobra.NoArgs,
+	}
+	out := a.printing(c)
+	c.RunE = func(cmd *cobra.Command, _ []string) error {
+		if err := out.check(); err != nil {
+			return err
+		}
+		dir, err := a.serversDir()
+		if err != nil {
+			return err
+		}
+		if err := confirm(cmd, ask.Action{
+			Type:   ask.Connect,
+			What:   "renew the token of every " + a.command() + " server on this machine: every open page and client needs the new link",
+			Name:   a.command(),
+			System: true,
+		}); err != nil {
+			return err
+		}
+		token, err := renewToken(dir)
+		if err != nil {
+			return err
+		}
+		link := pageLink(a.Addr, token)
+		return out.print(cmd.OutOrStdout(), "", LinkKind, map[string]string{"url": link}, func(w io.Writer) { fmt.Fprintln(w, link) })
+	}
+	ask.Flag(c)
 	return c
 }
 

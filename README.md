@@ -25,7 +25,7 @@ three, instead of being made three times.
 | `home` | Where the org's apps keep their files: the org's config and data folders, a folder per product, and `CopyOnce` to bring old files along |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 | `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
-| `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link` (see [Serve](#serve)) |
+| `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link`, `servers token renew` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: each starts on or off and names the values it needs; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
 | `queue` | The change queue: every change to one served thing waits its turn in `<served folder>/<app folder>/.queue/`, one at a time across processes, done once written and read back (see [Change queue](#change-queue)) |
@@ -331,8 +331,9 @@ What serve does for every app:
 
 - answers only on this machine's own address, or a name given with `--host`;
 - opens the page only from its link (`?token=`), which it swaps for the cookie
-  `<app>-token-<port>` (Strict, HttpOnly); an API request carries the token in
-  `X-<App>-Token` or that cookie, comes from the page itself, and sends JSON;
+  `<app>-token-<port>` (Strict, HttpOnly); an API request carries the token as
+  `Authorization: Bearer <token>` or in that cookie, comes from the page itself,
+  and sends JSON;
 - answers `GET /api/version` with the contracts it answers, and the contract asked for in `Accept-Contract`,
   else 406 `unsupported_contract` with the versions it answers;
 - answers a change (POST, PUT, PATCH, DELETE) with 428 `unconfirmed` until it
@@ -358,6 +359,14 @@ for the commands. Every server, detached or in the foreground, leaves a record
 in `<data folder>/<app>/servers/`, in the shape of contracts `mankit/v1`;
 `servers` lists them and says which is detached. The token link is printed to a
 terminal only.
+
+The token is the machine's, one per app, in `<data folder>/<app>/servers/token`
+(only the user's, 0600), and it stays there: `Handler` reads it itself, an app
+never holds or stores one, and every page and client gets in through the link
+`servers link` prints. `servers token renew` replaces it whole; every running
+server checks the file on each request and refuses the old token from the next
+one on, with no restart. A token file that cannot be read, is empty, or is open
+to other users lets nobody in.
 
 The tests check the real answers against the schemas in
 [contracts](https://github.com/ElderlyGate/contracts).
