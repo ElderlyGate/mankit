@@ -126,6 +126,8 @@ type Queue struct {
 	Wait    time.Duration // how long a change waits for its turn; zero is DefaultWait
 	Limit   time.Duration // how long a change may hold the turn, enforced by this process on itself; zero is DefaultLimit
 	Log     io.Writer     // where a ticket set aside or a failed leave is said; nil is stderr
+
+	proc *inProcess // this process's locks on the folder, found once per Change or List
 }
 
 // Ticket is one change waiting its turn, as written in the queue's folder (contracts mankit/v1 ticket).
@@ -241,6 +243,7 @@ func (q Queue) backend() (backend, error) {
 type files struct{}
 
 func (files) change(ctx context.Context, q Queue, change string, write, readBack func(context.Context) error) error {
+	q.proc = q.process()
 	waiting, cancel := context.WithTimeout(ctx, q.wait())
 	defer cancel()
 	t, err := q.join(waiting, change)
@@ -270,6 +273,7 @@ func (files) change(ctx context.Context, q Queue, change string, write, readBack
 
 // list is the queue now; tickets of dead processes go and bad ones are set aside first, as every reader of the queue does.
 func (files) list(ctx context.Context, q Queue) (Listing, error) {
+	q.proc = q.process()
 	out := Listing{Tickets: []Place{}, Bad: []Bad{}}
 	if _, err := os.Stat(q.dir()); errors.Is(err, os.ErrNotExist) {
 		return out, nil
@@ -393,6 +397,9 @@ type inProcess struct {
 var processes sync.Map
 
 func (q Queue) process() *inProcess {
+	if q.proc != nil {
+		return q.proc
+	}
 	key := resolved(q.dir())
 	p, _ := processes.LoadOrStore(key, &inProcess{folder: make(chan struct{}, 1), mine: map[string]bool{}})
 	return p.(*inProcess)
@@ -455,6 +462,10 @@ func (q Queue) join(ctx context.Context, change string) (*ticket, error) {
 	}
 	t := &ticket{q: q, stop: make(chan struct{})}
 	err = q.locked(ctx, func() error {
+		// Read again under the lock, as the marker changes only under it: a backend named since Change began is honoured.
+		if _, err := q.backend(); err != nil {
+			return err
+		}
 		tickets, err := q.sweep()
 		if err != nil {
 			return err
