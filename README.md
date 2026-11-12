@@ -28,6 +28,7 @@ three, instead of being made three times.
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: each starts on or off and names the values it needs; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
+| `queue` | The change queue: every change to one served thing waits its turn in `<served folder>/<app folder>/.queue/`, one at a time across processes, done once written and read back (see [Change queue](#change-queue)) |
 
 ## Settings
 
@@ -461,6 +462,88 @@ answers 404 until the owner switches it on. Taking events out is taking out
 - Streams end when the client leaves or the server stops (`serve.Stopping`), so
   no stream holds the server open. An app that runs its own `http.Server`
   calls `serve.StopOnShutdown(srv)` once before serving.
+
+## Change queue
+
+`queue` keeps every change to one served thing in one line (ADR-S14), so CLI
+runs, servers, page clicks and other apps never change it at once. The line is
+kept in `<served folder>/<app folder>/.queue/`, which only this user may enter
+and which ignores itself in git. It holds tickets, never commands: each
+process runs its own change, and nothing in the folder is ever executed. The
+rules every app sharing a queue follows on disk are fixed in contracts
+`mankit/v1`.
+
+```go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
+q, err := queue.Queue{Folder: filepath.Join(repo, ".designer"), App: "designer", Version: version}.
+	Settings(wait, limit) // the values of the app's rows queue.wait and queue.limit
+if err != nil {
+	return err
+}
+err = q.Change(ctx, "add block shop", write, readBack)
+```
+
+Every app adds `queue.WaitKey` and `queue.LimitKey` to its settings keys, so a
+user sets `queue.wait` (30s) and `queue.limit` (2m) the same way in each.
+`Settings` refuses a value that is not a duration of at least a second, naming
+the row. Each bounds only this process's own waiting and holding, so apps
+sharing a queue may set them apart.
+
+An app passes a context that ends on Ctrl-C (`signal.NotifyContext`), so the
+ticket leaves the line before the process does. `write` and `readBack` take a
+context too, and must stop when it ends: a change may hold the turn for
+`Limit`, and the turn is held until `write` returns.
+
+- `Change` writes a ticket at the end of the line, waits until it is first and
+  holds the turn, runs `write`, then `readBack`: the change is done only once
+  it is read back. The ticket leaves the line whether the change ran or not.
+  An error from `write` comes back as it is. Past `Limit` (2 minutes) the
+  context of `write` ends; a `write` that then stops with an error fails with
+  `change_too_long`, and the next change gets the turn once `write` returns. A
+  `write` that returned no error is always read back, under a context of its
+  own (5s), and reported as done or `not_read_back`, never `change_too_long`.
+- The turn is a lock on a file (`github.com/gofrs/flock`), so it holds across
+  processes; within one process a lock in memory keeps changes apart as well.
+  Locks sit on lock files beside what others read (`<id>.lock` beside each
+  ticket, `turn.lock` beside `turn`), since a lock on Windows keeps others from
+  reading what it covers. A ticket's lock file stays locked by its process
+  while it waits and runs: when the process dies
+  the system gives the lock back, and the next reader removes the ticket and
+  says so. A ticket whose lock is held but whose file was not touched for 30s
+  (touched every 5s), or one that cannot be read or understood, is moved to
+  `.queue/bad/`, said on stderr with the file and why, and skipped. A change
+  still running when its ticket is set aside keeps the turn.
+- `.queue/backend`, when present, names how every writer of the folder takes
+  turns (contracts `mankit/v1/queue-backend`): `files`, as above, is the only
+  one this build runs, and the one without a marker. A marker naming another
+  backend, such as `lock-service`, or one that cannot be read, makes `Change`
+  and `List` refuse with `queue_backend_unsupported`; they never fall back to
+  files. The marker never holds an address or a token.
+- Errors carry codes (`serve.Error`): `queue_timeout` when the turn did not
+  come within `Wait` (30s), `not_read_back` when the change ran but could not
+  be read back, `ticket_lost` when another process set the waiting ticket
+  aside, `queue_unusable` when the folder cannot be made, read or written,
+  `queue_backend_unsupported` for a marker this build does not run,
+  `change_too_long` past `Limit`. `queue_timeout` names the change that
+  holds the turn: its ticket, pid, host and how long it has held it.
+- `List(ctx)` is what `<app> queue` shows: the tickets in order, which one's
+  change runs now and since when, and the files in `bad/`. Answered as kind
+  `queue.ListKind` it meets contracts `mankit/v1/queue-list`; every ticket meets
+  `mankit/v1/queue-ticket` (apiVersion `elderlygate/mankit/queue/v1`, kind `QueueTicket`, whose header
+  never changes, ADR-S15).
+
+What it holds for:
+
+- Local disks only, never a network file system: their locks cannot be trusted.
+- Every process sharing one served folder runs on one kernel: on one machine,
+  or all inside the same container. A lock does not cross from a container to
+  its host.
+- `git clean -fdX` while changes run is not safe: it removes the queue.
+- An app writes whole files (G-CODE-5): a process that dies mid-write gives
+  the turn back, and the next change must not find half a file.
+- 0700 keeps the folder to this user on Linux and macOS; Windows has no such
+  mode.
 
 ## Why textinput is vendored
 

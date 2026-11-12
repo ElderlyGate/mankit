@@ -3,13 +3,14 @@ module github.com/tugbayatilla/mankit
 go 1.27.3
 
 require (
-	github.com/ElderlyGate/contracts v0.2.0
+	github.com/ElderlyGate/contracts v0.3.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.9
+	github.com/gofrs/flock v0.13.2
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/rivo/uniseg v0.4.7
 	github.com/spf13/cobra v1.10.2
