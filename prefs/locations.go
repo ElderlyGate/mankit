@@ -1,7 +1,7 @@
 package prefs
 
 import (
-	"github.com/tugbayatilla/mankit/home"
+	"github.com/tugbayatilla/mankit/v2/home"
 )
 
 // Location is one place the app keeps things.

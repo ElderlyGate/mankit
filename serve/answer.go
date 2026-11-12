@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/home"
+	"github.com/tugbayatilla/mankit/v2/home"
 )
 
 // App is what an app tells serve about itself.

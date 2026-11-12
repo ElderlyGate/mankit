@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 // The servers link command: the link that opens a server's page.

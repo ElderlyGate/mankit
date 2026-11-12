@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/ask"
-	"github.com/tugbayatilla/mankit/settings"
-	"github.com/tugbayatilla/mankit/settings/cli"
+	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v2/settings"
+	"github.com/tugbayatilla/mankit/v2/settings/cli"
 )
 
 func run(t *testing.T, root *cobra.Command, args ...string) (string, error) {

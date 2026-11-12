@@ -19,10 +19,10 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/ask"
-	"github.com/tugbayatilla/mankit/events"
-	"github.com/tugbayatilla/mankit/features"
-	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v2/events"
+	"github.com/tugbayatilla/mankit/v2/features"
+	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 var app = serve.App{ID: "shop", Version: "1.0.0", Contracts: []string{"v1"}}

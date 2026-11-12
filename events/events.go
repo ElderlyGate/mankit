@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tugbayatilla/mankit/features"
-	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/v2/features"
+	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 // Feature is the events feature for the app's list: closed, there is no stream and nothing is kept.

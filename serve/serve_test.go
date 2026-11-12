@@ -16,8 +16,8 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/features"
-	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/v2/features"
+	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 // The serve command: in the foreground, or detached with --detach.

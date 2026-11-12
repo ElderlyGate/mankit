@@ -18,9 +18,9 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/ask"
-	"github.com/tugbayatilla/mankit/home"
-	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v2/home"
+	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 // The tests serve as designer, so its version answer is checked against its own contract too.

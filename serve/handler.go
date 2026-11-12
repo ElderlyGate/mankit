@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/ask"
-	"github.com/tugbayatilla/mankit/features"
+	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v2/features"
 )
 
 // The words of a request: the header a reader asks a contract with, and the query that carries the user's yes to a change.
