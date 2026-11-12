@@ -110,15 +110,20 @@ func TestServeAnswersANameItWasGiven(t *testing.T) {
 func many(t *testing.T) http.Handler {
 	t.Helper()
 	s := site(nil)
-	s.NameFor = func(r *http.Request) string { return r.PathValue("project") }
 	greet := func(w http.ResponseWriter, r *http.Request) {
-		serve.Write(w, r, http.StatusOK, "Greeting", greeting{Text: "hello from " + r.PathValue("project")})
+		serve.WriteNamed(w, r, r.PathValue("project"), http.StatusOK, "Greeting", greeting{Text: "hello from " + r.PathValue("project")})
 	}
 	s.Routes = append(s.Routes,
 		serve.Route{Pattern: "GET /api/projects/{project}/greeting", Handler: greet},
 		serve.Route{Pattern: "POST /api/projects/{project}/greeting", Action: ask.Action{Type: ask.Edit}, Handler: greet},
 		serve.Route{Pattern: "DELETE /api/projects/{project}/greeting", Action: ask.Action{Type: ask.Delete}, Handler: func(w http.ResponseWriter, r *http.Request) {
-			serve.WriteError(w, r, http.StatusConflict, errors.New("the greeting is in use"))
+			serve.WriteErrorNamed(w, r, r.PathValue("project"), http.StatusConflict, errors.New("the greeting is in use"))
+		}},
+		serve.Route{Pattern: "GET /api/projects/{project}/nameless", Handler: func(w http.ResponseWriter, r *http.Request) {
+			serve.WriteNamed(w, r, "", http.StatusOK, "Greeting", greeting{Text: "hello"})
+		}},
+		serve.Route{Pattern: "PUT /api/projects/{project}/nameless", Action: ask.Action{Type: ask.Edit}, Handler: func(w http.ResponseWriter, r *http.Request) {
+			serve.WriteErrorNamed(w, r, "", http.StatusConflict, errors.New("the greeting is in use"))
 		}},
 	)
 	h, err := app.Handler(s, token, nil)
@@ -146,37 +151,39 @@ func TestOneServerNamesEachProjectInItsAnswers(t *testing.T) {
 	}
 }
 
-func TestOneServerNamesTheProjectInAnErrorAndInARefusedChange(t *testing.T) {
-	h := many(t)
-	for _, c := range []struct {
-		target string
-		status int
-	}{{"/api/projects/alpha/greeting?confirm=yes", http.StatusConflict}, {"/api/projects/alpha/greeting", http.StatusPreconditionRequired}} {
-		w := call(t, h, "DELETE", c.target, "", nil)
-		if w.Code != c.status {
-			t.Fatalf("%s: status %d, want %d: %s", c.target, w.Code, c.status, w.Body)
-		}
-		if e := envelope(t, w.Body.Bytes()); e.Ran.Name != "alpha" {
-			t.Fatalf("%s ran %+v, want the project alpha", c.target, e.Ran)
-		}
+func TestOneServerNamesTheProjectInAnError(t *testing.T) {
+	w := call(t, many(t), "DELETE", "/api/projects/alpha/greeting?confirm=yes", "", nil)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if e := envelope(t, w.Body.Bytes()); e.Ran.Name != "alpha" {
+		t.Fatalf("ran %+v, want the project alpha", e.Ran)
 	}
 }
 
-func TestOneServerNamesItselfWhereNoProjectIsAsked(t *testing.T) {
+func TestOneServerNamesItselfWhereNoProjectIsNamed(t *testing.T) {
 	h := many(t)
 	for _, c := range []struct {
-		target string
-		header map[string]string
+		method, target string
+		header         map[string]string
+		status         int
 	}{
-		{"/api/greeting", nil},
-		{"/api/version", nil},
-		{"/api/projects/alpha/nothing", nil},
-		{"/api/projects/alpha/greeting", map[string]string{serve.ContractHeader: "v9"}},
-		{"/api/projects/alpha/greeting", map[string]string{app.TokenHeader(): ""}},
+		{"GET", "/api/greeting", nil, http.StatusOK},
+		{"GET", "/api/version", nil, http.StatusOK},
+		{"GET", "/api/projects/alpha/nameless", nil, http.StatusOK},
+		{"PUT", "/api/projects/alpha/nameless?confirm=yes", nil, http.StatusConflict},
+		{"GET", "/api/projects/alpha/nothing", nil, http.StatusNotFound},
+		{"GET", "/api/projects/alpha/greeting", map[string]string{serve.ContractHeader: "v9"}, http.StatusNotAcceptable},
+		{"GET", "/api/projects/alpha/greeting", map[string]string{app.TokenHeader(): ""}, http.StatusUnauthorized},
+		// serve's gate refuses a change before the handler can name its project.
+		{"DELETE", "/api/projects/alpha/greeting", nil, http.StatusPreconditionRequired},
 	} {
-		w := call(t, h, "GET", c.target, "", c.header)
+		w := call(t, h, c.method, c.target, "", c.header)
+		if w.Code != c.status {
+			t.Fatalf("%s %s %v: status %d, want %d: %s", c.method, c.target, c.header, w.Code, c.status, w.Body)
+		}
 		if e := envelope(t, w.Body.Bytes()); e.Ran.Name != "shop" {
-			t.Fatalf("%s %v ran %+v, want the server's name shop", c.target, c.header, e.Ran)
+			t.Fatalf("%s %s %v ran %+v, want the server's name shop", c.method, c.target, c.header, e.Ran)
 		}
 	}
 }
