@@ -37,10 +37,10 @@ const (
 
 // Ran says where an answer came from: the thing, the app, its version and the contract (ADR-S08).
 type Ran struct {
-	Name     string `json:"name"`
-	App      string `json:"app"`
-	Version  string `json:"version"`
-	Contract string `json:"contract"`
+	Name     string `json:"name"`     // the thing the answer is about (a board, a design, a project); one server serving many things names each answer with WriteNamed, so a reader that gathers answers from many things (a read over a pattern or a connection, control-room) can tell them apart (ADR-S08)
+	App      string `json:"app"`      // which app answered; servers uses it to tell its own app on a port
+	Version  string `json:"version"`  // which version of the app answered; servers uses it to tell its own app on a port
+	Contract string `json:"contract"` // the contract version the answer is in
 }
 
 // Envelope is every answer, from the CLI and from HTTP alike (contracts envelope/v1).
