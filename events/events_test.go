@@ -79,6 +79,7 @@ func keep(n int) func(*events.Config) { return func(c *events.Config) { c.Keep =
 type switches struct {
 	mu         sync.Mutex
 	off        []string
+	on         []string
 	fail       error
 	unlicensed bool
 }
@@ -112,10 +113,18 @@ func (s *switches) store() features.Store {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			s.off = slices.DeleteFunc(s.off, func(o string) bool { return o == id })
+			s.on = slices.DeleteFunc(s.on, func(o string) bool { return o == id })
 			if off {
 				s.off = append(s.off, id)
+			} else {
+				s.on = append(s.on, id)
 			}
 			return nil
+		},
+		On: func() ([]string, error) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return slices.Clone(s.on), nil
 		},
 	}
 }
@@ -147,6 +156,9 @@ func shopHandler(t *testing.T, withEvents bool, tweak ...func(*events.Config)) (
 			f(&cfg)
 		}
 		if err := events.Attach(list, cfg); err != nil {
+			t.Fatal(err)
+		}
+		if err := list.Set(events.Feature.ID, true); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -526,6 +538,23 @@ func TestSwitchesThatCannotBeReadAreSaid(t *testing.T) {
 }
 
 // The feature off
+
+func TestTheFeatureStartsOffUntilTheOwnerSwitchesItOn(t *testing.T) {
+	sw := &switches{}
+	list := features.New([]features.Feature{events.Feature}, sw.store())
+	if err := events.Attach(list, events.Config{Product: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if on, err := list.On(events.Feature.ID); err != nil || on {
+		t.Fatalf("events on = %v, %v before the owner switched it on", on, err)
+	}
+	if err := list.Set(events.Feature.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if on, err := list.On(events.Feature.ID); err != nil || !on {
+		t.Fatalf("events on = %v, %v after the owner switched it on", on, err)
+	}
+}
 
 func TestTheFeatureOffServesNoStream(t *testing.T) {
 	s := serving(t, true)

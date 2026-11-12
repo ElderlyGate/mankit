@@ -496,6 +496,84 @@ func TestAModuleOffIsNotServedAndHearsOnlyThatItMissedAChange(t *testing.T) {
 	}
 }
 
+// needing is the test site with a feature "hear" that needs HEAR_URL, which is not set, whose module is m; closed by public when closed is set.
+func needing(t *testing.T, m any, closed bool) http.Handler {
+	t.Helper()
+	var public []string
+	if closed {
+		public = []string{"hear"}
+	}
+	list := features.New([]features.Feature{{ID: "hear", Needs: []features.Value{{Name: "HEAR_URL", Purpose: "where changes go"}}}},
+		features.Store{Off: func() ([]string, error) { return nil, nil }},
+		features.Closer{By: "public", Closed: func() ([]string, error) { return public, nil }},
+	).WithLookup(func(string) bool { return false })
+	if err := list.Attach("hear", m); err != nil {
+		t.Fatal(err)
+	}
+	s := site(nil)
+	s.Features = list
+	h, err := app.Handler(s, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestAModuleMissingAValueAnswersWhatItNeedsAndTheRestRuns(t *testing.T) {
+	m := &recorder{}
+	h := needing(t, m, false)
+	e := refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusServiceUnavailable, features.CodeNeedsValues)
+	if !strings.Contains(e.Message, "HEAR_URL (where changes go)") {
+		t.Fatalf("message %q does not name the missing value", e.Message)
+	}
+	if w := call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("the change answered %d beside the broken module", w.Code)
+	}
+	if len(m.heard) != 0 || len(m.skipped) != 1 || m.skipped[0].Route.Pattern != "POST /api/greeting" {
+		t.Fatalf("heard %+v, skipped %+v, want the broken module to hear only that it missed the change", m.heard, m.skipped)
+	}
+}
+
+func TestAModuleOffAndMissingAValueIsNotThere(t *testing.T) {
+	refusal(t, call(t, needing(t, &recorder{}, true), "GET", "/api/heard", "", nil), http.StatusNotFound, serve.CodeNotFound)
+}
+
+func TestHandlerRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) {
+	s := site(nil)
+	s.Needs = []features.Value{{Name: "SHOP_DIR", Purpose: "where the shop lives"}, {Name: "SHOP_KEY", Purpose: "what opens it"}}
+	s.Lookup = func(name string) bool { return name == "SHOP_KEY" }
+	_, err := app.Handler(s, token, nil)
+	var e *serve.Error
+	if !errors.As(err, &e) || e.Code != serve.CodeCoreNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") || strings.Contains(e.Message, "SHOP_KEY") {
+		t.Fatalf("err = %v, want core_needs_values naming SHOP_DIR alone", err)
+	}
+	s.Lookup = func(string) bool { return true }
+	if _, err := app.Handler(s, token, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFeaturesThatCannotBeReadAfterAChangeAreLoggedAndEveryModuleMissedIt(t *testing.T) {
+	m := &recorder{}
+	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Off: func() ([]string, error) { return nil, errors.New("disk gone") }})
+	if err := list.Attach("hear", m); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	s := site(nil)
+	s.Features, s.Log = list, &log
+	h, err := app.Handler(s, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("the change answered %d", w.Code)
+	}
+	if want := "POST /api/greeting: the features cannot be read, so every module missed this change: disk gone\n"; log.String() != want || len(m.skipped) != 1 {
+		t.Fatalf("log %q, skipped %+v", log.String(), m.skipped)
+	}
+}
+
 func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
 	list := features.New([]features.Feature{{ID: "hear"}}, features.Store{Off: func() ([]string, error) { return nil, nil }})
 	if err := list.Attach("hear", "not a part"); err != nil {

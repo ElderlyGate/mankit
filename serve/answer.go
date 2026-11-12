@@ -32,6 +32,7 @@ const (
 	CodeNotFound            = "not_found"
 	CodeConfig              = "config_unreadable"
 	CodeFailed              = "failed"
+	CodeCoreNeedsValues     = "core_needs_values"
 )
 
 // Ran says where an answer came from: the thing, the app, its version and the contract (ADR-S08).

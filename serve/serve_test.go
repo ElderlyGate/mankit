@@ -16,6 +16,7 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
+	"github.com/tugbayatilla/mankit/features"
 	"github.com/tugbayatilla/mankit/serve"
 )
 
@@ -85,6 +86,34 @@ func TestServeInTheForegroundLeavesARecordUntilItStops(t *testing.T) {
 	}
 	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
 		t.Fatalf("the record outlived the server: %v", recs)
+	}
+}
+
+func TestServeLogsEachBrokenFeatureAtStartAndServes(t *testing.T) {
+	machine(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out := &syncBuffer{}
+	r := root(func(*cobra.Command) (serve.Site, error) {
+		s := site(nil)
+		s.Features = features.New([]features.Feature{{ID: "hear", Needs: []features.Value{{Name: "HEAR_URL", Purpose: "where changes go"}}}},
+			features.Store{Off: func() ([]string, error) { return nil, nil }}).WithLookup(func(string) bool { return false })
+		return s, nil
+	})
+	r.SetOut(out)
+	r.SetErr(out)
+	r.SetArgs([]string{"serve"})
+	done := make(chan error, 1)
+	go func() { done <- r.ExecuteContext(ctx) }()
+	for !strings.Contains(out.String(), "serving on") && ctx.Err() == nil {
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if want := "e-designer: the feature hear needs values that are not set: HEAR_URL (where changes go); the rest serves\n"; !strings.HasPrefix(out.String(), want) {
+		t.Fatalf("output %q, want it to start with %q", out.String(), want)
 	}
 }
 
@@ -167,6 +196,26 @@ func TestServeRefusesAContractItDoesNotAnswerBeforeItStarts(t *testing.T) {
 }
 
 // Errors and exit codes
+
+func TestServeRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) {
+	dir := machine(t)
+	r := root(func(*cobra.Command) (serve.Site, error) {
+		s := site(nil)
+		s.Needs = []features.Value{{Name: "SHOP_DIR", Purpose: "where the shop lives"}}
+		return s, nil
+	})
+	r.SetOut(&syncBuffer{})
+	r.SetErr(&syncBuffer{})
+	r.SetArgs([]string{"serve"})
+	err := r.Execute()
+	var e *serve.Error
+	if !errors.As(err, &e) || e.Code != serve.CodeCoreNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") {
+		t.Fatalf("got %v, want core_needs_values naming SHOP_DIR", err)
+	}
+	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
+		t.Fatalf("it started anyway: %v", recs)
+	}
+}
 
 func TestServeRefusesAnAddressOtherMachinesReach(t *testing.T) {
 	machine(t)

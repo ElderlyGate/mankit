@@ -23,6 +23,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/ask"
+	"github.com/tugbayatilla/mankit/features"
 )
 
 // The kinds of the answers the commands print with -o json or yaml.
@@ -161,6 +162,9 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 		if err != nil {
 			return err
 		}
+		if err := a.logBroken(cmd.ErrOrStderr(), site.Features); err != nil {
+			return err
+		}
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			return fmt.Errorf("cannot listen on %s: %w", addr, err)
@@ -201,6 +205,21 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 	c.Flags().BoolVar(&allowRemote, "allow-remote", false, "let --addr be an address other machines reach; they still need the token")
 	c.Flags().BoolVarP(&detach, "detach", "d", false, "run in the background and return to the prompt; see servers")
 	return c
+}
+
+// logBroken says at start, one line each, which features are on but miss values, so the owner sees why they answer feature_needs_values.
+func (a App) logBroken(w io.Writer, list *features.List) error {
+	if list == nil {
+		return nil
+	}
+	broken, err := list.Broken()
+	if err != nil {
+		return err
+	}
+	for _, s := range broken {
+		fmt.Fprintf(w, "%s: %v; the rest serves\n", a.command(), &features.NeedsValues{ID: s.ID, Missing: s.Missing})
+	}
+	return nil
 }
 
 // run serves on ln until ctx ends or a signal comes, then shuts down gracefully so no write is cut off.
