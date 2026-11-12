@@ -387,6 +387,27 @@ func TestServeRefusesARequestWithoutTheToken(t *testing.T) {
 	}
 }
 
+func TestServeWeighsTheBearerHeaderBeforeTheCookie(t *testing.T) {
+	for name, c := range map[string]struct {
+		bearer string
+		want   int
+	}{
+		"an empty Bearer falls back to the cookie": {"Bearer ", http.StatusOK},
+		"a wrong Bearer is refused":                {"Bearer guess", http.StatusUnauthorized},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "http://localhost:7480/api/greeting", nil)
+			req.Header.Set("Authorization", c.bearer)
+			req.AddCookie(&http.Cookie{Name: "designer-token-7480", Value: token})
+			w := httptest.NewRecorder()
+			handler(t, nil).ServeHTTP(w, req)
+			if w.Code != c.want {
+				t.Fatalf("status %d, want %d: %s", w.Code, c.want, w.Body)
+			}
+		})
+	}
+}
+
 func TestServeRefusesTheTokenInAnyOtherHeader(t *testing.T) {
 	for name, header := range map[string]map[string]string{
 		"the product's own header": {"Authorization": "", "X-Designer-Token": token},
