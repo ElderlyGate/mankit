@@ -105,12 +105,12 @@ func TestFreeKeysRefusesTakenKeys(t *testing.T) {
 func TestNormalizeKey(t *testing.T) {
 	ok := map[string]string{"Z": "Z", "Ctrl+G": "ctrl+g", "alt+X": "alt+X", "F5": "f5", "": "", "?": "?"}
 	for in, want := range ok {
-		if got, err := NormalizeKey(in); err != nil || got != want {
+		if got, err := normalizeKey(in); err != nil || got != want {
 			t.Errorf("%q: got %q %v, want %q", in, got, err, want)
 		}
 	}
 	for _, bad := range []string{"ctrl+c", "CTRL+C", "ctrl+i", "ctrl+m", "ctrl+s", "control+g", "ctrl+gg", " ", "hello"} {
-		if _, err := NormalizeKey(bad); err == nil {
+		if _, err := normalizeKey(bad); err == nil {
 			t.Errorf("%q: accepted", bad)
 		}
 	}

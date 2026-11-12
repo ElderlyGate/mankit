@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 // Path is where the stream is served, one per server (ADR-E3).

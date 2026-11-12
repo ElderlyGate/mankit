@@ -16,7 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tugbayatilla/mankit/home"
+	"github.com/gofrs/flock"
+
+	"github.com/tugbayatilla/mankit/v2/home"
 )
 
 // A record is a claim a detached server leaves, never proof: a process can die without removing it, and a pid is reused.
@@ -72,7 +74,7 @@ type stopped struct {
 
 // serversDir is where the app's records, logs and token live: its data folder (G-STACK-8), then servers.
 func (a App) serversDir() (string, error) {
-	dir, err := home.ProductData(a.ID)
+	dir, err := home.ProductData(a.folder())
 	if err != nil {
 		return "", err
 	}
@@ -103,6 +105,11 @@ func writeWhole(dir, path string, data []byte) error {
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	// On disk before the rename, so a crash never leaves the name on an empty file.
+	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -207,31 +214,51 @@ func (a App) find(recs []record, target string) (record, error) {
 	return record{}, fmt.Errorf("%q names %d servers (%s); give the address", target, len(hits), strings.Join(addrs, ", "))
 }
 
-var errNoToken = errors.New("this machine has no server token yet: serve makes one")
+var errNoToken = errors.New("this machine has no server token yet")
 
-// readToken is the token every server of the app on this machine asks for; one another user could read or have written is refused.
-func readToken(dir string) (string, error) {
+// readToken reads the machine's token whole on every call, checking the folder and the open file, so no link or swapped file is read.
+func (a App) readToken(dir string) (string, error) {
 	path := filepath.Join(dir, tokenName)
-	info, err := os.Lstat(path)
+	renew := fmt.Sprintf("`%s servers token renew` writes a new one", a.command())
+	info, err := os.Lstat(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", errNoToken
+		return "", fmt.Errorf("%w: `%s serve` or %s", errNoToken, a.command(), renew)
 	}
 	if err != nil {
+		return "", err
+	}
+	if err := privateDir(info); err != nil {
+		return "", fmt.Errorf("%s %w: %s", dir, err, renew)
+	}
+	f, err := openNoFollow(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("%w: `%s serve` or %s", errNoToken, a.command(), renew)
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s cannot be read: %w; %s", path, err, renew)
+	}
+	defer f.Close()
+	if info, err = f.Stat(); err != nil {
 		return "", err
 	}
 	if err := private(info); err != nil {
-		return "", fmt.Errorf("%s %w: remove it and serve makes a new one", path, err)
+		return "", fmt.Errorf("%s %w: %s", path, err, renew)
 	}
-	data, err := os.ReadFile(path)
+	data, err := io.ReadAll(io.LimitReader(f, 1<<10))
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(data)), nil
+	// An empty token would match a request that carries none.
+	t := strings.TrimSpace(string(data))
+	if t == "" {
+		return "", fmt.Errorf("%s holds no token: %s", path, renew)
+	}
+	return t, nil
 }
 
 // ensureToken reads the token, making it on first use; it stays across restarts.
-func ensureToken(dir string) (string, error) {
-	if t, err := readToken(dir); !errors.Is(err, errNoToken) {
+func (a App) ensureToken(dir string) (string, error) {
+	if t, err := a.readToken(dir); !errors.Is(err, errNoToken) {
 		return t, err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -240,8 +267,8 @@ func ensureToken(dir string) (string, error) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", err
 	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	token, err := newToken()
+	if err != nil {
 		return "", err
 	}
 	tmp, err := os.CreateTemp(dir, ".token-*")
@@ -249,7 +276,7 @@ func ensureToken(dir string) (string, error) {
 		return "", err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(hex.EncodeToString(raw) + "\n"); err != nil {
+	if _, err := tmp.WriteString(token + "\n"); err != nil {
 		tmp.Close()
 		return "", err
 	}
@@ -260,7 +287,47 @@ func ensureToken(dir string) (string, error) {
 	if err := os.Link(tmp.Name(), filepath.Join(dir, tokenName)); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", err
 	}
-	return readToken(dir)
+	return a.readToken(dir)
+}
+
+func newToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+// renewToken replaces the token whole with a new one and reads it back; every running server refuses the old one from its next request.
+func (a App) renewToken(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
+	// One renew at a time, so the token each prints is the one in the file when it prints it.
+	lock := flock.New(filepath.Join(dir, ".token.lock"), flock.SetPermissions(0o600))
+	if err := lock.Lock(); err != nil {
+		return "", err
+	}
+	defer lock.Unlock()
+	token, err := newToken()
+	if err != nil {
+		return "", err
+	}
+	// The temporary file is the user's alone (0600), so the rename never leaves a token others could read.
+	if err := writeWhole(dir, filepath.Join(dir, tokenName), []byte(token+"\n")); err != nil {
+		return "", err
+	}
+	got, err := a.readToken(dir)
+	if err != nil {
+		return "", err
+	}
+	if got != token {
+		return "", fmt.Errorf("%s holds another token than the one just written; run the renew again", filepath.Join(dir, tokenName))
+	}
+	return got, nil
 }
 
 // probed is what one look at an address found: refused (nothing listens, the only verdict that removes a record) or answering as this app.

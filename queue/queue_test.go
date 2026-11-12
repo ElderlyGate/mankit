@@ -18,9 +18,9 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/gofrs/flock"
 
-	"github.com/tugbayatilla/mankit/queue"
-	"github.com/tugbayatilla/mankit/serve"
-	"github.com/tugbayatilla/mankit/settings"
+	"github.com/tugbayatilla/mankit/v2/queue"
+	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v2/settings"
 )
 
 // The environment that starts this test binary again as another process on the same queue: what it does, where, and with what.

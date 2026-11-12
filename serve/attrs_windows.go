@@ -19,5 +19,25 @@ func private(info os.FileInfo) error {
 	return nil
 }
 
+// privateDir is nil for a folder; Windows keeps a user's profile folder to that user.
+func privateDir(info os.FileInfo) error {
+	if !info.IsDir() {
+		return errors.New("is not a folder")
+	}
+	return nil
+}
+
+// openNoFollow opens path for reading, refusing a link in its place.
+func openNoFollow(path string) (*os.File, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("it is a link, not a plain file")
+	}
+	return os.Open(path)
+}
+
 // connRefused are the error numbers of a connection nothing listens for: Windows answers WSAECONNREFUSED, not ECONNREFUSED.
 var connRefused = []error{syscall.ECONNREFUSED, syscall.Errno(10061)}

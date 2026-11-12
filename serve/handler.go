@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/ask"
-	"github.com/tugbayatilla/mankit/features"
+	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v2/features"
 )
 
 // The words of a request: the header a reader asks a contract with, and the query that carries the user's yes to a change.
@@ -82,14 +82,17 @@ type VersionData struct {
 
 var writing = map[string]bool{http.MethodPost: true, http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true}
 
-// Handler serves site behind the guard: only on this machine's address or one of hosts, the page only with token's cookie,
-// every API request with token, from the page itself, with a JSON body and a contract the app answers, and a change only with the user's yes.
-func (a App) Handler(site Site, token string, hosts []string) (http.Handler, error) {
+// Handler serves site behind the guard, with this machine's token read on every request, so servers token renew counts at once.
+func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 	if err := a.check(); err != nil {
 		return nil, err
 	}
-	if token == "" {
-		return nil, fmt.Errorf("serve: %s serves only with a token", a.command())
+	dir, err := a.serversDir()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := a.ensureToken(dir); err != nil {
+		return nil, err
 	}
 	if missing := features.Missing(site.Needs, site.Lookup); len(missing) > 0 {
 		return nil, Fail(CodeCoreNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
@@ -137,7 +140,7 @@ func (a App) Handler(site Site, token string, hosts []string) (http.Handler, err
 	if site.UI != nil {
 		mux.Handle("/", site.UI)
 	}
-	return a.guard(token, hosts, site.Name, a.choose(site.Name, mux)), nil
+	return a.guard(dir, hosts, site.Name, a.choose(site.Name, mux)), nil
 }
 
 // Write answers kind with data, in the envelope and the contract the request was answered in.

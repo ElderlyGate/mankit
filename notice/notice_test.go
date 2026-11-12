@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tugbayatilla/mankit/theme"
+	"github.com/tugbayatilla/mankit/v2/theme"
 )
 
 func TestNoticeIsFreshForAWhile(t *testing.T) {

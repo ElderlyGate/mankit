@@ -13,9 +13,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/tugbayatilla/mankit/home"
-	"github.com/tugbayatilla/mankit/settings"
-	"github.com/tugbayatilla/mankit/textinput"
+	"github.com/tugbayatilla/mankit/v2/home"
+	"github.com/tugbayatilla/mankit/v2/settings"
+	"github.com/tugbayatilla/mankit/v2/textinput"
 )
 
 // Palette lists the commands of type T that match what is typed.
@@ -39,7 +39,7 @@ func (p *Palette[T]) Filter(items []T, text func(T) string) {
 	q := strings.ToLower(p.Input.Value())
 	p.Matches = p.Matches[:0]
 	for _, it := range items {
-		if Subsequence(strings.ToLower(text(it)), q) {
+		if subsequence(strings.ToLower(text(it)), q) {
 			p.Matches = append(p.Matches, it)
 		}
 	}
@@ -123,8 +123,8 @@ func padRight(s string, w int) string {
 	return s
 }
 
-// Subsequence reports whether s holds q's letters in order.
-func Subsequence(s, q string) bool {
+// subsequence reports whether s holds q's letters in order.
+func subsequence(s, q string) bool {
 	for _, r := range q {
 		i := strings.IndexRune(s, r)
 		if i < 0 {

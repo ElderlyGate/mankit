@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/tugbayatilla/mankit/ask"
+	"github.com/tugbayatilla/mankit/v2/ask"
 )
 
 // Info is what an app says about itself; the commands and flags come from cobra.

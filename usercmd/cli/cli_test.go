@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/usercmd"
+	"github.com/tugbayatilla/mankit/v2/usercmd"
 )
 
 const starter = "commands:\n  - {id: hello, key: h, label: say hello, run: echo hi}\n  - {id: quit2, key: q, label: clash, run: echo}\n"

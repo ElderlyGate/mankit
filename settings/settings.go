@@ -12,9 +12,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/ask"
-	"github.com/tugbayatilla/mankit/internal/configfile"
-	"github.com/tugbayatilla/mankit/theme"
+	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v2/internal/configfile"
+	"github.com/tugbayatilla/mankit/v2/theme"
 )
 
 // Key is one setting of config.yaml.

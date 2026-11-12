@@ -8,15 +8,15 @@ import (
 	"strings"
 )
 
-// Platform is what the open and copy strategies depend on.
-type Platform struct {
+// platform is what the open and copy strategies depend on.
+type platform struct {
 	GOOS     string
 	WSL      bool
 	LookPath func(string) (string, error)
 }
 
-func Current() Platform {
-	return Platform{GOOS: runtime.GOOS, WSL: IsWSL(), LookPath: exec.LookPath}
+func current() platform {
+	return platform{GOOS: runtime.GOOS, WSL: IsWSL(), LookPath: exec.LookPath}
 }
 
 func IsWSL() bool {
@@ -25,33 +25,33 @@ func IsWSL() bool {
 }
 
 type opener struct {
-	applies func(Platform) bool
-	argv    func(p Platform, url string) []string
+	applies func(platform) bool
+	argv    func(p platform, url string) []string
 }
 
 // openers are tried in order; the last always applies.
 var openers = []opener{
-	{func(p Platform) bool { return p.GOOS == "darwin" }, func(_ Platform, u string) []string { return []string{"open", u} }},
-	{func(p Platform) bool { return p.GOOS == "windows" }, func(_ Platform, u string) []string {
+	{func(p platform) bool { return p.GOOS == "darwin" }, func(_ platform, u string) []string { return []string{"open", u} }},
+	{func(p platform) bool { return p.GOOS == "windows" }, func(_ platform, u string) []string {
 		return []string{"rundll32", "url.dll,FileProtocolHandler", u}
 	}},
-	{func(p Platform) bool { return p.WSL && has(p, "wslview") }, func(p Platform, u string) []string {
+	{func(p platform) bool { return p.WSL && has(p, "wslview") }, func(p platform, u string) []string {
 		path, _ := p.LookPath("wslview")
 		return []string{path, u}
 	}},
-	{func(p Platform) bool { return p.WSL }, func(_ Platform, u string) []string {
+	{func(p platform) bool { return p.WSL }, func(_ platform, u string) []string {
 		return []string{"rundll32.exe", "url.dll,FileProtocolHandler", u}
 	}},
-	{func(Platform) bool { return true }, func(_ Platform, u string) []string { return []string{"xdg-open", u} }},
+	{func(platform) bool { return true }, func(_ platform, u string) []string { return []string{"xdg-open", u} }},
 }
 
-func has(p Platform, name string) bool {
+func has(p platform, name string) bool {
 	_, err := p.LookPath(name)
 	return err == nil
 }
 
-// OpenCommand is the command that opens url on p.
-func OpenCommand(p Platform, url string) []string {
+// openCommand is the command that opens url on p.
+func openCommand(p platform, url string) []string {
 	for _, o := range openers {
 		if o.applies(p) {
 			return o.argv(p, url)
@@ -62,6 +62,6 @@ func OpenCommand(p Platform, url string) []string {
 
 // Open opens url in the default browser without waiting for it.
 func Open(url string) error {
-	argv := OpenCommand(Current(), url)
+	argv := openCommand(current(), url)
 	return exec.Command(argv[0], argv[1:]...).Start()
 }

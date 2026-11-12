@@ -16,8 +16,8 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/features"
-	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/v2/features"
+	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 // The serve command: in the foreground, or detached with --detach.
@@ -151,7 +151,7 @@ func TestServeEndsALongAnswerWhenItStops(t *testing.T) {
 	reqCtx, reqCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer reqCancel()
 	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, "http://"+addr+"/api/wait", nil)
-	req.Header.Set(app.TokenHeader(), link.Query().Get(serve.TokenParam))
+	req.Header.Set("Authorization", "Bearer "+link.Query().Get("token"))
 	status := make(chan int, 1)
 	go func() {
 		resp, err := http.DefaultClient.Do(req)

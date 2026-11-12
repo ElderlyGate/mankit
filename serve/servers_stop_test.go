@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tugbayatilla/mankit/ask"
-	"github.com/tugbayatilla/mankit/serve"
+	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v2/serve"
 )
 
 // The servers stop command: stop a server by its address or its name, or every one.

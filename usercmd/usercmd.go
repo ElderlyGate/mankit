@@ -35,7 +35,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/internal/configfile"
+	"github.com/tugbayatilla/mankit/v2/internal/configfile"
 )
 
 // Command is one entry of the commands file.
@@ -66,8 +66,8 @@ func Path(app string) string {
 	return path
 }
 
-// Old is the file commands lived in before they moved into config.yaml.
-const Old = "commands.yaml"
+// oldFile is the file commands lived in before they moved into config.yaml.
+const oldFile = "commands.yaml"
 
 // Migrate moves <dir>/commands.yaml into path (config.yaml next to it):
 // renamed when there is no config.yaml yet, which keeps its comments, else
@@ -77,7 +77,7 @@ func Migrate(path string) (string, error) {
 	if path == "" || filepath.Base(path) != "config.yaml" {
 		return "", nil
 	}
-	old := filepath.Join(filepath.Dir(path), Old)
+	old := filepath.Join(filepath.Dir(path), oldFile)
 	b, err := os.ReadFile(old)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
@@ -113,7 +113,7 @@ func Migrate(path string) (string, error) {
 	if err := os.Rename(old, old+".migrated"); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("added the commands of %s to %s (the old file is %s.migrated)", old, path, Old), nil
+	return fmt.Sprintf("added the commands of %s to %s (the old file is %s.migrated)", old, path, oldFile), nil
 }
 
 // writeFile replaces path through a temp file and a rename.
@@ -173,7 +173,7 @@ func Load(path string, s Spec) ([]Command, error) {
 		if c.View == "" {
 			c.View = "all"
 		}
-		key, err := NormalizeKey(c.Key)
+		key, err := normalizeKey(c.Key)
 		if err != nil {
 			return nil, fmt.Errorf("%s: command %d (%s): %w", path, i+1, c.ID, err)
 		}
@@ -228,7 +228,7 @@ func (c Command) Script(vars map[string]string) (string, error) {
 			missing = append(missing, p)
 			return p
 		}
-		return Quote(v)
+		return quote(v)
 	})
 	if len(missing) > 0 {
 		return "", fmt.Errorf("%s needs %s; select one first", c.Label, strings.Join(missing, ", "))
@@ -238,8 +238,8 @@ func (c Command) Script(vars map[string]string) (string, error) {
 
 var plainRe = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,^~-]+$`)
 
-// Quote makes s one shell word.
-func Quote(s string) string {
+// quote makes s one shell word.
+func quote(s string) string {
 	if plainRe.MatchString(s) {
 		return s
 	}
@@ -279,10 +279,10 @@ var named = []string{
 	"f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
 }
 
-// NormalizeKey checks k is a key a terminal can send and writes it the way
+// normalizeKey checks k is a key a terminal can send and writes it the way
 // bubbletea names it: one character (Z, ?), ctrl+<letter>, alt+<character>,
 // or a named key such as f5. "" stays "": the command is palette only.
-func NormalizeKey(k string) (string, error) {
+func normalizeKey(k string) (string, error) {
 	if k == "" {
 		return "", nil
 	}

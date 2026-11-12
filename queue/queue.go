@@ -20,9 +20,9 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/tugbayatilla/mankit/home"
-	"github.com/tugbayatilla/mankit/serve"
-	"github.com/tugbayatilla/mankit/settings"
+	"github.com/tugbayatilla/mankit/v2/home"
+	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v2/settings"
 )
 
 // The codes of the errors the queue gives; a program decides by the code, never by the message (G-STACK-15).
