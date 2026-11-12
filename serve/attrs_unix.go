@@ -42,9 +42,9 @@ func privateDir(info os.FileInfo) error {
 	return nil
 }
 
-// openNoFollow opens path for reading, refusing a link in its place.
+// openNoFollow opens path for reading, refusing a link in its place; non-blocking, so a FIFO there never holds a request.
 func openNoFollow(path string) (*os.File, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, syscall.ELOOP) {
 		return nil, errors.New("it is a link, not a plain file")
 	}

@@ -228,7 +228,7 @@ func (a App) readToken(dir string) (string, error) {
 		return "", err
 	}
 	if err := privateDir(info); err != nil {
-		return "", fmt.Errorf("%s %w", dir, err)
+		return "", fmt.Errorf("%s %w: %s", dir, err, renew)
 	}
 	f, err := openNoFollow(path)
 	if errors.Is(err, os.ErrNotExist) {
