@@ -321,12 +321,11 @@ its version and the contract), `data` and `errors`. The CLI builds the same
 answer with `app.Answer` or `app.Failure` and writes it with `serve.Encode`, so
 both doors give the same bytes.
 
-One server may serve many things, such as one per project. A server for many
-things names each answer with `serve.WriteNamed` / `serve.WriteErrorNamed`, so
-`ran.name` says which thing it is about; an empty name, `Write`, `WriteError`
-and every refusal serve gives itself (the guard, the contract, an unknown
-route, 428 before a change) name `Site.Name`. The server's record names the
-server, `Site.Name`, never each thing it serves.
+One server may serve many things, such as one per project: it names each
+answer's thing with `serve.WriteNamed` / `serve.WriteErrorNamed`; an empty name,
+`Write`, `WriteError` and every refusal serve gives itself use `Site.Name`.
+Contracts `envelope/v1` says what `ran` and each of its fields are for. The
+server's record names the server, `Site.Name`, never each thing it serves.
 
 What serve does for every app:
 
