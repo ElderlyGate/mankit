@@ -72,7 +72,7 @@ func (q Queue) Settings(wait, limit string) (Queue, error) {
 
 // Kind is the kind of a ticket, and ListKind the kind of the answer <app> queue gives (contracts mankit/v1).
 const (
-	Kind     = "Ticket"
+	Kind     = "QueueTicket"
 	ListKind = "QueueList"
 )
 
@@ -113,7 +113,7 @@ const (
 var idPattern = regexp.MustCompile(`^[0-9]{20}$`)
 
 // APIVersion is the ticket's apiVersion; two app versions share a queue at once, so it never changes (ADR-S15).
-func APIVersion() string { return home.Org + "/mankit/ticket/v1" }
+func APIVersion() string { return home.Org + "/mankit/queue-ticket/v1" }
 
 // BackendAPIVersion is the apiVersion of .queue/backend; it never changes (ADR-S15).
 func BackendAPIVersion() string { return home.Org + "/mankit/queue-backend/v1" }
@@ -130,7 +130,7 @@ type Queue struct {
 	proc *inProcess // this process's locks on the folder, found once per Change or List
 }
 
-// Ticket is one change waiting its turn, as written in the queue's folder (contracts mankit/v1 ticket).
+// Ticket is one change waiting its turn, as written in the queue's folder (contracts mankit/v1 queue-ticket).
 type Ticket struct {
 	APIVersion string   `json:"apiVersion"`
 	Kind       string   `json:"kind"`
