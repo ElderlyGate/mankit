@@ -112,6 +112,9 @@ func TestAppContractsAreChecked(t *testing.T) {
 		"an envelope serve does not write": {[]serve.Contract{{Version: "v1", Envelope: "V2"}}, "does not write"},
 		"a version twice":                  {[]serve.Contract{{Version: "v1"}, {Version: "v1", Envelope: "v2"}}, "given twice"},
 		"no contract":                      {nil, "at least one contract"},
+		"an empty version":                 {[]serve.Contract{{Version: ""}}, `contract "" is not vN`},
+		"a capital V":                      {[]serve.Contract{{Version: "V1"}}, `contract "V1" is not vN`},
+		"a bare number":                    {[]serve.Contract{{Version: "1"}}, `contract "1" is not vN`},
 		// A reader moving to a newer contract never meets an older envelope.
 		"an envelope going back": {[]serve.Contract{{Version: "v1", Envelope: "v2"}, {Version: "v2", Envelope: "v1"}}, "goes back"},
 	} {

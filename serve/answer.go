@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -33,7 +34,10 @@ type Contract struct {
 	Envelope string
 }
 
-// envelopes are the envelopes serve writes, oldest first.
+// contractVersion is the form of a contract version (contracts envelope ran.contract).
+var contractVersion = regexp.MustCompile(`^v[0-9]+$`)
+
+// envelopes are the envelopes serve writes, oldest first; each has its branch in Envelope.MarshalJSON, and a test fails when one has none.
 var envelopes = []string{"v1", "v2"}
 
 // envelope is c's envelope, "v1" when it names none.
@@ -91,7 +95,7 @@ type Envelope struct {
 	Data       any       `json:"data"`
 	Errors     []Problem `json:"errors"`
 
-	v1        bool     // written as envelope/v1, with ran and error/v1 items
+	form      string   // the envelope it is written in, one of envelopes; empty is the newest
 	supported []string // the contracts an error/v1 unsupported_contract lists
 }
 
@@ -142,10 +146,14 @@ func (a App) Contract(asked string) (string, error) {
 	return "", Fail(TypeUnsupportedContract, "", fmt.Sprintf("%s does not answer contract %s; it answers %s", a.command(), asked, strings.Join(a.versions(), ", ")))
 }
 
-// v1 reports whether contract is answered in envelope/v1, as its Contract names.
-func (a App) v1(contract string) bool {
+// form is the envelope contract is answered in, as its Contract names.
+// Only a contract Contract has taken reaches it; any other, as for an answer made outside Handler, is answered in v1, the envelope every reader reads.
+func (a App) form(contract string) string {
 	i := slices.IndexFunc(a.Contracts, func(c Contract) bool { return c.Version == contract })
-	return i < 0 || a.Contracts[i].envelope() == "v1"
+	if i < 0 {
+		return "v1"
+	}
+	return a.Contracts[i].envelope()
 }
 
 // Answer is a good answer of kind about the thing name (empty is the app's ID), in contract.
@@ -159,7 +167,7 @@ func (a App) Answer(name, contract, kind string, data any) Envelope {
 		Source:     Source{Name: name, App: a.ID, Version: a.Version, Contract: contract},
 		Data:       data,
 		Errors:     []Problem{},
-		v1:         a.v1(contract),
+		form:       a.form(contract),
 		supported:  a.versions(),
 	}
 }
@@ -216,12 +224,20 @@ type atV1 struct {
 	Field string `json:"field,omitempty"`
 }
 
-// MarshalJSON writes envelope/v2, or envelope/v1 for a contract on it, so an app's released contract keeps its bytes.
+// MarshalJSON writes the envelope its contract names, so an app's released contract keeps its bytes; one branch for each of envelopes.
 func (e Envelope) MarshalJSON() ([]byte, error) {
-	if !e.v1 {
+	switch e.form {
+	case "", "v2":
 		type v2 Envelope
 		return json.Marshal(v2(e))
+	case "v1":
+		return e.v1JSON()
 	}
+	return nil, fmt.Errorf("serve: no writer for envelope %q", e.form)
+}
+
+// v1JSON is e as envelope/v1: ran, and error/v1 items with the code each refusal had before Problems.
+func (e Envelope) v1JSON() ([]byte, error) {
 	out := struct {
 		APIVersion string    `json:"apiVersion"`
 		Kind       string    `json:"kind"`
@@ -297,6 +313,8 @@ func (a App) check() error {
 	for _, c := range a.Contracts {
 		at := slices.Index(envelopes, c.envelope())
 		switch {
+		case !contractVersion.MatchString(c.Version):
+			return fmt.Errorf("serve: contract %q is not vN", c.Version)
 		case at < 0:
 			return fmt.Errorf("serve: contract %s names the envelope %q, which serve does not write; it writes %v", c.Version, c.Envelope, envelopes)
 		case seen[c.Version]:

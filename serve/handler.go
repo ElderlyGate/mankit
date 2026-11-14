@@ -102,7 +102,7 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 		s := answering(r, "")
 		// version/v1 stays on envelope/v1 for good, whatever contract the app answers in.
 		e := a.Answer(s.name, s.contract, VersionKind, VersionData{SupportedContracts: a.versions()})
-		e.APIVersion, e.v1 = VersionAPIVersion, true
+		e.APIVersion, e.form = VersionAPIVersion, "v1"
 		writeEnvelope(w, http.StatusOK, e)
 	})
 	parts, err := attached(site.Features)
