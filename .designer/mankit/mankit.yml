@@ -620,7 +620,8 @@ spec:
     an event. As a serve.Part it refuses at start a cause that does not fit
     its route, adds GET /api/events, and hears of each change answered
     well: it builds the CloudEvent 1.0 (contracts event/v1, the request's
-    traceparent, subject from the route's Changes.ID) and sends it to every
+    traceparent, subject from the route's Changes.ID, source /<product>/<thing>,
+    the thing the change is about when Config.ThingFor names one, such as its project, ADR-S08) and sends it to every
     open stream, keeping the last few. Server-Sent Events behind serve's
     guard, at most 64 streams, a heartbeat on an idle stream, Last-Event-ID
     resumes, and <product>.stream.gapped (contracts mankit/v1) for a
