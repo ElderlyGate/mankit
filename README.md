@@ -541,9 +541,24 @@ err = q.Change(ctx, "add block shop", write, readBack)
 
 Every app adds `queue.WaitKey` and `queue.LimitKey` to its settings keys, so a
 user sets `queue.wait` (30s) and `queue.limit` (2m) the same way in each.
-`Settings` refuses a value that is not a duration of at least a second, naming
-the row. Each bounds only this process's own waiting and holding, so apps
-sharing a queue may set them apart.
+`Settings` refuses a value that is not a duration of at least a second in whole
+seconds, naming the row; `queue.Duration` is that one rule, the one contracts
+mankit/v1 queue-settings states, and `d.String()` (`45s`, `2m0s`) is the form
+written and shown. Each bounds only this process's own waiting and holding, so apps
+sharing a queue may set them apart. `queue.Waits(path)` reads the two rows from
+the app's config.yaml for `Settings`.
+
+`queue.ConfigCommand(app, path, confirm)` is `<app> config queue`, which each
+app mounts under its own `config` as it does `config confirm`: it shows both
+rows with the value in effect, the default and whether the config sets it
+(`-o json` answers contracts mankit/v1 `QueueSettings`), and `config queue wait
+45s` or `config queue limit 3m` sets one after the app's confirm asks, written
+as `d.String()` gives it; an argument the queue would refuse is refused with
+ADR-S21's reasons (`refused` with `wrong_type`, `out_of_range` or `empty`), a
+value edited by hand into the file is reported as `config_unreadable`, and
+`default` puts the default back. It prints through
+`serve.App.Printer`, which another package's command uses to answer as serve's
+own commands do.
 
 An app passes a context that ends on Ctrl-C (`signal.NotifyContext`), so the
 ticket leaves the line before the process does. `write` and `readBack` take a

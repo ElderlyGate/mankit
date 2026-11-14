@@ -51,7 +51,23 @@ var (
 	LimitKey = settings.Key{Name: "queue.limit", Default: DefaultLimit.String(), Help: "how long a change may hold its turn before it is stopped"}
 )
 
-// Settings is q with Wait and Limit from the rows queue.wait and queue.limit (empty keeps them), refusing a value under a second with serve's config code.
+// Duration is a value of queue.wait or queue.limit as the queue takes it: a duration of at least a second in whole seconds, the one rule contracts mankit/v1 queue-settings states; its d.String() (45s, 2m0s) is the form written and shown.
+// What it refuses is said with ADR-S21's reasons: wrong_type for no duration, out_of_range for one under a second or not in whole seconds, empty for nothing.
+func Duration(key settings.Key, value string) (time.Duration, error) {
+	if value == "" {
+		return 0, serve.Fail(serve.TypeRefused, "empty", fmt.Sprintf("%s needs a duration of at least %s in whole seconds, such as %s", key.Name, minSetting, key.Default))
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, serve.Fail(serve.TypeRefused, "wrong_type", fmt.Sprintf("%s is %q, which is no duration; it takes one of at least %s in whole seconds, such as %s", key.Name, value, minSetting, key.Default))
+	}
+	if d < minSetting || d%time.Second != 0 {
+		return 0, serve.Fail(serve.TypeRefused, "out_of_range", fmt.Sprintf("%s is %q; it takes a duration of at least %s in whole seconds, such as %s", key.Name, value, minSetting, key.Default))
+	}
+	return d, nil
+}
+
+// Settings is q with Wait and Limit from the rows queue.wait and queue.limit (empty keeps them); a value Duration refuses is the app's config that cannot be read, with serve's config code.
 func (q Queue) Settings(wait, limit string) (Queue, error) {
 	for _, row := range []struct {
 		key   settings.Key
@@ -61,9 +77,10 @@ func (q Queue) Settings(wait, limit string) (Queue, error) {
 		if row.value == "" {
 			continue
 		}
-		d, err := time.ParseDuration(row.value)
-		if err != nil || d < minSetting {
-			return q, serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, fmt.Sprintf("%s is %q; it takes a duration of at least %s, such as %s", row.key.Name, row.value, minSetting, row.key.Default))
+		d, err := Duration(row.key, row.value)
+		var p *serve.Problem
+		if errors.As(err, &p) {
+			return q, serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, p.Detail)
 		}
 		*row.to = d
 	}
