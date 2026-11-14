@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
 // Path is where the stream is served, one per server (ADR-E3).
@@ -22,7 +22,7 @@ func (b *broker) stream(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	replay, ch, err := b.subscribe(r, r.Header.Get("Last-Event-ID"))
 	if errors.Is(err, errTooManyStreams) {
-		serve.WriteError(w, r, http.StatusServiceUnavailable, serve.Fail(CodeTooManyStreams, fmt.Sprintf("%d streams are open, the most this server keeps; try again later", b.cfg.Streams)))
+		serve.WriteError(w, r, http.StatusServiceUnavailable, serve.Fail(serve.TypeRefused, ReasonTooManyStreams, fmt.Sprintf("%d streams are open, the most this server keeps; try again later", b.cfg.Streams)))
 		return
 	}
 	if err != nil {

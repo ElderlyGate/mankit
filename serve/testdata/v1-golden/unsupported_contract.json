@@ -1,0 +1,23 @@
+{
+  "apiVersion": "elderlygate/designer/app/v2",
+  "kind": "Error",
+  "ran": {
+    "name": "shop",
+    "app": "designer",
+    "version": "5.0.0",
+    "contract": "v2"
+  },
+  "data": null,
+  "errors": [
+    {
+      "apiVersion": "elderlygate/designer/app/v2",
+      "kind": "Error",
+      "code": "unsupported_contract",
+      "message": "designer does not answer contract v9; it answers v1, v2",
+      "supported": [
+        "v1",
+        "v2"
+      ]
+    }
+  ]
+}

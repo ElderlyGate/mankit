@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v2/usercmd"
+	"github.com/tugbayatilla/mankit/v3/usercmd"
 )
 
 // Command builds `<app> commands`. starter is the file the app ships; taken

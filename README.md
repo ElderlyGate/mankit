@@ -316,15 +316,30 @@ root.AddCommand(cmds...)
 
 A handler answers with `serve.Write(w, r, status, kind, data)` or
 `serve.WriteError(w, r, status, err)`. Every answer is the contracts envelope:
-`apiVersion` (`<org>/<app>/app/<contract>`), `kind`, `ran` (where the answer
-came from; contracts envelope/v1 describes its fields), `data` and `errors`.
+`apiVersion` (`<org>/<app>/app/<contract>`), `kind`, `source` (where the answer
+comes from; contracts envelope/v2 describes its fields), `data` and `errors`.
 The CLI builds the same answer with `app.Answer` or `app.Failure` and writes it
 with `serve.Encode`, so both doors give the same bytes.
+
+Each error is a Problem (contracts `problem/v1`): `serve.Fail(type, reason,
+detail)` makes one, with a few general types (`serve.TypeRefused`,
+`TypeFailed`, `TypeNotFound`, `TypeUnsupportedContract` …) and a reason when a
+program needs more (`serve.ReasonToken` …); a program decides by type and
+reason, never by detail. An error that is not a `*serve.Problem` is type
+`failed`. A failed answer's kind is `Error` in both envelopes.
+
+A contract an app has released keeps its shape (contracts CT-RULE-1), so an app
+moves to envelope/v2 with its next contract: `App.EnvelopeV2From` names the
+first contract answered in envelope/v2. Every contract before it, or all of
+them while it is empty, is still written in envelope/v1: `ran`, and error/v1
+items with the code each refusal had before Problems (`token_refused` …) and
+`supported` for `unsupported_contract`, byte for byte as mankit v2 wrote them.
+A reader decoding `serve.Envelope` reads either.
 
 One server may serve many things, such as one per project: it names each
 answer's thing with `serve.WriteNamed` / `serve.WriteErrorNamed`; an empty name,
 `Write`, `WriteError` and every refusal serve gives itself use `Site.Name`.
-Contracts `envelope/v1` says what `ran` and each of its fields are for. The
+Contracts `envelope/v2` says what `source` and each of its fields are for. The
 server's record names the server, `Site.Name`, never each thing it serves.
 
 What serve does for every app:
@@ -333,22 +348,26 @@ What serve does for every app:
 - opens the page only from its link (`?token=`), which it swaps for the cookie
   `<app>-token-<port>` (Strict, HttpOnly); an API request carries the token as
   `Authorization: Bearer <token>` or in that cookie, comes from the page itself,
-  and sends JSON;
-- answers `GET /api/version` with the contracts it answers, and the contract asked for in `Accept-Contract`,
-  else 406 `unsupported_contract` with the versions it answers;
-- answers a change (POST, PUT, PATCH, DELETE) with 428 `unconfirmed` until it
+  and sends JSON; a refusal (`refused` with reason `host`, `origin`, `token` or
+  `not_json`) is in the contract the reader asked for when the app answers it;
+- answers the contract asked for in `Accept-Contract`, else 406
+  `unsupported_contract`; `GET /api/version` is never refused a contract: it is
+  the one version answer (contracts `version/v1`, on envelope/v1 for good),
+  listing the contracts the app answers in `data.supportedContracts`, in the
+  contract asked for when served, else the newest;
+- answers a change (POST, PUT, PATCH, DELETE) with 428 `refused`, reason `unconfirmed`, until it
   comes with `confirm=yes`, unless the user picked `never` for its type.
   `confirm=remember` is a yes that also stops asking for the type
   (`Site.Remember`). Every change route names its action type; `Handler`
   refuses one that does not.
 - reaches a switchable module only through `Site.Features`: the `serve.Part`
   attached to a feature adds its routes, answered 404 `not_found` while the
-  feature is off and 503 `feature_needs_values` while it is on but misses a
+  feature is off and 503 `failed`, reason `feature_needs_values`, while it is on but misses a
   value it needs, and hears of each change answered well (`Route.Changes` says
   the thing it changes), or that it missed one while off or broken, so no
   handler calls the module (see [Events](#events)). `serve` writes one line
   at start for each broken feature, naming each missing value and its purpose;
-- refuses to start, with `core_needs_values` naming each missing value and its
+- refuses to start, with `failed`, reason `core_needs_values`, naming each missing value and its
   purpose, while a value the app's core cannot run without is not set
   (`Site.Needs`, found by `Site.Lookup`): a core part is not a feature and has
   no switch.
@@ -412,11 +431,11 @@ and the closers are called on every request and must be safe for concurrent
 use.
 
 Switching a feature on without every value it needs is refused with
-`features.NeedsValues`, code `feature_needs_values`, naming each missing value
+`features.NeedsValues`, reason `feature_needs_values`, naming each missing value
 and its purpose; nothing is kept. A feature that is on but finds a value gone
 is broken by itself: `State.Missing` names the values, `On` answers
 `NeedsValues`, `Broken` lists it for the app to log at start, and the rest of
-the app runs. A program acts on the code `feature_needs_values` and reads the
+the app runs. A program acts on the reason `feature_needs_values` and reads the
 missing names from the feature listing (`missing`), never from the message,
 which is for people. `Set` refuses an id the list does not hold, naming the ones it
 does, and a store that cannot be read is an error, never an empty list.
@@ -464,7 +483,7 @@ answers 404 until the owner switches it on. Taking events out is taking out
   the event. An idle stream gets a `: heartbeat` comment. A stream that comes
   back with `Last-Event-ID` gets the events after that one, from the last
   `Keep` kept in memory. At most `Streams` (64) are open at once; one more
-  gets 503 `too_many_streams`. A stream that cannot keep up is ended and comes
+  gets 503 `refused`, reason `too_many_streams`. A stream that cannot keep up is ended and comes
   back with `Last-Event-ID`.
 - A client that missed events gets `<product>.stream.gapped`, subject
   `stream`, with data `{"lastKnown": "<id>", "oldestKept": "<id>"}` (contracts
@@ -542,7 +561,7 @@ context too, and must stop when it ends: a change may hold the turn for
   backend, such as `lock-service`, or one that cannot be read, makes `Change`
   and `List` refuse with `queue_backend_unsupported`; they never fall back to
   files. The marker never holds an address or a token.
-- Errors carry codes (`serve.Error`): `queue_timeout` when the turn did not
+- Errors are Problems of type `failed`, with a reason (`queue.Reason…`): `queue_timeout` when the turn did not
   come within `Wait` (30s), `not_read_back` when the change ran but could not
   be read back, `ticket_lost` when another process set the waiting ticket
   aside, `queue_unusable` when the folder cannot be made, read or written,
@@ -589,8 +608,8 @@ go work init ./mankit ./gitman ./dcman ./checkman
 ```
 
 A merge to `main` releases mankit: the pipeline tags the next version. Then in
-each app `go get github.com/tugbayatilla/mankit/v2@vX.Y.Z && go mod tidy`. The
-module path is `github.com/tugbayatilla/mankit/v2` until a later migration moves
+each app `go get github.com/tugbayatilla/mankit/v3@vX.Y.Z && go mod tidy`. The
+module path is `github.com/tugbayatilla/mankit/v3` until a later migration moves
 it with the org rename; the repository itself lives at
 `github.com/ElderlyGate/mankit`.
 

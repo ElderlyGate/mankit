@@ -13,9 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v2/ask"
-	"github.com/tugbayatilla/mankit/v2/home"
-	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v3/ask"
+	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
 // The servers token renew command: a new token, taken by the running servers without a restart.
@@ -138,8 +138,8 @@ func TestServersTokenRenewRefusesAContractItDoesNotAnswerBeforeItRenews(t *testi
 	dir := machine(t)
 	writeToken(t, dir, token)
 	_, err := run(t, "servers", "token", "renew", "--yes", "-o", "json", "--contract", "v9")
-	var e *serve.Error
-	if !errors.As(err, &e) || e.Code != serve.CodeUnsupportedContract {
+	var e *serve.Problem
+	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract {
 		t.Fatalf("got %v", err)
 	}
 	unchanged(t, dir)

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tugbayatilla/mankit/v2/home"
+	"github.com/tugbayatilla/mankit/v3/home"
 )
 
 // Path is <dir>/<app>/config.yaml; an empty dir is the app's folder in the org's config folder (home.File, a path only).

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
 // The servers link command: the link that opens a server's page.
@@ -43,8 +43,8 @@ func TestServersLinkRefusesAContractItDoesNotAnswer(t *testing.T) {
 	machine(t)
 	detached(t)
 	_, err := run(t, "servers", "link", "-o", "json", "--contract", "v9")
-	var e *serve.Error
-	if !errors.As(err, &e) || e.Code != serve.CodeUnsupportedContract {
+	var e *serve.Problem
+	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract {
 		t.Fatalf("got %v", err)
 	}
 }

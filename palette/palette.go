@@ -13,9 +13,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/tugbayatilla/mankit/v2/home"
-	"github.com/tugbayatilla/mankit/v2/settings"
-	"github.com/tugbayatilla/mankit/v2/textinput"
+	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/settings"
+	"github.com/tugbayatilla/mankit/v3/textinput"
 )
 
 // Palette lists the commands of type T that match what is typed.

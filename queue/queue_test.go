@@ -18,9 +18,9 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/gofrs/flock"
 
-	"github.com/tugbayatilla/mankit/v2/queue"
-	"github.com/tugbayatilla/mankit/v2/serve"
-	"github.com/tugbayatilla/mankit/v2/settings"
+	"github.com/tugbayatilla/mankit/v3/queue"
+	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v3/settings"
 )
 
 // The environment that starts this test binary again as another process on the same queue: what it does, where, and with what.
@@ -201,10 +201,11 @@ func waitFor(t *testing.T, q queue.Queue, n int) queue.Listing {
 	}
 }
 
+// code is the reason of a queue Problem, which is always of type failed; anything else is empty.
 func code(err error) string {
-	var e *serve.Error
-	if errors.As(err, &e) {
-		return e.Code
+	var e *serve.Problem
+	if errors.As(err, &e) && e.Type == serve.TypeFailed {
+		return e.Reason
 	}
 	return ""
 }
@@ -427,8 +428,8 @@ func TestAChangeThatWaitsTooLongTimesOutAndLeavesTheLine(t *testing.T) {
 	late.Wait = 100 * time.Millisecond
 	ran := false
 	err := late.Change(context.Background(), "late", func(context.Context) error { ran = true; return nil }, nothing)
-	if code(err) != queue.CodeTimeout || ran {
-		t.Fatalf("got %v (ran %v), want %s and nothing run", err, ran, queue.CodeTimeout)
+	if code(err) != queue.ReasonTimeout || ran {
+		t.Fatalf("got %v (ran %v), want %s and nothing run", err, ran, queue.ReasonTimeout)
 	}
 	if l := waitFor(t, q, 1); l.Tickets[0].Ticket.Spec.Change != "hold the turn" {
 		t.Errorf("the line holds %+v, want only the change that holds the turn", l.Tickets)
@@ -480,8 +481,8 @@ func TestARunningChangeWhoseTicketWasSetAsideStillHoldsTheTurn(t *testing.T) {
 	next := q
 	next.Wait = 300 * time.Millisecond
 	ran := false
-	if err := next.Change(context.Background(), "next", func(context.Context) error { ran = true; return nil }, nothing); code(err) != queue.CodeTimeout || ran {
-		t.Fatalf("got %v (ran %v), want %s: the next change ran beside the running one", err, ran, queue.CodeTimeout)
+	if err := next.Change(context.Background(), "next", func(context.Context) error { ran = true; return nil }, nothing); code(err) != queue.ReasonTimeout || ran {
+		t.Fatalf("got %v (ran %v), want %s: the next change ran beside the running one", err, ran, queue.ReasonTimeout)
 	}
 	if err := release(); err != nil {
 		t.Fatal(err)
@@ -548,8 +549,8 @@ func TestABadTicketNeverReplacesOneAlreadyInBad(t *testing.T) {
 func TestAChangeThatCannotBeReadBackIsNotDoneAndTheNextOneRuns(t *testing.T) {
 	q, _ := newQueue(t)
 	err := q.Change(context.Background(), "add item", nothing, func(context.Context) error { return errors.New("the file is empty") })
-	if code(err) != queue.CodeNotReadBack || !strings.Contains(err.Error(), "the file is empty") {
-		t.Fatalf("got %v, want %s with the reason", err, queue.CodeNotReadBack)
+	if code(err) != queue.ReasonNotReadBack || !strings.Contains(err.Error(), "the file is empty") {
+		t.Fatalf("got %v, want %s with the reason", err, queue.ReasonNotReadBack)
 	}
 	if err := q.Change(context.Background(), "next", nothing, nothing); err != nil {
 		t.Fatalf("the next change did not run: %v", err)
@@ -558,7 +559,7 @@ func TestAChangeThatCannotBeReadBackIsNotDoneAndTheNextOneRuns(t *testing.T) {
 
 func TestAChangeThatFailsGivesItsOwnErrorAndTheNextOneRuns(t *testing.T) {
 	q, _ := newQueue(t)
-	own := serve.Fail(serve.CodeNotFound, "no such item")
+	own := serve.Fail(serve.TypeNotFound, "", "no such item")
 	readBack := false
 	err := q.Change(context.Background(), "remove item", func(context.Context) error { return own }, func(context.Context) error { readBack = true; return nil })
 	if !errors.Is(err, own) || readBack {
@@ -583,8 +584,8 @@ func TestAWaitingTicketTakenForStaleIsLost(t *testing.T) {
 	if err := os.Rename(filepath.Join(q.Folder, ".queue", waiting), filepath.Join(q.Folder, ".queue", "bad", waiting)); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; code(err) != queue.CodeLost || ran {
-		t.Fatalf("got %v (ran %v), want %s and nothing run", err, ran, queue.CodeLost)
+	if err := <-done; code(err) != queue.ReasonLost || ran {
+		t.Fatalf("got %v (ran %v), want %s and nothing run", err, ran, queue.ReasonLost)
 	}
 	if err := release(); err != nil {
 		t.Fatal(err)
@@ -596,8 +597,8 @@ func TestAQueueFolderThatCannotBeMadeIsSaidWithItsCode(t *testing.T) {
 	if err := os.WriteFile(q.Folder, []byte("a file where the app folder should be"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := q.Change(context.Background(), "add item", nothing, nothing); code(err) != queue.CodeUnusable {
-		t.Fatalf("got %v, want %s", err, queue.CodeUnusable)
+	if err := q.Change(context.Background(), "add item", nothing, nothing); code(err) != queue.ReasonUnusable {
+		t.Fatalf("got %v, want %s", err, queue.ReasonUnusable)
 	}
 }
 
@@ -628,8 +629,8 @@ func TestAChangePastTheRunLimitIsToldToStopAndFails(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	}, func(context.Context) error { readBack = true; return nil })
-	if code(err) != queue.CodeTooLong || readBack {
-		t.Fatalf("got %v (read back %v), want %s and no read-back", err, readBack, queue.CodeTooLong)
+	if code(err) != queue.ReasonTooLong || readBack {
+		t.Fatalf("got %v (read back %v), want %s and no read-back", err, readBack, queue.ReasonTooLong)
 	}
 	if err := q.Change(context.Background(), "next", nothing, nothing); err != nil {
 		t.Fatalf("the next change did not run: %v", err)
@@ -674,8 +675,8 @@ func TestAWriteThatFinishedPastTheLimitButCannotBeReadBackIsNotReadBack(t *testi
 		time.Sleep(150 * time.Millisecond)
 		return nil
 	}, func(context.Context) error { return errors.New("the file is half written") })
-	if code(err) != queue.CodeNotReadBack {
-		t.Fatalf("got %v, want %s, never %s for a write that finished", err, queue.CodeNotReadBack, queue.CodeTooLong)
+	if code(err) != queue.ReasonNotReadBack {
+		t.Fatalf("got %v, want %s, never %s for a write that finished", err, queue.ReasonNotReadBack, queue.ReasonTooLong)
 	}
 }
 
@@ -759,8 +760,8 @@ func TestAWaitThatTimesOutNamesTheHolderAndTheListSaysSinceWhen(t *testing.T) {
 	late := q
 	late.Wait = 150 * time.Millisecond
 	err := late.Change(context.Background(), "late", nothing, nothing)
-	if code(err) != queue.CodeTimeout {
-		t.Fatalf("got %v, want %s", err, queue.CodeTimeout)
+	if code(err) != queue.ReasonTimeout {
+		t.Fatalf("got %v, want %s", err, queue.ReasonTimeout)
 	}
 	m := h.Ticket.Metadata
 	for _, want := range []string{m.ID, fmt.Sprintf("pid %d", m.PID), m.Host, "held it for"} {
@@ -803,8 +804,8 @@ func TestAWaitOrLimitThatIsNoDurationOrTooShortIsRefusedNamingTheRow(t *testing.
 		{"", "0s", "queue.limit"},
 	} {
 		_, err := q.Settings(c.wait, c.limit)
-		if code(err) != serve.CodeConfig || !strings.Contains(err.Error(), c.row) {
-			t.Errorf("%q %q: got %v, want %s naming %s", c.wait, c.limit, err, serve.CodeConfig, c.row)
+		if code(err) != serve.ReasonConfigUnreadable || !strings.Contains(err.Error(), c.row) {
+			t.Errorf("%q %q: got %v, want %s naming %s", c.wait, c.limit, err, serve.ReasonConfigUnreadable, c.row)
 		}
 	}
 }
@@ -872,11 +873,11 @@ func TestABackendThisBuildDoesNotRunIsRefusedNeverTakenForFiles(t *testing.T) {
 			marker(t, q, body)
 			ran := false
 			err := q.Change(context.Background(), "add item", func(context.Context) error { ran = true; return nil }, nothing)
-			if code(err) != queue.CodeBackendUnsupported || ran {
-				t.Fatalf("got %v (ran %v), want %s and nothing run", err, ran, queue.CodeBackendUnsupported)
+			if code(err) != queue.ReasonBackendUnsupported || ran {
+				t.Fatalf("got %v (ran %v), want %s and nothing run", err, ran, queue.ReasonBackendUnsupported)
 			}
-			if _, err := q.List(context.Background()); code(err) != queue.CodeBackendUnsupported {
-				t.Fatalf("list got %v, want %s", err, queue.CodeBackendUnsupported)
+			if _, err := q.List(context.Background()); code(err) != queue.ReasonBackendUnsupported {
+				t.Fatalf("list got %v, want %s", err, queue.ReasonBackendUnsupported)
 			}
 			if tickets, _ := filepath.Glob(filepath.Join(q.Folder, ".queue", "*.json")); len(tickets) != 0 {
 				t.Fatalf("tickets %v were written", tickets)
@@ -982,8 +983,8 @@ func TestARunningProcessWhoseTicketWasSetAsideStillHoldsTheTurn(t *testing.T) {
 	}
 	q.Wait = 500 * time.Millisecond
 	ran := false
-	if err := q.Change(context.Background(), "next", func(context.Context) error { ran = true; return nil }, nothing); code(err) != queue.CodeTimeout || ran {
-		t.Fatalf("got %v (ran %v), want %s: the next change ran beside the running one", err, ran, queue.CodeTimeout)
+	if err := q.Change(context.Background(), "next", func(context.Context) error { ran = true; return nil }, nothing); code(err) != queue.ReasonTimeout || ran {
+		t.Fatalf("got %v (ran %v), want %s: the next change ran beside the running one", err, ran, queue.ReasonTimeout)
 	}
 }
 

@@ -20,20 +20,20 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/tugbayatilla/mankit/v2/home"
-	"github.com/tugbayatilla/mankit/v2/serve"
-	"github.com/tugbayatilla/mankit/v2/settings"
+	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v3/settings"
 )
 
-// The codes of the errors the queue gives; a program decides by the code, never by the message (G-STACK-15).
+// The reasons of the queue's Problems, each with the type failed: the request was fine and the app could not do it; a program decides by type and reason, never by the detail (G-STACK-15).
 const (
-	CodeTimeout     = "queue_timeout"  // the change waited longer than Queue.Wait for its turn and did not run
-	CodeNotReadBack = "not_read_back"  // the change ran, but what it wrote could not be read back
-	CodeLost        = "ticket_lost"    // another process took the waiting ticket for stale and moved it to bad/
-	CodeUnusable    = "queue_unusable" // the queue's folder cannot be made, read or written
+	ReasonTimeout     = "queue_timeout"  // the change waited longer than Queue.Wait for its turn and did not run
+	ReasonNotReadBack = "not_read_back"  // the change ran, but what it wrote could not be read back
+	ReasonLost        = "ticket_lost"    // another process took the waiting ticket for stale and moved it to bad/
+	ReasonUnusable    = "queue_unusable" // the queue's folder cannot be made, read or written
 
-	CodeBackendUnsupported = "queue_backend_unsupported" // .queue/backend names a backend this build does not run, or cannot be read
-	CodeTooLong            = "change_too_long"           // the change held the turn past the run limit; its turn ended once write returned
+	ReasonBackendUnsupported = "queue_backend_unsupported" // .queue/backend names a backend this build does not run, or cannot be read: a setting to fix first
+	ReasonTooLong            = "change_too_long"           // the app's own write held the turn past the run limit; its turn ended once write returned
 )
 
 // The waits an app gets when it sets none; each only bounds this process's own waiting and holding, so apps may set them apart.
@@ -63,7 +63,7 @@ func (q Queue) Settings(wait, limit string) (Queue, error) {
 		}
 		d, err := time.ParseDuration(row.value)
 		if err != nil || d < minSetting {
-			return q, serve.Fail(serve.CodeConfig, fmt.Sprintf("%s is %q; it takes a duration of at least %s, such as %s", row.key.Name, row.value, minSetting, row.key.Default))
+			return q, serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, fmt.Sprintf("%s is %q; it takes a duration of at least %s, such as %s", row.key.Name, row.value, minSetting, row.key.Default))
 		}
 		*row.to = d
 	}
@@ -218,7 +218,7 @@ func (q Queue) backend() (backend, error) {
 		return files{}, nil
 	}
 	refuse := func(why string) error {
-		return serve.Fail(CodeBackendUnsupported, fmt.Sprintf("the change queue's marker %s %s; no change is made here until it names %q", path, why, BackendFiles))
+		return serve.Fail(serve.TypeFailed, ReasonBackendUnsupported, fmt.Sprintf("the change queue's marker %s %s; no change is made here until it names %q", path, why, BackendFiles))
 	}
 	if err != nil {
 		return nil, refuse(fmt.Sprintf("cannot be read: %v", err))
@@ -255,7 +255,7 @@ func (files) change(ctx context.Context, q Queue, change string, write, readBack
 	defer stop()
 	if err := write(running); err != nil {
 		if errors.Is(running.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
-			return serve.Fail(CodeTooLong, fmt.Sprintf("%s held the turn in %s past the limit of %s and stopped: %v", change, q.dir(), q.limit(), err))
+			return serve.Fail(serve.TypeFailed, ReasonTooLong, fmt.Sprintf("%s held the turn in %s past the limit of %s and stopped: %v", change, q.dir(), q.limit(), err))
 		}
 		return err
 	}
@@ -263,7 +263,7 @@ func (files) change(ctx context.Context, q Queue, change string, write, readBack
 	reading, done := context.WithTimeout(ctx, readBackFor)
 	defer done()
 	if err := readBack(reading); err != nil {
-		return serve.Fail(CodeNotReadBack, fmt.Sprintf("%s was written but could not be read back: %v", change, err))
+		return serve.Fail(serve.TypeFailed, ReasonNotReadBack, fmt.Sprintf("%s was written but could not be read back: %v", change, err))
 	}
 	return nil
 }
@@ -329,7 +329,7 @@ func (q Queue) log() io.Writer {
 // gaveUp is the error of a wait that ended: the queue's timeout when its own deadline passed, else what the caller's context says.
 func (q Queue) gaveUp(ctx context.Context, err error) error {
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		return serve.Fail(CodeTimeout, fmt.Sprintf("the change waited %s for its turn in %s and did not run%s", q.wait(), q.dir(), q.holderSays()))
+		return serve.Fail(serve.TypeFailed, ReasonTimeout, fmt.Sprintf("the change waited %s for its turn in %s and did not run%s", q.wait(), q.dir(), q.holderSays()))
 	}
 	return err
 }
@@ -360,7 +360,7 @@ func (q Queue) holderSays() string {
 }
 
 func unusable(format string, args ...any) error {
-	return serve.Fail(CodeUnusable, "the change queue "+fmt.Sprintf(format, args...))
+	return serve.Fail(serve.TypeFailed, ReasonUnusable, "the change queue "+fmt.Sprintf(format, args...))
 }
 
 // retry calls try until it succeeds, fails or ctx ends, pausing longer each time up to longest.
@@ -574,7 +574,7 @@ func (t *ticket) try() (bool, int, error) {
 	}
 	at := slices.IndexFunc(tickets, func(o Ticket) bool { return o.Metadata.ID == t.id })
 	if at < 0 {
-		return false, 0, serve.Fail(CodeLost, fmt.Sprintf("the ticket %s was taken for stale and moved to %s; the change did not run", t.path, filepath.Join(t.q.dir(), badName)))
+		return false, 0, serve.Fail(serve.TypeFailed, ReasonLost, fmt.Sprintf("the ticket %s was taken for stale and moved to %s; the change did not run", t.path, filepath.Join(t.q.dir(), badName)))
 	}
 	if at > 0 {
 		return false, at, nil

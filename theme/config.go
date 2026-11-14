@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v2/internal/configfile"
+	"github.com/tugbayatilla/mankit/v3/internal/configfile"
 )
 
 // Config is the colour part of an app's config.yaml:

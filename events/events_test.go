@@ -20,11 +20,11 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v2/ask"
-	"github.com/tugbayatilla/mankit/v2/events"
-	"github.com/tugbayatilla/mankit/v2/features"
-	"github.com/tugbayatilla/mankit/v2/home"
-	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v3/ask"
+	"github.com/tugbayatilla/mankit/v3/events"
+	"github.com/tugbayatilla/mankit/v3/features"
+	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
 var app = serve.App{ID: "shop", Version: "1.0.0", Contracts: []string{"v1"}}
@@ -66,7 +66,7 @@ func routes() []serve.Route {
 	answer := func(status int) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if r.PathValue("id") == "missing" {
-				serve.WriteError(w, r, http.StatusNotFound, serve.Fail(serve.CodeNotFound, "no such item"))
+				serve.WriteError(w, r, http.StatusNotFound, serve.Fail(serve.TypeNotFound, "", "no such item"))
 				return
 			}
 			serve.Write(w, r, status, "Item", item{ID: r.PathValue("id")})
@@ -323,14 +323,14 @@ func (st *stream) ended(t *testing.T) bool {
 	}
 }
 
-func refusal(t *testing.T, resp *http.Response, status int, code string) {
+func refusal(t *testing.T, resp *http.Response, status int, typ, reason string) {
 	t.Helper()
 	var env serve.Envelope
 	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != status || len(env.Errors) != 1 || env.Errors[0].Code != code {
-		t.Fatalf("status %d, errors %+v; want %d %s", resp.StatusCode, env.Errors, status, code)
+	if resp.StatusCode != status || len(env.Errors) != 1 || env.Errors[0].Type != typ || env.Errors[0].Reason != reason {
+		t.Fatalf("status %d, errors %+v; want %d %s %s", resp.StatusCode, env.Errors, status, typ, reason)
 	}
 }
 
@@ -385,7 +385,7 @@ func TestAnAppWithoutEventsServesTheSameRoutes(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusNotFound, serve.CodeNotFound)
+	refusal(t, resp, http.StatusNotFound, serve.TypeNotFound, "")
 }
 
 // Contract
@@ -542,7 +542,7 @@ func TestTheGuardRefusesAStreamWithoutTheToken(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, nil)
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusUnauthorized, serve.CodeToken)
+	refusal(t, resp, http.StatusUnauthorized, serve.TypeRefused, serve.ReasonToken)
 }
 
 func TestSwitchesThatCannotBeReadAreSaid(t *testing.T) {
@@ -551,7 +551,7 @@ func TestSwitchesThatCannotBeReadAreSaid(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusInternalServerError, serve.CodeConfig)
+	refusal(t, resp, http.StatusInternalServerError, serve.TypeFailed, serve.ReasonConfigUnreadable)
 }
 
 // The feature off
@@ -581,7 +581,7 @@ func TestTheFeatureOffServesNoStream(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusNotFound, serve.CodeNotFound)
+	refusal(t, resp, http.StatusNotFound, serve.TypeNotFound, "")
 }
 
 func TestTheFeatureOffKeepsNothingAndAStreamThatComesBackGetsAGap(t *testing.T) {
@@ -806,7 +806,7 @@ func TestTooManyStreamsAreRefused(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusServiceUnavailable, events.CodeTooManyStreams)
+	refusal(t, resp, http.StatusServiceUnavailable, serve.TypeRefused, events.ReasonTooManyStreams)
 }
 
 // CLI and HTTP parity: none, since no command reads the stream; the decisions call for none.

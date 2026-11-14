@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/tugbayatilla/mankit/v2/textinput"
+	"github.com/tugbayatilla/mankit/v3/textinput"
 )
 
 type Search struct {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v2/ask"
+	"github.com/tugbayatilla/mankit/v3/ask"
 )
 
 func TestLoadAMissingFileSetsNothing(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v2/settings"
+	"github.com/tugbayatilla/mankit/v3/settings"
 )
 
 // AddTo is AddToE that never fails (keeps an existing `config`, drops a taken -o); call it after the app defines its flags.

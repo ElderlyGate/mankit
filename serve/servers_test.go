@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
 // The servers command: every server of the app on this machine.
@@ -53,7 +53,7 @@ func TestServersPrintsYAMLWithTheSameNames(t *testing.T) {
 
 func TestServersAnswersTheContractAskedFor(t *testing.T) {
 	machine(t)
-	if e := answer(t, listSchema, "servers", "--contract", "v1"); e.Ran.Contract != "v1" || e.APIVersion != apiVersion {
+	if e := answer(t, listSchema, "servers", "--contract", "v1"); e.Source.Contract != "v1" || e.APIVersion != apiVersion {
 		t.Fatalf("got %+v", e)
 	}
 }
@@ -61,8 +61,8 @@ func TestServersAnswersTheContractAskedFor(t *testing.T) {
 func TestServersRefusesAContractItDoesNotAnswer(t *testing.T) {
 	machine(t)
 	_, err := run(t, "servers", "-o", "json", "--contract", "v9")
-	var e *serve.Error
-	if !errors.As(err, &e) || e.Code != serve.CodeUnsupportedContract || strings.Join(e.Supported, ",") != "v1" {
+	var e *serve.Problem
+	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract || !strings.Contains(e.Detail, "it answers v1") {
 		t.Fatalf("got %v", err)
 	}
 }

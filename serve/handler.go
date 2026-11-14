@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v2/ask"
-	"github.com/tugbayatilla/mankit/v2/features"
+	"github.com/tugbayatilla/mankit/v3/ask"
+	"github.com/tugbayatilla/mankit/v3/features"
 )
 
 // The words of a request: the header a reader asks a contract with, and the query that carries the user's yes to a change.
@@ -61,7 +61,7 @@ type Answered struct {
 
 // Site is what an app serves: its routes, its page, and the thing it serves.
 type Site struct {
-	Name     string                                 // named in every answer's ran.name; empty is the app's ID
+	Name     string                                 // named in every answer's source.name; empty is the app's ID
 	Routes   []Route                                // every API route but GET /api/version, which serve answers
 	UI       http.Handler                           // the page and its files at /; nil serves the API alone
 	Styles   func() (map[ask.Type]ask.Style, error) // the user's asking style per type, read on every change; nil is every default
@@ -72,13 +72,13 @@ type Site struct {
 	Log      io.Writer                              // the app's log, for what goes wrong after an answer is sent; nil is standard error
 }
 
-// VersionData is the data of the GET /api/version answer.
+// VersionData is the data of the GET /api/version answer (contracts version/v1): the app, its build and the contract the answer is in are in its ran.
 type VersionData struct {
-	App       string   `json:"app"`
-	Version   string   `json:"version"`
-	Contract  string   `json:"contract"`
-	Contracts []string `json:"contracts"`
+	SupportedContracts []string `json:"supportedContracts"`
 }
+
+// VersionAPIVersion is the one form of the version answer, the same for every app and every contract version (contracts version/v1).
+const VersionAPIVersion = "elderlygate/contracts/version/v1"
 
 var writing = map[string]bool{http.MethodPost: true, http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true}
 
@@ -95,12 +95,15 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 		return nil, err
 	}
 	if missing := features.Missing(site.Needs, site.Lookup); len(missing) > 0 {
-		return nil, Fail(CodeCoreNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
+		return nil, Fail(TypeFailed, ReasonCoreNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		s := answering(r, "")
-		Write(w, r, http.StatusOK, VersionKind, VersionData{App: a.ID, Version: a.Version, Contract: s.contract, Contracts: a.Contracts})
+		// version/v1 stays on envelope/v1 for good, whatever contract the app answers in.
+		e := a.Answer(s.name, s.contract, VersionKind, VersionData{SupportedContracts: slices.Clone(a.Contracts)})
+		e.APIVersion, e.v1 = VersionAPIVersion, true
+		writeEnvelope(w, http.StatusOK, e)
 	})
 	parts, err := attached(site.Features)
 	if err != nil {
@@ -135,7 +138,7 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 		}
 	}
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		WriteError(w, r, http.StatusNotFound, Fail(CodeNotFound, fmt.Sprintf("%s has no %s %s", a.command(), r.Method, r.URL.Path)))
+		WriteError(w, r, http.StatusNotFound, Fail(TypeNotFound, "", fmt.Sprintf("%s has no %s %s", a.command(), r.Method, r.URL.Path)))
 	})
 	if site.UI != nil {
 		mux.Handle("/", site.UI)
@@ -157,7 +160,7 @@ func WriteNamed(w http.ResponseWriter, r *http.Request, name string, status int,
 	writeEnvelope(w, status, s.app.Answer(s.name, s.contract, kind, data))
 }
 
-// WriteError answers err with status, in the envelope; an err that is not an *Error gets CodeFailed.
+// WriteError answers err with status, in the envelope; an err that is not a *Problem is type failed.
 func WriteError(w http.ResponseWriter, r *http.Request, status int, err error) {
 	WriteErrorNamed(w, r, "", status, err)
 }
@@ -174,7 +177,7 @@ func writeEnvelope(w http.ResponseWriter, status int, e Envelope) {
 	_ = Encode(w, e)
 }
 
-// state is what an answer needs to say where it ran.
+// state is what an answer needs to say where it comes from.
 type state struct {
 	app      App
 	name     string
@@ -220,6 +223,10 @@ func (a App) choose(name string, next http.Handler) http.Handler {
 			asked = strings.TrimSpace(r.Header.Get(ContractHeader))
 		}
 		contract, err := a.Contract(asked)
+		// The version answer never refuses a contract: it is in the asked one when served, otherwise the newest (ADR-S03).
+		if err != nil && r.URL.Path == "/api/version" {
+			contract, err = a.Contract("")
+		}
 		if err != nil {
 			fallback, _ := a.Contract("")
 			writeEnvelope(w, http.StatusNotAcceptable, a.Failure(name, fallback, err))
@@ -256,15 +263,15 @@ func (a App) feature(list *features.List, id string, next http.Handler) http.Han
 		on, err := list.On(id)
 		var nv *features.NeedsValues
 		if errors.As(err, &nv) {
-			WriteError(w, r, http.StatusServiceUnavailable, Fail(features.CodeNeedsValues, nv.Error()))
+			WriteError(w, r, http.StatusServiceUnavailable, Fail(TypeFailed, features.ReasonNeedsValues, nv.Error()))
 			return
 		}
 		if err != nil {
-			WriteError(w, r, http.StatusInternalServerError, Fail(CodeConfig, fmt.Sprintf("the feature %s cannot be read: %v", id, err)))
+			WriteError(w, r, http.StatusInternalServerError, Fail(TypeFailed, ReasonConfigUnreadable, fmt.Sprintf("the feature %s cannot be read: %v", id, err)))
 			return
 		}
 		if !on {
-			WriteError(w, r, http.StatusNotFound, Fail(CodeNotFound, fmt.Sprintf("%s has no %s %s: the feature %s is off", a.command(), r.Method, r.URL.Path, id)))
+			WriteError(w, r, http.StatusNotFound, Fail(TypeNotFound, "", fmt.Sprintf("%s has no %s %s: the feature %s is off", a.command(), r.Method, r.URL.Path, id)))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -318,7 +325,7 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 			// A change to the system itself is never remembered (G-STACK-6); without Site.Remember the app keeps no answer, so remember is a yes.
 			if site.Remember != nil && !rt.Action.System {
 				if err := site.Remember(rt.Action.Type); err != nil {
-					WriteError(w, r, http.StatusInternalServerError, Fail(CodeConfig, fmt.Sprintf(
+					WriteError(w, r, http.StatusInternalServerError, Fail(TypeFailed, ReasonConfigUnreadable, fmt.Sprintf(
 						"nothing was changed: the answer for %s could not be saved: %v; send it again with %s=%s", rt.Action.Type, err, ConfirmParam, ConfirmYes)))
 					return
 				}
@@ -330,7 +337,7 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 		if site.Styles != nil {
 			read, err := site.Styles()
 			if err != nil {
-				WriteError(w, r, http.StatusInternalServerError, Fail(CodeConfig, err.Error()))
+				WriteError(w, r, http.StatusInternalServerError, Fail(TypeFailed, ReasonConfigUnreadable, err.Error()))
 				return
 			}
 			styles = read
@@ -341,7 +348,7 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 			if rt.Action.What != "" {
 				what = rt.Action.What
 			}
-			WriteError(w, r, http.StatusPreconditionRequired, Fail(CodeUnconfirmed, fmt.Sprintf(
+			WriteError(w, r, http.StatusPreconditionRequired, Fail(TypeRefused, ReasonUnconfirmed, fmt.Sprintf(
 				"nothing was changed: %s asks first; send it again with %s=%s once the user said yes", what, ConfirmParam, ConfirmYes)))
 			return
 		}

@@ -1,0 +1,14 @@
+{
+  "apiVersion": "elderlygate/designer/app/v1",
+  "kind": "Greeting",
+  "ran": {
+    "name": "shop",
+    "app": "designer",
+    "version": "5.0.0",
+    "contract": "v1"
+  },
+  "data": {
+    "text": "hello \u003cyou\u003e \u0026 me"
+  },
+  "errors": []
+}

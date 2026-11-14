@@ -1,0 +1,19 @@
+{
+  "apiVersion": "elderlygate/designer/app/v1",
+  "kind": "Error",
+  "ran": {
+    "name": "shop",
+    "app": "designer",
+    "version": "5.0.0",
+    "contract": "v1"
+  },
+  "data": null,
+  "errors": [
+    {
+      "apiVersion": "elderlygate/designer/app/v1",
+      "kind": "Error",
+      "code": "host_refused",
+      "message": "designer answers on this machine's own address only; serve --host \u003cname\u003e names another"
+    }
+  ]
+}

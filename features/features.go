@@ -42,8 +42,8 @@ const Switch = "switch"
 // Default is what keeps off a feature that starts off and that the owner has not switched on.
 const Default = "default"
 
-// CodeNeedsValues is the code of NeedsValues; a program decides by the code, never by the message (G-STACK-15).
-const CodeNeedsValues = "feature_needs_values"
+// ReasonNeedsValues is the reason of NeedsValues, with the type failed; a program decides by type and reason, never by the message (G-STACK-15).
+const ReasonNeedsValues = "feature_needs_values"
 
 // NeedsValues is a feature switched on, or on, without values it needs; Missing names every one.
 type NeedsValues struct {
