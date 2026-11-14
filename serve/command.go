@@ -515,3 +515,17 @@ func loopback(addr string) bool {
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
+
+// Printer prints a command's answer the way serve's own commands do: rows as a table, or the envelope with -o json or yaml, in the contract asked with --contract; another package's command, such as `config queue`, uses it.
+type Printer struct{ p *printing }
+
+// Printer gives c the -o and --contract flags and prints its answer.
+func (a App) Printer(c *cobra.Command) Printer { return Printer{a.printing(c)} }
+
+// Check refuses an unknown -o or a contract the app does not answer, before anything happens.
+func (p Printer) Check() error { return p.p.check() }
+
+// Print writes data as kind in the envelope for json and yaml, else as the table rows draws.
+func (p Printer) Print(w io.Writer, name, kind string, data any, rows func(io.Writer)) error {
+	return p.p.print(w, name, kind, data, rows)
+}

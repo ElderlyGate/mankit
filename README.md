@@ -543,7 +543,17 @@ Every app adds `queue.WaitKey` and `queue.LimitKey` to its settings keys, so a
 user sets `queue.wait` (30s) and `queue.limit` (2m) the same way in each.
 `Settings` refuses a value that is not a duration of at least a second, naming
 the row. Each bounds only this process's own waiting and holding, so apps
-sharing a queue may set them apart.
+sharing a queue may set them apart. `queue.Waits(path)` reads the two rows from
+the app's config.yaml for `Settings`.
+
+`queue.ConfigCommand(app, path, confirm)` is `<app> config queue`, which each
+app mounts under its own `config` as it does `config confirm`: it shows both
+rows with the value in effect, the default and whether the config sets it
+(`-o json` answers contracts mankit/v1 `QueueSettings`), and `config queue wait
+45s` or `config queue limit 3m` sets one after the app's confirm asks, refused
+by `Settings` first; `default` puts the default back. It prints through
+`serve.App.Printer`, which another package's command uses to answer as serve's
+own commands do.
 
 An app passes a context that ends on Ctrl-C (`signal.NotifyContext`), so the
 ticket leaves the line before the process does. `write` and `readBack` take a
