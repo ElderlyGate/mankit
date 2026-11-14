@@ -86,7 +86,7 @@ func TestServersStopSignalsNothingItCannotName(t *testing.T) {
 		"another program": http.NotFoundHandler(),
 		"another app": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = serve.Encode(w, serve.App{ID: "kanban", Version: "1.0.0", Contracts: []string{"v1"}}.Failure("", "v1", serve.Fail(serve.TypeRefused, serve.ReasonToken, "no token")))
+			_ = serve.Encode(w, serve.App{ID: "kanban", Version: "1.0.0", Contracts: []serve.Contract{{Version: "v1"}}}.Failure("", "v1", serve.Fail(serve.TypeRefused, serve.ReasonToken, "no token")))
 		}),
 		"this app's id with another code": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)

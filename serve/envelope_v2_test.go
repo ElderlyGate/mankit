@@ -17,7 +17,7 @@ import (
 )
 
 // moved is designer answering v1 in envelope/v1 and v2 in envelope/v2, as an app that moved with its next contract.
-var moved = serve.App{ID: "designer", Command: "e-designer", Version: "6.0.0", Contracts: []string{"v1", "v2"}, Addr: "127.0.0.1:0", EnvelopeV2From: "v2"}
+var moved = serve.App{ID: "designer", Command: "e-designer", Version: "6.0.0", Contracts: []serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v2"}}, Addr: "127.0.0.1:0"}
 
 func movedHandler(t *testing.T) http.Handler {
 	t.Helper()
@@ -77,7 +77,7 @@ func TestServersFindsTheAppInEitherEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v2, err := json.Marshal(serve.App{ID: "designer", Version: "5.0.0", Contracts: []string{"v2"}, EnvelopeV2From: "v2"}.Failure("shop", "v2", serve.Fail(serve.TypeRefused, serve.ReasonToken, "no token")))
+	v2, err := json.Marshal(serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v2", Envelope: "v2"}}}.Failure("shop", "v2", serve.Fail(serve.TypeRefused, serve.ReasonToken, "no token")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,11 +104,30 @@ func TestServersFindsTheAppInEitherEnvelope(t *testing.T) {
 	}
 }
 
-func TestAnEnvelopeV2FromThatIsNoContractIsRefused(t *testing.T) {
-	wrong := moved
-	wrong.EnvelopeV2From = "V2"
-	if _, err := serveHandler(t, wrong, site(nil), nil); err == nil || !strings.Contains(err.Error(), "EnvelopeV2From") {
-		t.Fatalf("got %v", err)
+func TestAppContractsAreChecked(t *testing.T) {
+	for name, c := range map[string]struct {
+		contracts []serve.Contract
+		says      string
+	}{
+		"an envelope serve does not write": {[]serve.Contract{{Version: "v1", Envelope: "V2"}}, "does not write"},
+		"a version twice":                  {[]serve.Contract{{Version: "v1"}, {Version: "v1", Envelope: "v2"}}, "given twice"},
+		"no contract":                      {nil, "at least one contract"},
+		// A reader moving to a newer contract never meets an older envelope.
+		"an envelope going back": {[]serve.Contract{{Version: "v1", Envelope: "v2"}, {Version: "v2", Envelope: "v1"}}, "goes back"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			wrong := moved
+			wrong.Contracts = c.contracts
+			if _, err := serveHandler(t, wrong, site(nil), nil); err == nil || !strings.Contains(err.Error(), c.says) {
+				t.Fatalf("got %v, want it to say %q", err, c.says)
+			}
+		})
+	}
+	// An empty envelope is v1, and staying on one envelope is no step back.
+	fine := moved
+	fine.Contracts = []serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v1"}, {Version: "v3", Envelope: "v2"}, {Version: "v4", Envelope: "v2"}}
+	if _, err := serveHandler(t, fine, site(nil), nil); err != nil {
+		t.Fatal(err)
 	}
 }
 

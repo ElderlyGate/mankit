@@ -294,7 +294,7 @@ if err := asker.Ask(cmd, ask.Action{Type: ask.Delete, What: "delete branch x", N
 contract or server commands. The app gives its routes; serve adds the rest.
 
 ```go
-app := serve.App{ID: "designer", Command: "e-designer", Version: version, Contracts: []string{"v1"}, Addr: "127.0.0.1:7480"}
+app := serve.App{ID: "designer", Command: "e-designer", Version: version, Contracts: []serve.Contract{{Version: "v1"}}, Addr: "127.0.0.1:7480"}
 open := func(cmd *cobra.Command) (serve.Site, error) {
 	return serve.Site{
 		Name: "shop",
@@ -328,13 +328,18 @@ program needs more (`serve.ReasonToken` …); a program decides by type and
 reason, never by detail. An error that is not a `*serve.Problem` is type
 `failed`. A failed answer's kind is `Error` in both envelopes.
 
-A contract an app has released keeps its shape (contracts CT-RULE-1), so an app
-moves to envelope/v2 with its next contract: `App.EnvelopeV2From` names the
-first contract answered in envelope/v2. Every contract before it, or all of
-them while it is empty, is still written in envelope/v1: `ran`, and error/v1
-items with the code each refusal had before Problems (`token_refused` …) and
-`supported` for `unsupported_contract`, byte for byte as mankit v2 wrote them.
-A reader decoding `serve.Envelope` reads either.
+Each of `App.Contracts` is a `serve.Contract{Version, Envelope}`, oldest
+first, the last the default. Envelope is `v1` or `v2`; empty is `v1`. A
+contract an app has released keeps its shape (contracts CT-RULE-1), so an app
+moves to envelope/v2 with its next contract, such as
+`[]serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v2"}}`. A
+contract on envelope/v1 is written as mankit v2 wrote it, byte for byte: `ran`,
+and error/v1 items with the code each refusal had before Problems
+(`token_refused` …) and `supported` for `unsupported_contract`. A reader
+decoding `serve.Envelope` reads either. `Handler` and `Commands` refuse an
+envelope serve does not write, a version given twice, no contract, and an
+envelope going back, since a reader moving forward never meets an older one.
+When envelope/v3 comes, it is a new Envelope value, never a new field.
 
 One server may serve many things, such as one per project: it names each
 answer's thing with `serve.WriteNamed` / `serve.WriteErrorNamed`; an empty name,

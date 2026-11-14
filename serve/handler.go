@@ -101,7 +101,7 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		s := answering(r, "")
 		// version/v1 stays on envelope/v1 for good, whatever contract the app answers in.
-		e := a.Answer(s.name, s.contract, VersionKind, VersionData{SupportedContracts: slices.Clone(a.Contracts)})
+		e := a.Answer(s.name, s.contract, VersionKind, VersionData{SupportedContracts: a.versions()})
 		e.APIVersion, e.v1 = VersionAPIVersion, true
 		writeEnvelope(w, http.StatusOK, e)
 	})

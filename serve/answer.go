@@ -16,15 +16,41 @@ import (
 
 // App is what an app tells serve about itself.
 type App struct {
-	ID        string   // the product ID: source.app, apiVersion, the cookie name
-	Command   string   // the CLI's name, such as e-designer; empty is ID
-	Folder    string   // its folder under the org's config and data folders, where an app's folders are named apart from its ID until the rename; empty is ID
-	Version   string   // the app's version
-	Contracts []string // the contract versions it answers, oldest first; the last is the default
-	Addr      string   // the address serve binds by default, such as 127.0.0.1:7480
-	// EnvelopeV2From is the first of Contracts answered in envelope/v2 (source, Problems); empty means every contract stays on envelope/v1.
-	// A contract an app has released keeps its shape (CT-RULE-1), so an app moves to envelope/v2 with its next contract version.
-	EnvelopeV2From string
+	ID        string     // the product ID: source.app, apiVersion, the cookie name
+	Command   string     // the CLI's name, such as e-designer; empty is ID
+	Folder    string     // its folder under the org's config and data folders, where an app's folders are named apart from its ID until the rename; empty is ID
+	Version   string     // the app's version
+	Contracts []Contract // the contract versions it answers, each with its envelope, oldest first; the last is the default
+	Addr      string     // the address serve binds by default, such as 127.0.0.1:7480
+}
+
+// Contract is one contract version an app answers, and the envelope its answers come in.
+// Envelope is "v1" (ran, error/v1 items) or "v2" (source, Problems); empty is "v1", so a plain {Version: "v1"} stays on today's envelope.
+// A contract an app has released keeps its shape (CT-RULE-1), so an app moves to a newer envelope with its next contract version.
+// When envelope/v3 comes, it is a new Envelope value, never a new field.
+type Contract struct {
+	Version  string
+	Envelope string
+}
+
+// envelopes are the envelopes serve writes, oldest first.
+var envelopes = []string{"v1", "v2"}
+
+// envelope is c's envelope, "v1" when it names none.
+func (c Contract) envelope() string {
+	if c.Envelope == "" {
+		return "v1"
+	}
+	return c.Envelope
+}
+
+// versions are the contract versions the app answers, oldest first.
+func (a App) versions() []string {
+	out := make([]string, len(a.Contracts))
+	for i, c := range a.Contracts {
+		out[i] = c.Version
+	}
+	return out
 }
 
 // The types of a Problem, a few general words a program decides by, never by detail (problem/v1, G-STACK-15).
@@ -57,7 +83,7 @@ type Source struct {
 	Contract string `json:"contract"`
 }
 
-// Envelope is every answer, from the CLI and from HTTP alike: envelope/v2, or envelope/v1 for a contract before App.EnvelopeV2From.
+// Envelope is every answer, from the CLI and from HTTP alike, in the envelope its contract names: envelope/v2, or envelope/v1.
 type Envelope struct {
 	APIVersion string    `json:"apiVersion"`
 	Kind       string    `json:"kind"`
@@ -108,21 +134,18 @@ func (a App) APIVersion(contract string) string { return home.Org + "/" + a.ID +
 // Contract is the contract to answer when a reader asks for asked (--contract or Accept-Contract): the default when asked is empty, else asked if the app answers it.
 func (a App) Contract(asked string) (string, error) {
 	if asked == "" {
-		return a.Contracts[len(a.Contracts)-1], nil
+		return a.Contracts[len(a.Contracts)-1].Version, nil
 	}
-	if slices.Contains(a.Contracts, asked) {
+	if slices.Contains(a.versions(), asked) {
 		return asked, nil
 	}
-	return "", Fail(TypeUnsupportedContract, "", fmt.Sprintf("%s does not answer contract %s; it answers %s", a.command(), asked, strings.Join(a.Contracts, ", ")))
+	return "", Fail(TypeUnsupportedContract, "", fmt.Sprintf("%s does not answer contract %s; it answers %s", a.command(), asked, strings.Join(a.versions(), ", ")))
 }
 
-// v1 reports whether contract is answered in envelope/v1: every contract before EnvelopeV2From, or all of them when it is empty.
+// v1 reports whether contract is answered in envelope/v1, as its Contract names.
 func (a App) v1(contract string) bool {
-	if a.EnvelopeV2From == "" {
-		return true
-	}
-	from, at := slices.Index(a.Contracts, a.EnvelopeV2From), slices.Index(a.Contracts, contract)
-	return from < 0 || at < from
+	i := slices.IndexFunc(a.Contracts, func(c Contract) bool { return c.Version == contract })
+	return i < 0 || a.Contracts[i].envelope() == "v1"
 }
 
 // Answer is a good answer of kind about the thing name (empty is the app's ID), in contract.
@@ -137,7 +160,7 @@ func (a App) Answer(name, contract, kind string, data any) Envelope {
 		Data:       data,
 		Errors:     []Problem{},
 		v1:         a.v1(contract),
-		supported:  slices.Clone(a.Contracts),
+		supported:  a.versions(),
 	}
 }
 
@@ -193,7 +216,7 @@ type atV1 struct {
 	Field string `json:"field,omitempty"`
 }
 
-// MarshalJSON writes envelope/v2, or envelope/v1 for a contract before App.EnvelopeV2From, so an app's released contract keeps its bytes.
+// MarshalJSON writes envelope/v2, or envelope/v1 for a contract on it, so an app's released contract keeps its bytes.
 func (e Envelope) MarshalJSON() ([]byte, error) {
 	if !e.v1 {
 		type v2 Envelope
@@ -270,9 +293,19 @@ func (a App) check() error {
 	if a.ID == "" || a.Version == "" || len(a.Contracts) == 0 {
 		return errors.New("serve: an App needs its ID, its Version and at least one contract")
 	}
-	// A name that is not one of Contracts would keep every contract on envelope/v1 without a word.
-	if a.EnvelopeV2From != "" && !slices.Contains(a.Contracts, a.EnvelopeV2From) {
-		return fmt.Errorf("serve: EnvelopeV2From %q is not one of the app's contracts %v", a.EnvelopeV2From, a.Contracts)
+	seen, last := map[string]bool{}, 0
+	for _, c := range a.Contracts {
+		at := slices.Index(envelopes, c.envelope())
+		switch {
+		case at < 0:
+			return fmt.Errorf("serve: contract %s names the envelope %q, which serve does not write; it writes %v", c.Version, c.Envelope, envelopes)
+		case seen[c.Version]:
+			return fmt.Errorf("serve: contract %s is given twice", c.Version)
+		// A reader moving to a newer contract never meets an older envelope, so the envelopes only go forward.
+		case at < last:
+			return fmt.Errorf("serve: contract %s goes back to envelope %s after a newer one", c.Version, c.envelope())
+		}
+		seen[c.Version], last = true, at
 	}
 	return nil
 }

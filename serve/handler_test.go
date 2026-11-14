@@ -49,9 +49,8 @@ func TestServeAnswersItsVersion(t *testing.T) {
 		t.Fatalf("not the version answer: %v\n%s", err, w.Body)
 	}
 	two := app
-	two.Contracts = []string{"v1", "v2"}
 	// Moved to envelope/v2 at v2, the version answer still stays on envelope/v1 (version/v1).
-	two.EnvelopeV2From = "v2"
+	two.Contracts = []serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v2"}}
 	h, err := serveHandler(t, two, site(nil), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -353,7 +352,7 @@ func TestServeRefusesAContractItDoesNotAnswer(t *testing.T) {
 
 func TestAppChoosesItsNewestContractByDefault(t *testing.T) {
 	two := app
-	two.Contracts = []string{"v1", "v2"}
+	two.Contracts = []serve.Contract{{Version: "v1"}, {Version: "v2"}}
 	if c, err := two.Contract(""); err != nil || c != "v2" {
 		t.Fatalf("got %q, %v", c, err)
 	}

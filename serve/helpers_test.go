@@ -24,7 +24,7 @@ import (
 )
 
 // The tests serve as designer, so its version answer is checked against its own contract too.
-var app = serve.App{ID: "designer", Command: "e-designer", Version: "5.0.0", Contracts: []string{"v1"}, Addr: "127.0.0.1:0"}
+var app = serve.App{ID: "designer", Command: "e-designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v1"}}, Addr: "127.0.0.1:0"}
 
 // apiVersion is the apiVersion of designer's answers in contract v1.
 var apiVersion = home.Org + "/designer/app/v1"

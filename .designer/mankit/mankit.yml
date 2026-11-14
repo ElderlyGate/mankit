@@ -913,8 +913,8 @@ spec:
     user picked never for its action type (confirm=remember saves that
     through Site.Remember). Every answer is the contracts
     envelope with source and each error a Problem (Write, WriteError, Fail; Answer, Failure and Encode for the
-    CLI); App.EnvelopeV2From is the first contract in envelope/v2, and every contract before it keeps envelope/v1's
-    bytes, with ran and error/v1 codes. A guard refusal is in the contract asked for when served. App.Commands adds serve [--detach], servers, servers stop,
+    CLI); each of App.Contracts is a Contract {Version, Envelope}, Envelope v1 (the default) or v2, never going back,
+    and a contract on envelope/v1 keeps mankit v2's bytes, with ran and error/v1 codes. A guard refusal is in the contract asked for when served. App.Commands adds serve [--detach], servers, servers stop,
     servers link and servers token renew; every server, detached or not, leaves a record (contracts
     mankit/v1) in the app's data folder, and a server is known by asking
     its address without the token. Stopping tells a long answer, such as

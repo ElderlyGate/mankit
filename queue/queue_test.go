@@ -387,7 +387,7 @@ func TestTicketsOnDiskAndTheListMeetTheContract(t *testing.T) {
 	if len(l.Bad) != 1 {
 		t.Fatalf("bad %v, want the one file that is not a ticket", l.Bad)
 	}
-	app := serve.App{ID: "shop", Version: "1.0.0", Contracts: []string{"v1"}}
+	app := serve.App{ID: "shop", Version: "1.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 	var answer bytes.Buffer
 	if err := serve.Encode(&answer, app.Answer("", "v1", queue.ListKind, l)); err != nil {
 		t.Fatal(err)
@@ -405,7 +405,7 @@ func TestTicketsOnDiskAndTheListMeetTheContract(t *testing.T) {
 
 func TestAnEmptyQueueListsEmptyArrays(t *testing.T) {
 	q, _ := newQueue(t)
-	app := serve.App{ID: "shop", Version: "1.0.0", Contracts: []string{"v1"}}
+	app := serve.App{ID: "shop", Version: "1.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 	l, err := q.List(context.Background())
 	if err != nil {
 		t.Fatal(err)

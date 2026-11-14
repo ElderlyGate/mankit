@@ -27,7 +27,7 @@ import (
 	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
-var app = serve.App{ID: "shop", Version: "1.0.0", Contracts: []string{"v1"}}
+var app = serve.App{ID: "shop", Version: "1.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 
 const token = "s3cret"
 

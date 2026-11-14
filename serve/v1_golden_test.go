@@ -15,8 +15,8 @@ import (
 
 // A contract still on envelope/v1 keeps the bytes mankit v2.0.0 wrote (CT-RULE-1): testdata/v1-golden holds what v2.0.0 wrote for each refusal.
 func TestAContractOnEnvelopeV1KeepsItsBytes(t *testing.T) {
-	app := serve.App{ID: "designer", Version: "5.0.0", Contracts: []string{"v1"}}
-	two := serve.App{ID: "designer", Version: "5.0.0", Contracts: []string{"v1", "v2"}}
+	app := serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
+	two := serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v1"}, {Version: "v2"}}}
 	_, unsupported := two.Contract("v9")
 	for golden, e := range map[string]serve.Envelope{
 		"host_refused":              app.Failure("shop", "v1", serve.Fail(serve.TypeRefused, serve.ReasonHost, "designer answers on this machine's own address only; serve --host <name> names another")),
