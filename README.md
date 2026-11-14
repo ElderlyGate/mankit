@@ -364,7 +364,12 @@ What serve does for every app:
   comes with `confirm=yes`, unless the user picked `never` for its type.
   `confirm=remember` is a yes that also stops asking for the type
   (`Site.Remember`). Every change route names its action type; `Handler`
-  refuses one that does not.
+  refuses one that does not. `Route.ActionFor`, when set, says what one
+  request changes and whether it asks at all: a request that only follows a
+  yes already given, rehearses, or changes nothing the person is asked about
+  goes through unasked, and one may ask as the type it says. A change to the
+  system itself always asks. The question is for the person, never a guard:
+  the token is the guard.
 - reaches a switchable module only through `Site.Features`: the `serve.Part`
   attached to a feature adds its routes, answered 404 `not_found` while the
   feature is off and 503 `failed`, reason `feature_needs_values`, while it is on but misses a

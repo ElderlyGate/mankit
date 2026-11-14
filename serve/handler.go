@@ -32,6 +32,10 @@ type Route struct {
 	Action  ask.Action
 	Handler http.HandlerFunc
 	Changes Change // the thing a change route changes, for a feature's module to hear of without the handler calling it
+	// ActionFor, when set, is the change one request makes, and whether it asks at all: a request that only follows a yes the person already gave, rehearses, or changes nothing they would be asked about does not ask.
+	// Nil is Action, asked every time. Action still names the route's type, the one asked when ActionFor gives none it knows, and a change to the system itself stays one whatever ActionFor says.
+	// The confirm is a question to the person, never a guard: the token is the guard, so a client sending a request that does not ask only skips a question.
+	ActionFor func(*http.Request) (a ask.Action, asks bool)
 }
 
 // Change is the thing a change route changes: its kind, and its id in the data the change answers with.
@@ -317,16 +321,21 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 	}
 	rt.Handler = told(rt.Handler, rt, site.Features, parts, log)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		action, asks := rt.actionOf(r)
+		if !asks {
+			rt.Handler(w, r)
+			return
+		}
 		switch r.URL.Query().Get(ConfirmParam) {
 		case ConfirmYes:
 			rt.Handler(w, r)
 			return
 		case ConfirmRemember:
 			// A change to the system itself is never remembered (G-STACK-6); without Site.Remember the app keeps no answer, so remember is a yes.
-			if site.Remember != nil && !rt.Action.System {
-				if err := site.Remember(rt.Action.Type); err != nil {
+			if site.Remember != nil && !action.System {
+				if err := site.Remember(action.Type); err != nil {
 					WriteError(w, r, http.StatusInternalServerError, Fail(TypeFailed, ReasonConfigUnreadable, fmt.Sprintf(
-						"nothing was changed: the answer for %s could not be saved: %v; send it again with %s=%s", rt.Action.Type, err, ConfirmParam, ConfirmYes)))
+						"nothing was changed: the answer for %s could not be saved: %v; send it again with %s=%s", action.Type, err, ConfirmParam, ConfirmYes)))
 					return
 				}
 			}
@@ -343,10 +352,10 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 			styles = read
 		}
 		// G-STACK-13: the user may pick "not at all" for a type; Resolve never gives that for a change to the system itself.
-		if style, _ := ask.Resolve(rt.Action, styles); style != ask.Never {
-			what := string(rt.Action.Type)
-			if rt.Action.What != "" {
-				what = rt.Action.What
+		if style, _ := ask.Resolve(action, styles); style != ask.Never {
+			what := string(action.Type)
+			if action.What != "" {
+				what = action.What
 			}
 			WriteError(w, r, http.StatusPreconditionRequired, Fail(TypeRefused, ReasonUnconfirmed, fmt.Sprintf(
 				"nothing was changed: %s asks first; send it again with %s=%s once the user said yes", what, ConfirmParam, ConfirmYes)))
@@ -354,6 +363,19 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 		}
 		rt.Handler(w, r)
 	})
+}
+
+// actionOf is the change the request r makes on rt, and whether it asks: ActionFor's when set, with rt's type for one it does not know, and never lowered from a change to the system itself.
+func (rt Route) actionOf(r *http.Request) (ask.Action, bool) {
+	if rt.ActionFor == nil {
+		return rt.Action, true
+	}
+	a, asks := rt.ActionFor(r)
+	if !ask.ValidType(string(a.Type)) {
+		a.Type = rt.Action.Type
+	}
+	a.System = a.System || rt.Action.System
+	return a, asks || a.System
 }
 
 func (rt Route) method() string {
@@ -377,6 +399,8 @@ func (rt Route) check() error {
 		return fmt.Errorf("serve: change %q needs its action type, one of %v", rt.Pattern, ask.Types())
 	case !writing[method] && rt.Action.Type != "":
 		return fmt.Errorf("serve: read %q never asks, so it takes no action type", rt.Pattern)
+	case !writing[method] && rt.ActionFor != nil:
+		return fmt.Errorf("serve: read %q never asks, so it takes no ActionFor", rt.Pattern)
 	case !writing[method] && rt.Changes.Thing != "":
 		return fmt.Errorf("serve: read %q changes nothing", rt.Pattern)
 	case rt.Changes.Thing != "" && rt.Changes.ID == nil:
