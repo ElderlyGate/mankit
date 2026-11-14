@@ -59,8 +59,10 @@ var ErrNotInCatalog = errors.New("not in the app's event catalog")
 
 // Config is what an app tells events about itself.
 type Config struct {
-	Product   string           // the product ID: the first part of every type and of the source
-	Thing     string           // the thing served, the source's second part (/<product>/<thing>); empty is Product
+	Product string // the product ID: the first part of every type and of the source
+	Thing   string // the thing served, the source's second part (/<product>/<thing>); empty is Product
+	// ThingFor is the thing a change is about, read from its routed request, such as its project when one server serves many (ADR-S08); nil or "" keeps Thing.
+	ThingFor  func(*http.Request) string
 	Catalog   []string         // every type the app sends, <product>.<thing>.<verb> with the verb in the past
 	Causes    map[string]Cause // the event each change route causes, by the route's pattern
 	Heartbeat time.Duration    // how often an idle stream gets a comment, and the feature is asked again; zero is 15s
@@ -237,13 +239,29 @@ func (b *broker) event(r *http.Request, id, typ, subject string, data any) ([]by
 	}
 	tp, ts := trace(r)
 	text, err := json.Marshal(Event{
-		SpecVersion: "1.0", ID: id, Source: b.source, Type: typ, Subject: subject,
+		SpecVersion: "1.0", ID: id, Source: b.sourceOf(r), Type: typ, Subject: subject,
 		Time: time.Now().UTC(), DataContentType: "application/json", Data: raw, TraceParent: tp, TraceState: ts,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return []byte("id: " + id + "\ndata: " + string(text) + "\n\n"), nil
+}
+
+// sourceOf is the event's source: /<product>/<thing>, the thing the change is about when ThingFor names one that keeps the event names whole, else Thing.
+func (b *broker) sourceOf(r *http.Request) string {
+	if b.cfg.ThingFor == nil || r == nil {
+		return b.source
+	}
+	thing := b.cfg.ThingFor(r)
+	if thing == "" {
+		return b.source
+	}
+	if !thingPattern.MatchString(thing) {
+		fmt.Fprintf(b.log, "events: thing %q may hold only letters, digits, '.', '_' and '-'; the event names %s\n", thing, b.source)
+		return b.source
+	}
+	return "/" + b.cfg.Product + "/" + thing
 }
 
 var errTooManyStreams = errors.New("too many streams")

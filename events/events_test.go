@@ -348,6 +348,27 @@ func TestAChangeSendsItsEventToEveryOpenStream(t *testing.T) {
 	}
 }
 
+// One server serving two projects names each event's project in its source (ADR-S08); without ThingFor the source stays /<product>/<thing>.
+func TestEachEventNamesTheProjectItIsAbout(t *testing.T) {
+	s := serving(t, true, func(c *events.Config) {
+		c.ThingFor = func(r *http.Request) string { return r.Header.Get("X-Project") }
+	})
+	live := s.open(t, "")
+	s.change(t, http.MethodPost, "/api/items/item-1", map[string]string{"X-Project": "alpha"})
+	s.change(t, http.MethodPost, "/api/items/item-2", map[string]string{"X-Project": "beta"})
+	s.change(t, http.MethodPost, "/api/items/item-3", nil)
+	s.change(t, http.MethodPost, "/api/items/item-4", map[string]string{"X-Project": "a/b"})
+	for _, want := range []string{"/shop/alpha", "/shop/beta", "/shop/main", "/shop/main"} {
+		e, data := live.next(t)
+		if e.Source != want {
+			t.Fatalf("source %q, want %q", e.Source, want)
+		}
+		if err := contracts.Validate("event/v1/event.schema.json", data); err != nil {
+			t.Fatalf("%s: %v", data, err)
+		}
+	}
+}
+
 func TestARouteMayShapeTheEventsData(t *testing.T) {
 	s := serving(t, true)
 	st := s.open(t, "")

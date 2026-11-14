@@ -471,6 +471,13 @@ site := serve.Site{Features: list, Routes: []serve.Route{{
 }}}
 ```
 
+One server serving many things names each event's thing in its source, as
+`source.name` does for answers (ADR-S08): `Config.ThingFor` reads it from the
+change's routed request, such as `func(r *http.Request) string { return
+r.PathValue("project") }`, and the source is `/designer/<project>`. Nil, or
+an empty answer, keeps `Thing`; a thing that would break the event names is
+said in the log and keeps `Thing` too.
+
 Events is an enterprise feature and starts off (ADR-E9): `GET /api/events`
 answers 404 until the owner switches it on. Taking events out is taking out
 `events.Feature` and the `Attach` call: the routes stay as they are, and
