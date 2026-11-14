@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -31,22 +32,17 @@ type SettingsData struct {
 // keys are the queue's rows in an app's config.yaml.
 func keys() []settings.Key { return []settings.Key{WaitKey, LimitKey} }
 
-// Waits are queue.wait and queue.limit as the app's config.yaml at path says them, empty where it says nothing, for Settings to read.
+// Waits are queue.wait and queue.limit as the app's config.yaml at path says them, in the form d.String() gives, empty where it says nothing; a hand-edited value the queue would refuse is reported, never passed on.
 func Waits(path string) (wait, limit string, err error) {
-	rows, err := settings.Load(path, keys())
+	data, err := settingsAt(path)
 	if err != nil {
 		return "", "", err
 	}
-	for _, r := range rows {
-		if !r.Set {
-			continue
-		}
-		switch r.Key {
-		case WaitKey.Name:
-			wait = r.Value
-		case LimitKey.Name:
-			limit = r.Value
-		}
+	if data.Wait.Set {
+		wait = data.Wait.Value
+	}
+	if data.Limit.Set {
+		limit = data.Limit.Value
 	}
 	return wait, limit, nil
 }
@@ -102,37 +98,38 @@ func setCommand(a serve.App, key settings.Key, word string, path func() string, 
 		if err := out.Check(); err != nil {
 			return err
 		}
-		value := args[0]
-		if value == "default" {
-			value = ""
-		} else {
-			wait, limit := value, ""
-			if key.Name == LimitKey.Name {
-				wait, limit = "", value
-			}
-			if _, err := (Queue{}).Settings(wait, limit); err != nil {
+		// Written as d.String() gives it, so what the queue takes is what the contract's pattern takes.
+		value := ""
+		if args[0] != "default" {
+			d, err := Duration(key, args[0])
+			if err != nil {
 				return err
 			}
+			value = d.String()
 		}
 		what := fmt.Sprintf("set %s to %s in %s's config", key.Name, args[0], a.ID)
 		if err := confirm(c, ask.Action{Type: ask.Settings, Name: key.Name, What: what}); err != nil {
 			return err
 		}
 		if err := settings.Set(path(), keys(), key.Name, value); err != nil {
-			return serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, err.Error())
+			return serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, fmt.Sprintf("%s could not be written: %v", key.Name, err))
 		}
 		data, err := settingsAt(path())
 		if err != nil {
 			return err
 		}
+		now := data.Limit
+		if key.Name == WaitKey.Name {
+			now = data.Wait
+		}
 		return out.Print(c.OutOrStdout(), "", SettingsKind, data, func(w io.Writer) {
-			fmt.Fprintf(w, "%s is %s\n", key.Name, map[bool]string{true: data.Wait.Value, false: data.Limit.Value}[key.Name == WaitKey.Name])
+			fmt.Fprintf(w, "%s is %s\n", key.Name, now.Value)
 		})
 	}
 	return cmd
 }
 
-// settingsAt is the queue's two settings as the app's config.yaml at path has them.
+// settingsAt is the queue's two settings as the app's config.yaml at path has them, each in the form d.String() gives; a value the queue would refuse is reported as the config that cannot be read.
 func settingsAt(path string) (SettingsData, error) {
 	rows, err := settings.Load(path, keys())
 	if err != nil {
@@ -140,7 +137,16 @@ func settingsAt(path string) (SettingsData, error) {
 	}
 	var data SettingsData
 	for _, r := range rows {
-		s := Setting{Value: r.Value, Default: r.Default, Set: r.Set}
+		key := WaitKey
+		if r.Key == LimitKey.Name {
+			key = LimitKey
+		}
+		d, err := Duration(key, r.Value)
+		var p *serve.Problem
+		if errors.As(err, &p) {
+			return SettingsData{}, serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, p.Detail)
+		}
+		s := Setting{Value: d.String(), Default: r.Default, Set: r.Set}
 		switch r.Key {
 		case WaitKey.Name:
 			data.Wait = s
