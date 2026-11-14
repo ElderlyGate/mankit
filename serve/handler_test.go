@@ -597,6 +597,143 @@ func TestServeNeverAsksForARead(t *testing.T) {
 	}
 }
 
+// actionFor is a site whose one change asks by its request: ?follows=1 does not ask, ?as=<type> asks as that type, ?system=0 tries to make a system change an ordinary one.
+func actionFor(t *testing.T, styles func() (map[ask.Type]ask.Style, error), system bool) (http.Handler, *bool) {
+	t.Helper()
+	return actionForWith(t, styles, system, nil)
+}
+
+// actionForWith is actionFor whose site keeps a remembered answer with remember.
+func actionForWith(t *testing.T, styles func() (map[ask.Type]ask.Style, error), system bool, remember func(ask.Type) error) (http.Handler, *bool) {
+	t.Helper()
+	changed := false
+	rt := serve.Route{Pattern: "POST /api/x", Action: ask.Action{Type: ask.Move, System: system}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		changed = true
+		serve.Write(w, r, http.StatusOK, "X", nil)
+	}, ActionFor: func(r *http.Request) (ask.Action, bool) {
+		q := r.URL.Query()
+		return ask.Action{Type: ask.Type(q.Get("as")), System: q.Get("system") == "1"}, q.Get("follows") != "1"
+	}}
+	h, err := serveHandler(t, app, serve.Site{Name: "shop", Routes: []serve.Route{rt}, Styles: styles, Remember: remember}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h, &changed
+}
+
+func TestARequestThatDoesNotAskNeedsNoYes(t *testing.T) {
+	h, changed := actionFor(t, nil, false)
+	if w := call(t, h, "POST", "/api/x?follows=1", "", nil); w.Code != http.StatusOK || !*changed {
+		t.Fatalf("a request that follows a yes was asked: %d %s", w.Code, w.Body)
+	}
+	*changed = false
+	e := refusal(t, call(t, h, "POST", "/api/x", "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	if *changed || !strings.Contains(e.Detail, "move asks first") {
+		t.Fatalf("any other request was not asked as its route's type: %q", e.Detail)
+	}
+}
+
+func TestARequestAsksAsTheTypeItSays(t *testing.T) {
+	never := func() (map[ask.Type]ask.Style, error) { return map[ask.Type]ask.Style{ask.Move: ask.Never}, nil }
+	h, _ := actionFor(t, never, false)
+	// The route's own type is never asked; the type the request says is.
+	if w := call(t, h, "POST", "/api/x", "", nil); w.Code != http.StatusOK {
+		t.Fatalf("the route's type set to never still asked: %d %s", w.Code, w.Body)
+	}
+	e := refusal(t, call(t, h, "POST", "/api/x?as=create", "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	if !strings.Contains(e.Detail, "create asks first") {
+		t.Fatalf("not asked as create: %q", e.Detail)
+	}
+	// A type serve does not know is asked as the route's.
+	if w := call(t, h, "POST", "/api/x?as=launch", "", nil); w.Code != http.StatusOK {
+		t.Fatalf("an unknown type was not taken as the route's: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestAChangeToTheSystemItselfAlwaysAsks(t *testing.T) {
+	never := func() (map[ask.Type]ask.Style, error) { return map[ask.Type]ask.Style{ask.Move: ask.Never}, nil }
+	h, changed := actionFor(t, never, true)
+	for _, path := range []string{"/api/x?follows=1", "/api/x?system=0"} {
+		refusal(t, call(t, h, "POST", path, "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	}
+	if *changed {
+		t.Fatal("a change to the system itself went through unasked")
+	}
+}
+
+func TestActionForReadsTheBodyAndTheHandlerStillGetsItWhole(t *testing.T) {
+	var asked, handled string
+	rt := serve.Route{Pattern: "POST /api/x", Action: ask.Action{Type: ask.Edit}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		handled = string(b)
+		serve.Write(w, r, http.StatusOK, "X", nil)
+	}, ActionFor: func(r *http.Request) (ask.Action, bool) {
+		b, _ := io.ReadAll(r.Body)
+		asked = string(b)
+		return ask.Action{Type: ask.Create}, false
+	}}
+	h, err := serveHandler(t, app, serve.Site{Name: "shop", Routes: []serve.Route{rt}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := call(t, h, "POST", "/api/x", `{"act":"create"}`, nil); w.Code != http.StatusOK || asked != `{"act":"create"}` || handled != asked {
+		t.Fatalf("status %d, ActionFor read %q, the handler %q", w.Code, asked, handled)
+	}
+}
+
+func TestActionForRefusesABodyLargerThanServeTakes(t *testing.T) {
+	h, changed := actionFor(t, nil, false)
+	big := `{"text":"` + strings.Repeat("x", 1<<20) + `"}`
+	refusal(t, call(t, h, "POST", "/api/x?confirm=yes", big, nil), http.StatusRequestEntityTooLarge, serve.TypeRefused, serve.ReasonTooLarge)
+	if *changed {
+		t.Fatal("a body too large was handed on")
+	}
+}
+
+func TestRememberKeepsTheTypeActionForGave(t *testing.T) {
+	var saved []ask.Type
+	h, changed := actionForWith(t, nil, false, func(t ask.Type) error { saved = append(saved, t); return nil })
+	if w := call(t, h, "POST", "/api/x?as=create&confirm=remember", "", nil); w.Code != http.StatusOK || !*changed {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	// A request that does not ask goes through as it is, so remember on it remembers nothing.
+	call(t, h, "POST", "/api/x?follows=1&as=connect&confirm=remember", "", nil)
+	if len(saved) != 1 || saved[0] != ask.Create {
+		t.Fatalf("remembered %v, want create only", saved)
+	}
+}
+
+func TestAnActionForThatFailsChangesNothingAndIsSaid(t *testing.T) {
+	changed := false
+	var log bytes.Buffer
+	rt := serve.Route{Pattern: "POST /api/x", Action: ask.Action{Type: ask.Edit}, Handler: func(http.ResponseWriter, *http.Request) { changed = true },
+		ActionFor: func(*http.Request) (ask.Action, bool) { panic("no act in the body") }}
+	h, err := serveHandler(t, app, serve.Site{Name: "shop", Routes: []serve.Route{rt}, Log: &log}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusal(t, call(t, h, "POST", "/api/x?confirm=yes", "", nil), http.StatusInternalServerError, serve.TypeFailed, "")
+	if changed || !strings.Contains(log.String(), "no act in the body") {
+		t.Fatalf("changed %t, log %q", changed, log.String())
+	}
+}
+
+func TestAChangeActionForMarksAsTheSystemsAlwaysAsks(t *testing.T) {
+	never := func() (map[ask.Type]ask.Style, error) { return map[ask.Type]ask.Style{ask.Move: ask.Never}, nil }
+	h, changed := actionFor(t, never, false)
+	refusal(t, call(t, h, "POST", "/api/x?system=1&follows=1", "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	if *changed {
+		t.Fatal("a change ActionFor marked as the system's went through unasked")
+	}
+}
+
+func TestHandlerRefusesActionForOnARead(t *testing.T) {
+	rt := serve.Route{Pattern: "GET /api/x", Handler: func(http.ResponseWriter, *http.Request) {}, ActionFor: func(*http.Request) (ask.Action, bool) { return ask.Action{}, false }}
+	if _, err := serveHandler(t, app, serve.Site{Routes: []serve.Route{rt}}, nil); err == nil {
+		t.Fatal("a read with ActionFor was taken")
+	}
+}
+
 // CLI and HTTP parity
 
 func TestTheCLIAndHTTPGiveTheSameAnswer(t *testing.T) {
