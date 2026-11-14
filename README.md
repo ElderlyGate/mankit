@@ -475,8 +475,10 @@ One server serving many things names each event's thing in its source, as
 `source.name` does for answers (ADR-S08): `Config.ThingFor` reads it from the
 change's routed request, such as `func(r *http.Request) string { return
 r.PathValue("project") }`, and the source is `/designer/<project>`. Nil, or
-an empty answer, keeps `Thing`; a thing that would break the event names is
-said in the log and keeps `Thing` too.
+an empty answer, keeps `Thing`. A thing longer than 64 characters, made only of
+dots, or one that would break the event names keeps `Thing` too, and so does a
+ThingFor that panics; each such answer is said in the log once, cut to 64
+characters. ThingFor runs before an event is built, never under its lock.
 
 Events is an enterprise feature and starts off (ADR-E9): `GET /api/events`
 answers 404 until the owner switches it on. Taking events out is taking out

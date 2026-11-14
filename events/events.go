@@ -83,6 +83,9 @@ type broker struct {
 	source string
 	log    io.Writer
 
+	saidMu sync.Mutex
+	said   map[string]bool // the ThingFor answers already said in the log, so a bad one is said once
+
 	mu   sync.Mutex
 	run  string
 	seq  uint64
@@ -175,7 +178,9 @@ func (b *broker) Changed(a serve.Answered) {
 	if c.Data != nil {
 		data = c.Data(a.Data)
 	}
-	if err := b.publish(a.Request, c.Type, a.Route.Changes.ID(a.Data), data); err != nil {
+	// Before publish takes the lock, so a slow or failing ThingFor never runs under it.
+	source := b.sourceOf(a.Request)
+	if err := b.publish(a.Request, source, c.Type, a.Route.Changes.ID(a.Data), data); err != nil {
 		fmt.Fprintf(b.log, "events: %s from %s was not sent: %v\n", c.Type, a.Route.Pattern, err)
 	}
 }
@@ -188,14 +193,14 @@ func (b *broker) SwitchedOff() { b.forget() }
 
 // publish builds the event typ about subject with data, traced by the request that caused it, and sends it to every open stream.
 // An event that cannot be built takes its place as a gapped event.
-func (b *broker) publish(r *http.Request, typ, subject string, data any) error {
+func (b *broker) publish(r *http.Request, source, typ, subject string, data any) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.seq++
 	id := b.run + "-" + strconv.FormatUint(b.seq, 10)
 	why := "its subject is empty"
 	if subject != "" {
-		text, err := b.event(r, id, typ, subject, data)
+		text, err := b.event(r, source, id, typ, subject, data)
 		if err == nil {
 			b.keep(frame{id: id, text: text})
 			return nil
@@ -206,7 +211,7 @@ func (b *broker) publish(r *http.Request, typ, subject string, data any) error {
 	if len(b.kept) > 0 {
 		gap.LastKnown = b.kept[len(b.kept)-1].id
 	}
-	text, err := b.event(r, id, b.cfg.Product+"."+Gapped, "stream", gap)
+	text, err := b.event(r, source, id, b.cfg.Product+"."+Gapped, "stream", gap)
 	if err != nil {
 		return err
 	}
@@ -231,15 +236,15 @@ func (b *broker) keep(f frame) {
 	}
 }
 
-// event is one event as a stream frame.
-func (b *broker) event(r *http.Request, id, typ, subject string, data any) ([]byte, error) {
+// event is one event from source as a stream frame.
+func (b *broker) event(r *http.Request, source, id, typ, subject string, data any) ([]byte, error) {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
 	}
 	tp, ts := trace(r)
 	text, err := json.Marshal(Event{
-		SpecVersion: "1.0", ID: id, Source: b.sourceOf(r), Type: typ, Subject: subject,
+		SpecVersion: "1.0", ID: id, Source: source, Type: typ, Subject: subject,
 		Time: time.Now().UTC(), DataContentType: "application/json", Data: raw, TraceParent: tp, TraceState: ts,
 	})
 	if err != nil {
@@ -249,19 +254,47 @@ func (b *broker) event(r *http.Request, id, typ, subject string, data any) ([]by
 }
 
 // sourceOf is the event's source: /<product>/<thing>, the thing the change is about when ThingFor names one that keeps the event names whole, else Thing.
-func (b *broker) sourceOf(r *http.Request) string {
+// A ThingFor that panics or answers a name events does not take keeps Thing, and is said once per answer.
+func (b *broker) sourceOf(r *http.Request) (source string) {
 	if b.cfg.ThingFor == nil || r == nil {
 		return b.source
 	}
+	defer func() {
+		if p := recover(); p != nil {
+			b.say(fmt.Sprint(p), "panicked with")
+			source = b.source
+		}
+	}()
 	thing := b.cfg.ThingFor(r)
 	if thing == "" {
 		return b.source
 	}
-	if !thingPattern.MatchString(thing) {
-		fmt.Fprintf(b.log, "events: thing %q may hold only letters, digits, '.', '_' and '-'; the event names %s\n", thing, b.source)
+	if len(thing) > maxThing || strings.Trim(thing, ".") == "" || !thingPattern.MatchString(thing) {
+		b.say(thing, "answered a thing events does not take (at most 64 letters, digits, '.', '_' and '-', not only dots):")
 		return b.source
 	}
 	return "/" + b.cfg.Product + "/" + thing
+}
+
+// maxThing is the longest thing ThingFor may name, so a source stays a short path segment.
+const maxThing = 64
+
+// say logs a ThingFor answer events did not take, once per answer and cut to 64 characters, so a bad value from every request does not fill the log.
+func (b *broker) say(answer, what string) {
+	cut := answer
+	if len(cut) > maxThing {
+		cut = cut[:maxThing] + "…"
+	}
+	b.saidMu.Lock()
+	defer b.saidMu.Unlock()
+	if b.said[cut] {
+		return
+	}
+	if b.said == nil {
+		b.said = map[string]bool{}
+	}
+	b.said[cut] = true
+	fmt.Fprintf(b.log, "events: ThingFor %s %q; the event names %s\n", what, cut, b.source)
 }
 
 var errTooManyStreams = errors.New("too many streams")
@@ -269,6 +302,7 @@ var errTooManyStreams = errors.New("too many streams")
 // subscribe opens a stream: the kept events after last, then every new one. When last is not followed by what is kept,
 // the stream gets the gapped event first, then every kept event; its id stands just before the oldest kept, so coming back with it is no gap.
 func (b *broker) subscribe(r *http.Request, last string) ([][]byte, chan []byte, error) {
+	source := b.sourceOf(r)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.subs) >= b.cfg.Streams {
@@ -292,7 +326,7 @@ func (b *broker) subscribe(r *http.Request, last string) ([][]byte, chan []byte,
 		}
 		mark := make([]byte, 4)
 		_, _ = rand.Read(mark)
-		text, err := b.event(r, fmt.Sprintf("%s-%d-gap-%s", b.run, oldest-1, hex.EncodeToString(mark)), b.cfg.Product+"."+Gapped, "stream", gap)
+		text, err := b.event(r, source, fmt.Sprintf("%s-%d-gap-%s", b.run, oldest-1, hex.EncodeToString(mark)), b.cfg.Product+"."+Gapped, "stream", gap)
 		if err != nil {
 			return nil, nil, err
 		}
