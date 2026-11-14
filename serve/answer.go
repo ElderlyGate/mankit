@@ -91,6 +91,7 @@ type Place struct {
 func (p *Problem) Error() string { return p.Detail }
 
 // Fail is a Problem of typ, with reason when a program needs more than the type (empty for none), for an answer.
+// problem/v1 requires a detail, so Failure writes the type and reason as the detail when it is empty.
 func Fail(typ, reason, detail string) *Problem {
 	return &Problem{Type: typ, Reason: reason, Detail: detail}
 }
@@ -149,6 +150,14 @@ func (a App) Failure(name, contract string, err error) Envelope {
 		p = &copied
 	}
 	p.APIVersion, p.Kind = problemAPIVersion, problemKind
+	if p.Detail == "" {
+		p.Detail = strings.TrimSuffix(p.Type+": "+p.Reason, ": ")
+	}
+	// A place must say at least one thing (problem/v1), so an empty one is dropped.
+	p.At = slices.DeleteFunc(slices.Clone(p.At), func(at Place) bool { return at == (Place{}) })
+	if len(p.At) == 0 {
+		p.At = nil
+	}
 	env := a.Answer(name, contract, "Error", nil)
 	env.Errors = []Problem{*p}
 	return env
@@ -211,6 +220,7 @@ func (e Envelope) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON reads envelope/v2, and envelope/v1 through contracts' upgrade step, so a reader such as servers reads an app that has not moved yet.
+// What it reads is an envelope/v2 value either way: encoded again, a decoded envelope/v1 answer comes out as envelope/v2.
 func (e *Envelope) UnmarshalJSON(b []byte) error {
 	var probe struct {
 		Ran json.RawMessage `json:"ran"`
@@ -259,6 +269,10 @@ func (a App) command() string {
 func (a App) check() error {
 	if a.ID == "" || a.Version == "" || len(a.Contracts) == 0 {
 		return errors.New("serve: an App needs its ID, its Version and at least one contract")
+	}
+	// A name that is not one of Contracts would keep every contract on envelope/v1 without a word.
+	if a.EnvelopeV2From != "" && !slices.Contains(a.Contracts, a.EnvelopeV2From) {
+		return fmt.Errorf("serve: EnvelopeV2From %q is not one of the app's contracts %v", a.EnvelopeV2From, a.Contracts)
 	}
 	return nil
 }

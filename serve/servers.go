@@ -352,6 +352,7 @@ func (a App) probe(addr string, timeout time.Duration) probed {
 	}
 	defer resp.Body.Close()
 	var e Envelope
+	// An answer with ran: null is not envelope/v1, so UpgradeEnvelope refuses it and the decode fails: not this app.
 	if resp.StatusCode != http.StatusUnauthorized || json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&e) != nil ||
 		len(e.Errors) != 1 || e.Errors[0].Type != TypeRefused || e.Errors[0].Reason != ReasonToken || e.Source.App != a.ID || e.Source.Version == "" {
 		return probed{}

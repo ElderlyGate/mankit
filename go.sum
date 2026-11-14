@@ -1,5 +1,5 @@
-github.com/ElderlyGate/contracts v0.14.1-0.20261114083855-0dca5a0d58a4 h1:/ScZhG3NmJEEKiSvnpKyMGtAJAMfuj0azkAEgdGe8V0=
-github.com/ElderlyGate/contracts v0.14.1-0.20261114083855-0dca5a0d58a4/go.mod h1:XmruStYgbIDJ0hrw7hZ6oHJtNmaAGBOf5/pGGFTd7QY=
+github.com/ElderlyGate/contracts v0.15.0 h1:8xMKJjZaLI6ZoMJb4tYUgxc7AGi9HgxaiJIbVCSLysc=
+github.com/ElderlyGate/contracts v0.15.0/go.mod h1:XmruStYgbIDJ0hrw7hZ6oHJtNmaAGBOf5/pGGFTd7QY=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=

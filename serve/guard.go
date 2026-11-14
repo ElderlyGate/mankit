@@ -48,7 +48,12 @@ func bearer(r *http.Request) string {
 func (a App) guard(dir string, hosts []string, name string, next http.Handler) http.Handler {
 	// A refusal is in the contract the reader asked for when the app serves it, so a reader of an older contract can read it (CT-RULE-1); otherwise in the default.
 	refuse := func(w http.ResponseWriter, r *http.Request, status int, p *Problem) {
-		contract, err := a.Contract(strings.TrimSpace(r.Header.Get(ContractHeader)))
+		// Only an API reader asks a contract, as choose reads it; the page gets the default.
+		asked := ""
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			asked = strings.TrimSpace(r.Header.Get(ContractHeader))
+		}
+		contract, err := a.Contract(asked)
 		if err != nil {
 			contract, _ = a.Contract("")
 		}

@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ElderlyGate/contracts"
@@ -99,5 +101,93 @@ func TestServersFindsTheAppInEitherEnvelope(t *testing.T) {
 				t.Fatalf("listed %v", e.Data)
 			}
 		})
+	}
+}
+
+func TestAnEnvelopeV2FromThatIsNoContractIsRefused(t *testing.T) {
+	wrong := moved
+	wrong.EnvelopeV2From = "V2"
+	if _, err := serveHandler(t, wrong, site(nil), nil); err == nil || !strings.Contains(err.Error(), "EnvelopeV2From") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// error/v1 has one place, so a Problem's first place is its at {file, field}.
+func TestTheFirstPlaceIsTheV1At(t *testing.T) {
+	p := serve.Fail(serve.TypeRefused, "duplicate", "another file already holds the request second")
+	p.At = []serve.Place{{File: "request/second-copy.yml", Document: 1, Line: 3, Path: "metadata.id"}, {File: "request/second.yml", Path: "metadata.id"}}
+	body, err := json.Marshal(app.Failure("shop", "v1", p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contracts.Validate("envelope/v1/envelope.schema.json", body); err != nil {
+		t.Fatalf("not envelope/v1: %v\n%s", err, body)
+	}
+	var e struct {
+		Errors []struct {
+			At map[string]string `json:"at"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &e); err != nil || len(e.Errors) != 1 {
+		t.Fatalf("%s: %v", body, err)
+	}
+	if want := map[string]string{"file": "request/second-copy.yml", "field": "metadata.id"}; !reflect.DeepEqual(e.Errors[0].At, want) {
+		t.Fatalf("at %v, want %v", e.Errors[0].At, want)
+	}
+}
+
+func TestA406OnEnvelopeV2IsAProblem(t *testing.T) {
+	w := call(t, movedHandler(t), "GET", "/api/greeting", "", map[string]string{serve.ContractHeader: "v9"})
+	if w.Code != http.StatusNotAcceptable {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if err := contracts.Validate("envelope/v2/envelope.schema.json", w.Body.Bytes()); err != nil {
+		t.Fatalf("not envelope/v2: %v\n%s", err, w.Body)
+	}
+	var e struct {
+		Errors []json.RawMessage `json:"errors"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || len(e.Errors) != 1 {
+		t.Fatalf("%s: %v", w.Body, err)
+	}
+	if err := contracts.Validate("problem/v1/problem.schema.json", e.Errors[0]); err != nil {
+		t.Fatalf("not a Problem: %v\n%s", err, e.Errors[0])
+	}
+}
+
+// An empty detail or an empty place never reaches the wire, as problem/v1 refuses both.
+func TestAFailureNeverWritesAnEmptyDetailOrPlace(t *testing.T) {
+	p := serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, "")
+	p.At = []serve.Place{{}, {Path: "queue.wait"}, {}}
+	e := moved.Failure("shop", "v2", p)
+	body, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contracts.Validate("envelope/v2/envelope.schema.json", body); err != nil {
+		t.Fatalf("not envelope/v2: %v\n%s", err, body)
+	}
+	if got := e.Errors[0]; got.Detail != "failed: config_unreadable" || len(got.At) != 1 || got.At[0].Path != "queue.wait" {
+		t.Fatalf("got %+v", got)
+	}
+	if len(p.At) != 3 {
+		t.Fatalf("Failure changed the caller's places: %+v", p.At)
+	}
+}
+
+// The page asks no contract, as choose reads Accept-Contract only under /api/, so a refusal there is in the default.
+func TestTheGuardReadsTheContractOnlyForTheAPI(t *testing.T) {
+	h := movedHandler(t)
+	for target, schema := range map[string]string{"/board": "envelope/v2/envelope.schema.json", "/api/greeting": "envelope/v1/envelope.schema.json"} {
+		req := httptest.NewRequest("GET", "http://evil.example"+target, nil)
+		req.Header.Set(serve.ContractHeader, "v1")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("%s: status %d", target, w.Code)
+		}
+		if err := contracts.Validate(schema, w.Body.Bytes()); err != nil {
+			t.Errorf("%s: not %s: %v\n%s", target, schema, err, w.Body)
+		}
 	}
 }
