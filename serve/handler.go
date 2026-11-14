@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -34,6 +35,7 @@ type Route struct {
 	Changes Change // the thing a change route changes, for a feature's module to hear of without the handler calling it
 	// ActionFor, when set, is the change one request makes, and whether it asks at all: a request that only follows a yes the person already gave, rehearses, or changes nothing they would be asked about does not ask.
 	// Nil is Action, asked every time. Action still names the route's type, the one asked when ActionFor gives none it knows, and a change to the system itself stays one whatever ActionFor says.
+	// ActionFor may read the body: it gets a copy, and the handler gets the body whole. A request that does not ask goes through as it is, so confirm=remember on it remembers nothing; one that asks remembers the type ActionFor gave.
 	// The confirm is a question to the person, never a guard: the token is the guard, so a client sending a request that does not ask only skips a question.
 	ActionFor func(*http.Request) (a ask.Action, asks bool)
 }
@@ -321,7 +323,15 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 	}
 	rt.Handler = told(rt.Handler, rt, site.Features, parts, log)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		action, asks := rt.actionOf(r)
+		action, asks, err := rt.actionOf(r, log)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if p, ok := err.(*Problem); ok && p.Reason == ReasonTooLarge {
+				status = http.StatusRequestEntityTooLarge
+			}
+			WriteError(w, r, status, err)
+			return
+		}
 		if !asks {
 			rt.Handler(w, r)
 			return
@@ -366,16 +376,34 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 }
 
 // actionOf is the change the request r makes on rt, and whether it asks: ActionFor's when set, with rt's type for one it does not know, and never lowered from a change to the system itself.
-func (rt Route) actionOf(r *http.Request) (ask.Action, bool) {
+// ActionFor reads a copy of the body, which is read once within serve's cap, so the handler still gets it whole; an ActionFor that panics is said on log and answered failed, and nothing is changed.
+func (rt Route) actionOf(r *http.Request, log io.Writer) (a ask.Action, asks bool, err error) {
 	if rt.ActionFor == nil {
-		return rt.Action, true
+		return rt.Action, true, nil
 	}
-	a, asks := rt.ActionFor(r)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return ask.Action{}, false, Fail(TypeRefused, ReasonTooLarge, fmt.Sprintf("the request body is larger than the %d bytes serve takes", tooLarge.Limit))
+		}
+		return ask.Action{}, false, Fail(TypeFailed, "", "nothing was changed: the request body could not be read: "+err.Error())
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	read := r.Clone(r.Context())
+	read.Body = io.NopCloser(bytes.NewReader(body))
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Fprintf(log, "%s %s: the route's ActionFor failed: %v\n", r.Method, r.URL.Path, p)
+			a, asks, err = ask.Action{}, false, Fail(TypeFailed, "", fmt.Sprintf("nothing was changed: %s %s could not say what it changes", r.Method, r.URL.Path))
+		}
+	}()
+	a, asks = rt.ActionFor(read)
 	if !ask.ValidType(string(a.Type)) {
 		a.Type = rt.Action.Type
 	}
 	a.System = a.System || rt.Action.System
-	return a, asks || a.System
+	return a, asks || a.System, nil
 }
 
 func (rt Route) method() string {

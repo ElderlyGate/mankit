@@ -367,8 +367,12 @@ What serve does for every app:
   refuses one that does not. `Route.ActionFor`, when set, says what one
   request changes and whether it asks at all: a request that only follows a
   yes already given, rehearses, or changes nothing the person is asked about
-  goes through unasked, and one may ask as the type it says. A change to the
-  system itself always asks. The question is for the person, never a guard:
+  goes through unasked, and one may ask as the type it says. ActionFor reads a
+  copy of the body, read once within the size cap (413 `refused`, reason
+  `too_large`, past it), so the handler still gets it whole; a request that
+  does not ask remembers nothing on `confirm=remember`; an ActionFor that
+  fails is logged and answered 500 `failed`. A change to the system itself
+  always asks. The question is for the person, never a guard:
   the token is the guard.
 - reaches a switchable module only through `Site.Features`: the `serve.Part`
   attached to a feature adds its routes, answered 404 `not_found` while the
