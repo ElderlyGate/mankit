@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v2/home"
+	"github.com/tugbayatilla/mankit/v3/home"
 )
 
 // env points HOME and XDG_CONFIG_HOME at temp dirs and returns HOME.

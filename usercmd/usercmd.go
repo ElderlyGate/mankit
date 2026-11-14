@@ -35,7 +35,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v2/internal/configfile"
+	"github.com/tugbayatilla/mankit/v3/internal/configfile"
 )
 
 // Command is one entry of the commands file.

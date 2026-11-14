@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v2/features"
-	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v3/features"
+	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
 // Feature is the events feature for the app's list: closed, there is no stream and nothing is kept.
@@ -51,8 +51,8 @@ type Gap struct {
 	OldestKept string `json:"oldestKept,omitempty"`
 }
 
-// The codes of the errors events answers; a program decides by the code, never by the message.
-const CodeTooManyStreams = "too_many_streams"
+// ReasonTooManyStreams is the reason events refuses a stream with, type refused: the request is not taken while the server keeps its most streams; a program decides by type and reason, never by the detail.
+const ReasonTooManyStreams = "too_many_streams"
 
 // ErrNotInCatalog is an event type the app did not declare; a program tells it by errors.Is, never by the message.
 var ErrNotInCatalog = errors.New("not in the app's event catalog")

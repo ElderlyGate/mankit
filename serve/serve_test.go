@@ -16,8 +16,8 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v2/features"
-	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v3/features"
+	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
 // The serve command: in the foreground, or detached with --detach.
@@ -178,7 +178,7 @@ func TestServeDetachAnswersTheContractAskedFor(t *testing.T) {
 	machine(t)
 	e := answer(t, "", "serve", "--detach", "--contract", "v1")
 	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
-	if e.Ran.Contract != "v1" || e.APIVersion != apiVersion {
+	if e.Source.Contract != "v1" || e.APIVersion != apiVersion {
 		t.Fatalf("got %+v", e)
 	}
 }
@@ -186,8 +186,8 @@ func TestServeDetachAnswersTheContractAskedFor(t *testing.T) {
 func TestServeRefusesAContractItDoesNotAnswerBeforeItStarts(t *testing.T) {
 	dir := machine(t)
 	_, err := run(t, "serve", "--detach", "-o", "json", "--contract", "v9")
-	var e *serve.Error
-	if !errors.As(err, &e) || e.Code != serve.CodeUnsupportedContract {
+	var e *serve.Problem
+	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract {
 		t.Fatalf("got %v", err)
 	}
 	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
@@ -208,8 +208,8 @@ func TestServeRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) {
 	r.SetErr(&syncBuffer{})
 	r.SetArgs([]string{"serve"})
 	err := r.Execute()
-	var e *serve.Error
-	if !errors.As(err, &e) || e.Code != serve.CodeCoreNeedsValues || !strings.Contains(e.Message, "SHOP_DIR (where the shop lives)") {
+	var e *serve.Problem
+	if !errors.As(err, &e) || e.Type != serve.TypeFailed || e.Reason != serve.ReasonCoreNeedsValues || !strings.Contains(e.Detail, "SHOP_DIR (where the shop lives)") {
 		t.Fatalf("got %v, want core_needs_values naming SHOP_DIR", err)
 	}
 	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
@@ -318,8 +318,8 @@ func TestServeDetachAnswersLikeHTTP(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &e); err != nil {
 		t.Fatal(err)
 	}
-	if e.Ran != (serve.Ran{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}) {
-		t.Fatalf("ran %+v", e.Ran)
+	if e.Source != (serve.Source{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}) {
+		t.Fatalf("ran %+v", e.Source)
 	}
 	raw, _ := json.Marshal(e.Data)
 	if err := contracts.Validate("mankit/v1/server.schema.json", raw); err != nil {

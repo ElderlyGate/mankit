@@ -1,0 +1,19 @@
+{
+  "apiVersion": "elderlygate/designer/app/v1",
+  "kind": "Error",
+  "ran": {
+    "name": "shop",
+    "app": "designer",
+    "version": "5.0.0",
+    "contract": "v1"
+  },
+  "data": null,
+  "errors": [
+    {
+      "apiVersion": "elderlygate/designer/app/v1",
+      "kind": "Error",
+      "code": "token_refused",
+      "message": "designer takes an API request only with its token, as Authorization: Bearer \u003ctoken\u003e or in the cookie the page's link left; `designer servers link` prints the link"
+    }
+  ]
+}

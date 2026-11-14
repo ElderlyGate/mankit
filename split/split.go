@@ -10,7 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/tugbayatilla/mankit/v2/home"
+	"github.com/tugbayatilla/mankit/v3/home"
 )
 
 const (

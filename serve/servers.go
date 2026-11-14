@@ -18,7 +18,7 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/tugbayatilla/mankit/v2/home"
+	"github.com/tugbayatilla/mankit/v3/home"
 )
 
 // A record is a claim a detached server leaves, never proof: a process can die without removing it, and a pid is reused.
@@ -338,7 +338,7 @@ type probed struct {
 }
 
 // probe asks addr's GET /api/version without the token, which never goes to a listener not yet known to be this app.
-// This app answers it with token_refused from its guard, and says in ran which app and version it is.
+// This app answers it with refused for its token from its guard, and says in ran or source which app and version it is; Envelope reads either envelope, so an app on mankit v2 is still found.
 // Left open: another user's process could answer so on a reused port; a signal still reaches only this user's processes, and only on a reused pid.
 func (a App) probe(addr string, timeout time.Duration) probed {
 	conn, err := net.DialTimeout("tcp", addr, timeout)
@@ -352,11 +352,12 @@ func (a App) probe(addr string, timeout time.Duration) probed {
 	}
 	defer resp.Body.Close()
 	var e Envelope
+	// An answer with ran: null is not envelope/v1, so UpgradeEnvelope refuses it and the decode fails: not this app.
 	if resp.StatusCode != http.StatusUnauthorized || json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&e) != nil ||
-		len(e.Errors) != 1 || e.Errors[0].Code != CodeToken || e.Ran.App != a.ID || e.Ran.Version == "" {
+		len(e.Errors) != 1 || e.Errors[0].Type != TypeRefused || e.Errors[0].Reason != ReasonToken || e.Source.App != a.ID || e.Source.Version == "" {
 		return probed{}
 	}
-	return probed{answering: true, version: e.Ran.Version}
+	return probed{answering: true, version: e.Source.Version}
 }
 
 // refused reports whether a dial failed because nothing listens, by its error number (G-STACK-15).

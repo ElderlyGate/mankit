@@ -1,0 +1,19 @@
+{
+  "apiVersion": "elderlygate/designer/app/v1",
+  "kind": "Error",
+  "ran": {
+    "name": "shop",
+    "app": "designer",
+    "version": "5.0.0",
+    "contract": "v1"
+  },
+  "data": null,
+  "errors": [
+    {
+      "apiVersion": "elderlygate/designer/app/v1",
+      "kind": "Error",
+      "code": "core_needs_values",
+      "message": "designer cannot start: it needs values that are not set: ED_X"
+    }
+  ]
+}

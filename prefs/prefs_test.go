@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v2/ask"
-	"github.com/tugbayatilla/mankit/v2/home"
-	settingscli "github.com/tugbayatilla/mankit/v2/settings/cli"
+	"github.com/tugbayatilla/mankit/v3/ask"
+	"github.com/tugbayatilla/mankit/v3/home"
+	settingscli "github.com/tugbayatilla/mankit/v3/settings/cli"
 )
 
 // sandbox gives the test its own home and returns the app's config file.

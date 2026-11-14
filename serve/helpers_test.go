@@ -18,13 +18,13 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v2/ask"
-	"github.com/tugbayatilla/mankit/v2/home"
-	"github.com/tugbayatilla/mankit/v2/serve"
+	"github.com/tugbayatilla/mankit/v3/ask"
+	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/serve"
 )
 
 // The tests serve as designer, so its version answer is checked against its own contract too.
-var app = serve.App{ID: "designer", Command: "e-designer", Version: "5.0.0", Contracts: []string{"v1"}, Addr: "127.0.0.1:0"}
+var app = serve.App{ID: "designer", Command: "e-designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v1"}}, Addr: "127.0.0.1:0"}
 
 // apiVersion is the apiVersion of designer's answers in contract v1.
 var apiVersion = home.Org + "/designer/app/v1"
@@ -118,18 +118,18 @@ func envelope(t *testing.T, body []byte) serve.Envelope {
 	return e
 }
 
-// refusal checks an error answer: its status, its one error's code, and where it ran.
-func refusal(t *testing.T, w *httptest.ResponseRecorder, status int, code string) serve.Error {
+// refusal checks an error answer: its status, its one Problem's type and reason, and where it ran.
+func refusal(t *testing.T, w *httptest.ResponseRecorder, status int, typ, reason string) serve.Problem {
 	t.Helper()
 	if w.Code != status {
 		t.Fatalf("status %d, want %d: %s", w.Code, status, w.Body)
 	}
 	e := envelope(t, w.Body.Bytes())
-	if len(e.Errors) != 1 || e.Errors[0].Code != code {
-		t.Fatalf("errors %+v, want one %s", e.Errors, code)
+	if len(e.Errors) != 1 || e.Errors[0].Type != typ || e.Errors[0].Reason != reason {
+		t.Fatalf("errors %+v, want one %s %s", e.Errors, typ, reason)
 	}
-	if e.Ran != (serve.Ran{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}) {
-		t.Fatalf("ran %+v", e.Ran)
+	if e.Source != (serve.Source{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}) {
+		t.Fatalf("ran %+v", e.Source)
 	}
 	return e.Errors[0]
 }

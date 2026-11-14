@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v2/ask"
-	"github.com/tugbayatilla/mankit/v2/home"
-	"github.com/tugbayatilla/mankit/v2/queue"
-	"github.com/tugbayatilla/mankit/v2/settings"
-	"github.com/tugbayatilla/mankit/v2/theme"
+	"github.com/tugbayatilla/mankit/v3/ask"
+	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/queue"
+	"github.com/tugbayatilla/mankit/v3/settings"
+	"github.com/tugbayatilla/mankit/v3/theme"
 )
 
 var prefix = settings.Key{Name: "prefix", Help: "free text"}
