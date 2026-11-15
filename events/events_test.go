@@ -858,3 +858,97 @@ func TestAClientThatLeavesLeavesNoGoroutine(t *testing.T) {
 	}
 	s.add(t, "item-2")
 }
+
+// A Source's events reach every open stream as a change's do: checked against the catalog, about the thing it names, with a trace of their own.
+func TestASourcesEventsReachEveryOpenStream(t *testing.T) {
+	sent := make(chan func(events.Found), 1)
+	s := serving(t, true, func(c *events.Config) {
+		c.Source = func(ctx context.Context, send func(events.Found)) {
+			sent <- send
+			<-ctx.Done()
+		}
+	})
+	live := s.open(t, "")
+	send := <-sent
+	send(events.Found{Type: "shop.item.added", Thing: "alpha", Subject: "item-9", Data: item{ID: "item-9"}})
+	send(events.Found{Type: "shop.item.removed", Subject: "item-9", Data: item{ID: "item-9"}})
+	for _, want := range []string{"/shop/alpha", "/shop/main"} {
+		e, data := live.next(t)
+		if e.Source != want || e.Subject != "item-9" || !validTrace(e.TraceParent) {
+			t.Fatalf("event %s", data)
+		}
+	}
+}
+
+// The Source runs only while somebody listens: it starts with the first stream and stops when the last one ends.
+func TestASourceRunsOnlyWhileAStreamIsOpen(t *testing.T) {
+	var mu sync.Mutex
+	runs, running := 0, 0
+	stopped := make(chan struct{}, 4)
+	s := serving(t, true, func(c *events.Config) {
+		c.Source = func(ctx context.Context, send func(events.Found)) {
+			mu.Lock()
+			runs++
+			running++
+			mu.Unlock()
+			<-ctx.Done()
+			mu.Lock()
+			running--
+			mu.Unlock()
+			stopped <- struct{}{}
+		}
+	})
+	count := func() (int, int) {
+		mu.Lock()
+		defer mu.Unlock()
+		return runs, running
+	}
+	if r, _ := count(); r != 0 {
+		t.Fatal("the source ran with nobody listening")
+	}
+	a := s.open(t, "")
+	b := s.open(t, "")
+	waitFor(t, func() bool { _, n := count(); return n == 1 })
+	a.stop()
+	b.stop()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the source still runs with no stream open")
+	}
+	if r, n := count(); r != 1 || n != 0 {
+		t.Fatalf("runs %d, running %d", r, n)
+	}
+}
+
+// An event a Source finds outside the catalog, or about a thing that breaks the event names, is said and not sent.
+func TestASourcesEventOutsideTheCatalogIsNotSent(t *testing.T) {
+	sent := make(chan func(events.Found), 1)
+	s := serving(t, true, func(c *events.Config) {
+		c.Source = func(ctx context.Context, send func(events.Found)) {
+			sent <- send
+			<-ctx.Done()
+		}
+	})
+	live := s.open(t, "")
+	send := <-sent
+	send(events.Found{Type: "shop.item.painted", Subject: "item-1"})
+	send(events.Found{Type: "shop.item.added", Thing: "a/b", Subject: "item-1"})
+	send(events.Found{Type: "shop.item.added", Subject: "item-2", Data: item{ID: "item-2"}})
+	if e, data := live.next(t); e.Subject != "item-2" {
+		t.Fatalf("event %s", data)
+	}
+}
+
+func validTrace(tp string) bool { return len(tp) == 55 && strings.HasPrefix(tp, "00-") }
+
+// waitFor waits a few seconds for ok to hold.
+func waitFor(t *testing.T, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatal("it did not happen in time")
+}
