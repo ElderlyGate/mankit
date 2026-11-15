@@ -497,8 +497,13 @@ finds to `send` as an `events.Found` (type, thing, subject, data) and never
 writes to a stream itself: the broker checks the type against the catalog,
 names the thing in the source as ThingFor does, numbers the event, keeps it
 for `Last-Event-ID` and sends it, with a trace of its own. A type outside the
-catalog, or a thing that would break the event names, is said in the log and
-not sent.
+catalog, or a thing that would break the event names, is said once in the log
+and not sent. The Source must return promptly once its context ends; runs never
+overlap, and a send from a stopped run is dropped. What changes while nobody
+listens is not looked for: when the last stream ends the broker starts a new
+run of event ids, so a stream that comes back gets the gapped event and reads
+everything again. A Source that panics is said once and starts again with the
+next stream.
 
 ```go
 Source: func(ctx context.Context, send func(events.Found)) {
