@@ -489,6 +489,39 @@ dots, or one that would break the event names keeps `Thing` too, and so does a
 ThingFor that panics; each such answer is said in the log once, cut to 64
 characters. ThingFor runs before an event is built, never under its lock.
 
+A change no route answers, such as a file another program changed, comes from
+`Config.Source`: a function the broker runs while at least one stream is open
+and stops, by its context, when the last one ends or the feature goes off, so
+an app looks for changes only while somebody listens. It gives each change it
+finds to `send` as an `events.Found` (type, thing, subject, data) and never
+writes to a stream itself: the broker checks the type against the catalog,
+names the thing in the source as ThingFor does, numbers the event, keeps it
+for `Last-Event-ID` and sends it, with a trace of its own. A type outside the
+catalog, or a thing that would break the event names, is said once in the log
+and not sent. The Source must return promptly once its context ends; runs never
+overlap, and a send from a stopped run is dropped. What changes while nobody
+listens is not looked for: when the last stream ends the broker starts a new
+run of event ids, so a stream that comes back gets the gapped event and reads
+everything again. A Source that panics is said once and starts again with the
+next stream.
+
+```go
+Source: func(ctx context.Context, send func(events.Found)) {
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			for _, c := range changedSinceLastLook() {
+				send(events.Found{Type: "designer.board.changed", Thing: c.Project, Subject: c.Design, Data: c})
+			}
+		}
+	}
+},
+```
+
 Events is an enterprise feature and starts off (ADR-E9): `GET /api/events`
 answers 404 until the owner switches it on. Taking events out is taking out
 `events.Feature` and the `Attach` call: the routes stay as they are, and

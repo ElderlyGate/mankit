@@ -4,6 +4,7 @@
 package events
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -62,18 +63,34 @@ type Config struct {
 	Product string // the product ID: the first part of every type and of the source
 	Thing   string // the thing served, the source's second part (/<product>/<thing>); empty is Product
 	// ThingFor is the thing a change is about, read from its routed request, such as its project when one server serves many (ADR-S08); nil or "" keeps Thing.
-	ThingFor  func(*http.Request) string
-	Catalog   []string         // every type the app sends, <product>.<thing>.<verb> with the verb in the past
-	Causes    map[string]Cause // the event each change route causes, by the route's pattern
-	Heartbeat time.Duration    // how often an idle stream gets a comment, and the feature is asked again; zero is 15s
-	Keep      int              // how many events are kept for Last-Event-ID; zero is 256
-	Streams   int              // how many streams may be open at once; zero is 64
+	ThingFor func(*http.Request) string
+	Catalog  []string         // every type the app sends, <product>.<thing>.<verb> with the verb in the past
+	Causes   map[string]Cause // the event each change route causes, by the route's pattern
+	// Source finds events no route causes, such as a change made outside the server; the broker runs it while a stream is open.
+	Source    Source
+	Heartbeat time.Duration // how often an idle stream gets a comment, and the feature is asked again; zero is 15s
+	Keep      int           // how many events are kept for Last-Event-ID; zero is 256
+	Streams   int           // how many streams may be open at once; zero is 64
 }
 
 // Cause is the event a change route causes; the route's serve.Change gives the subject.
 type Cause struct {
 	Type string             // in the catalog, and its thing is the one the route changes
 	Data func(data any) any // the event's data from the answer's data; nil is the answer's data
+}
+
+// A Source finds events no change route causes, such as a file changed by another program; the broker runs it while at least one stream is open,
+// so an app looks for changes only while somebody listens, and stops it when the last stream ends or the feature goes off. Runs never overlap: a new one starts once the one before has returned.
+// It runs until ctx ends, and must return promptly once it does; it gives each event it finds to send. It never writes to a stream, so the broker stays the only sender: it checks each against the catalog, numbers it, keeps it and sends it, and drops a send from a run that was stopped.
+// A run starts knowing nothing of the changes made while nobody listened: the broker starts a new run of event ids when the last stream ends, so a stream that comes back with an id from before gets the gapped event and reads everything again, and a new stream reads everything as it opens. A panic in a Source is said once in the log and ends its run; the next stream starts it again.
+type Source func(ctx context.Context, send func(Found))
+
+// Found is one event a Source found.
+type Found struct {
+	Type    string // in the catalog
+	Thing   string // the thing it is about, the source's second part, such as a project; empty is Config.Thing
+	Subject string // the id of the thing that changed
+	Data    any    // the event's data
 }
 
 // broker builds an app's events and sends each to every open stream, keeping the last few for a stream that comes back.
@@ -91,6 +108,12 @@ type broker struct {
 	seq  uint64
 	kept []frame
 	subs map[chan []byte]struct{}
+	// stopSource ends the running Source; nil while none runs.
+	stopSource context.CancelFunc
+	// sourceRun counts the Source's runs, so a send from a run that was stopped is dropped.
+	sourceRun uint64
+	// sourceDone is closed when the latest run has returned, so the next waits for it.
+	sourceDone chan struct{}
 }
 
 // frame is one event as the stream sends it.
@@ -196,6 +219,11 @@ func (b *broker) SwitchedOff() { b.forget() }
 func (b *broker) publish(r *http.Request, source, typ, subject string, data any) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.publishLocked(r, source, typ, subject, data)
+}
+
+// publishLocked is publish under the lock already held.
+func (b *broker) publishLocked(r *http.Request, source, typ, subject string, data any) error {
 	b.seq++
 	id := b.run + "-" + strconv.FormatUint(b.seq, 10)
 	why := "its subject is empty"
@@ -269,15 +297,20 @@ func (b *broker) sourceOf(r *http.Request) (source string) {
 	if thing == "" {
 		return b.source
 	}
-	if len(thing) > maxThing || strings.Trim(thing, ".") == "" || !thingPattern.MatchString(thing) {
+	if !validThing(thing) {
 		b.say(thing, "answered a thing events does not take (at most 64 letters, digits, '.', '_' and '-', not only dots):")
 		return b.source
 	}
 	return "/" + b.cfg.Product + "/" + thing
 }
 
-// maxThing is the longest thing ThingFor may name, so a source stays a short path segment.
+// maxThing is the longest thing ThingFor or a Source may name, so a source stays a short path segment.
 const maxThing = 64
+
+// validThing says whether a thing keeps the event names whole: at most 64 letters, digits, '.', '_' and '-', not only dots.
+func validThing(thing string) bool {
+	return len(thing) <= maxThing && strings.Trim(thing, ".") != "" && thingPattern.MatchString(thing)
+}
 
 // say logs a ThingFor answer events did not take, once per answer and cut to 64 characters, so a bad value from every request does not fill the log.
 func (b *broker) say(answer, what string) {
@@ -295,6 +328,20 @@ func (b *broker) say(answer, what string) {
 	}
 	b.said[cut] = true
 	fmt.Fprintf(b.log, "events: ThingFor %s %q; the event names %s\n", what, cut, b.source)
+}
+
+// sayOnce logs what events did not take from a Source, once per message, so a bad value from every look does not fill the log.
+func (b *broker) sayOnce(what string) {
+	b.saidMu.Lock()
+	defer b.saidMu.Unlock()
+	if b.said == nil {
+		b.said = map[string]bool{}
+	}
+	if b.said[what] {
+		return
+	}
+	b.said[what] = true
+	fmt.Fprintf(b.log, "events: %s\n", what)
 }
 
 var errTooManyStreams = errors.New("too many streams")
@@ -337,7 +384,75 @@ func (b *broker) subscribe(r *http.Request, last string) ([][]byte, chan []byte,
 	}
 	ch := make(chan []byte, 64)
 	b.subs[ch] = struct{}{}
+	b.startSource()
 	return replay, ch, nil
+}
+
+// startSource runs the Source once the first stream opens, after the run before it has returned; called under the lock.
+func (b *broker) startSource() {
+	if b.cfg.Source == nil || b.stopSource != nil {
+		return
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	b.stopSource = stop
+	b.sourceRun++
+	run, before, done := b.sourceRun, b.sourceDone, make(chan struct{})
+	b.sourceDone = done
+	go func() {
+		defer close(done)
+		if before != nil {
+			<-before
+		}
+		defer func() {
+			if p := recover(); p != nil {
+				b.sayOnce("the source panicked with " + fmt.Sprint(p) + "; it starts again with the next stream")
+			}
+			// Ended on its own, by a panic or a return, so the next stream starts it again.
+			b.mu.Lock()
+			if b.sourceRun == run && b.stopSource != nil {
+				b.stopSource()
+				b.stopSource = nil
+			}
+			b.mu.Unlock()
+		}()
+		if ctx.Err() == nil {
+			b.cfg.Source(ctx, func(f Found) { b.found(run, f) })
+		}
+	}()
+}
+
+// endSource stops the Source once no stream is open, and starts a new run of event ids, since what changes while nobody listens is not looked for; called under the lock.
+func (b *broker) endSource() {
+	if b.stopSource != nil && len(b.subs) == 0 {
+		b.stopSource()
+		b.stopSource = nil
+		b.kept = nil
+		b.run, b.seq = newRun(), 0
+	}
+}
+
+// found sends an event the Source's run found, as a change's, unless that run was stopped: a type not in the catalog, or a thing that breaks the event names, is said once on stderr and not sent.
+func (b *broker) found(run uint64, f Found) {
+	if !slices.Contains(b.cfg.Catalog, f.Type) {
+		b.sayOnce(fmt.Sprintf("the source found %s: %v", f.Type, ErrNotInCatalog))
+		return
+	}
+	source := b.source
+	if f.Thing != "" {
+		if !validThing(f.Thing) {
+			b.sayOnce(fmt.Sprintf("the source found %s about a thing events does not take; it was not sent", f.Type))
+			return
+		}
+		source = "/" + b.cfg.Product + "/" + f.Thing
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if run != b.sourceRun || b.stopSource == nil {
+		return
+	}
+	if err := b.publishLocked(nil, source, f.Type, f.Subject, f.Data); err != nil {
+		fmt.Fprintf(b.log, "events: %s from the source was not sent: %v\n", f.Type, err)
+	}
 }
 
 // position is the place of id in this run's events: <run>-<seq>, or <run>-<seq>-gap-<mark> for a gapped event.
@@ -358,6 +473,7 @@ func (b *broker) unsubscribe(ch chan []byte) {
 		delete(b.subs, ch)
 		close(ch)
 	}
+	b.endSource()
 }
 
 // forget ends every stream and every kept event and starts a new run, so a stream that comes back gets the gapped event.
@@ -368,6 +484,7 @@ func (b *broker) forget() {
 		delete(b.subs, ch)
 		close(ch)
 	}
+	b.endSource()
 	b.kept = nil
 	b.run, b.seq = newRun(), 0
 }
@@ -380,6 +497,10 @@ func validTraceParent(tp string) bool {
 
 // trace is the W3C trace context of the request, or a new one when it has none or it is not valid: every event carries traceparent (ADR-E6).
 func trace(r *http.Request) (string, string) {
+	// An event a Source found has no request, so it starts a trace of its own.
+	if r == nil {
+		r = &http.Request{Header: http.Header{}}
+	}
 	if tp := r.Header.Get("traceparent"); validTraceParent(tp) {
 		return tp, r.Header.Get("tracestate")
 	}

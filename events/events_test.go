@@ -772,7 +772,7 @@ func TestStoppingTheServerEndsAStream(t *testing.T) {
 // More errors and codes
 
 // servingSaid is the shop with events, and what events says on stderr until the test reads it.
-func servingSaid(t *testing.T) (*shop, func() string) {
+func servingSaid(t *testing.T, tweak ...func(*events.Config)) (*shop, func() string) {
 	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -780,7 +780,7 @@ func servingSaid(t *testing.T) (*shop, func() string) {
 	}
 	stderr := os.Stderr
 	os.Stderr = w
-	s := serving(t, true)
+	s := serving(t, true, tweak...)
 	os.Stderr = stderr
 	return s, func() string {
 		w.Close()
@@ -857,4 +857,251 @@ func TestAClientThatLeavesLeavesNoGoroutine(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	s.add(t, "item-2")
+}
+
+// A Source's events reach every open stream as a change's do: checked against the catalog, about the thing it names, with a trace of their own.
+func TestASourcesEventsReachEveryOpenStream(t *testing.T) {
+	sent := make(chan func(events.Found), 1)
+	s := serving(t, true, func(c *events.Config) {
+		c.Source = func(ctx context.Context, send func(events.Found)) {
+			sent <- send
+			<-ctx.Done()
+		}
+	})
+	live := s.open(t, "")
+	send := <-sent
+	send(events.Found{Type: "shop.item.added", Thing: "alpha", Subject: "item-9", Data: item{ID: "item-9"}})
+	send(events.Found{Type: "shop.item.removed", Subject: "item-9", Data: item{ID: "item-9"}})
+	for _, want := range []string{"/shop/alpha", "/shop/main"} {
+		e, data := live.next(t)
+		if e.Source != want || e.Subject != "item-9" || !validTrace(e.TraceParent) {
+			t.Fatalf("event %s", data)
+		}
+	}
+}
+
+// The Source runs only while somebody listens: it starts with the first stream and stops when the last one ends.
+func TestASourceRunsOnlyWhileAStreamIsOpen(t *testing.T) {
+	var mu sync.Mutex
+	runs, running := 0, 0
+	stopped := make(chan struct{}, 4)
+	s := serving(t, true, func(c *events.Config) {
+		c.Source = func(ctx context.Context, send func(events.Found)) {
+			mu.Lock()
+			runs++
+			running++
+			mu.Unlock()
+			<-ctx.Done()
+			mu.Lock()
+			running--
+			mu.Unlock()
+			stopped <- struct{}{}
+		}
+	})
+	count := func() (int, int) {
+		mu.Lock()
+		defer mu.Unlock()
+		return runs, running
+	}
+	if r, _ := count(); r != 0 {
+		t.Fatal("the source ran with nobody listening")
+	}
+	a := s.open(t, "")
+	b := s.open(t, "")
+	waitFor(t, func() bool { _, n := count(); return n == 1 })
+	a.stop()
+	b.stop()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the source still runs with no stream open")
+	}
+	if r, n := count(); r != 1 || n != 0 {
+		t.Fatalf("runs %d, running %d", r, n)
+	}
+}
+
+// An event a Source finds outside the catalog, or about a thing that breaks the event names, is said and not sent.
+func TestASourcesEventOutsideTheCatalogIsNotSent(t *testing.T) {
+	sent := make(chan func(events.Found), 1)
+	s := serving(t, true, func(c *events.Config) {
+		c.Source = func(ctx context.Context, send func(events.Found)) {
+			sent <- send
+			<-ctx.Done()
+		}
+	})
+	live := s.open(t, "")
+	send := <-sent
+	send(events.Found{Type: "shop.item.painted", Subject: "item-1"})
+	send(events.Found{Type: "shop.item.added", Thing: "a/b", Subject: "item-1"})
+	send(events.Found{Type: "shop.item.added", Subject: "item-2", Data: item{ID: "item-2"}})
+	if e, data := live.next(t); e.Subject != "item-2" {
+		t.Fatalf("event %s", data)
+	}
+}
+
+func validTrace(tp string) bool { return len(tp) == 55 && strings.HasPrefix(tp, "00-") }
+
+// waitFor waits a few seconds for ok to hold.
+func waitFor(t *testing.T, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatal("it did not happen in time")
+}
+
+// sending is a Source that hands each run's send to the test and waits for its context, counting its runs.
+type sending struct {
+	sends chan func(events.Found)
+	mu    sync.Mutex
+	runs  int
+	ended chan struct{}
+}
+
+func newSending() *sending {
+	return &sending{sends: make(chan func(events.Found), 4), ended: make(chan struct{}, 4)}
+}
+
+func (s *sending) source(ctx context.Context, send func(events.Found)) {
+	s.mu.Lock()
+	s.runs++
+	s.mu.Unlock()
+	s.sends <- send
+	<-ctx.Done()
+	s.ended <- struct{}{}
+}
+
+func (s *sending) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runs
+}
+
+func (s *sending) next(t *testing.T) func(events.Found) {
+	t.Helper()
+	select {
+	case send := <-s.sends:
+		return send
+	case <-time.After(5 * time.Second):
+		t.Fatal("the source did not run")
+		return nil
+	}
+}
+
+func (s *sending) stopped(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the source was not stopped")
+	}
+}
+
+func added(id string) events.Found {
+	return events.Found{Type: "shop.item.added", Subject: id, Data: item{ID: id}}
+}
+
+// While somebody listens, a stream that comes back with Last-Event-ID gets the Source's events after that one.
+func TestAStreamResumesAfterASourcesEvent(t *testing.T) {
+	src := newSending()
+	s := serving(t, true, func(c *events.Config) { c.Source = src.source })
+	keepsRunning := s.open(t, "")
+	send := src.next(t)
+	b := s.open(t, "")
+	send(added("item-1"))
+	send(added("item-2"))
+	first := b.ids(t, 1)[0]
+	keepsRunning.ids(t, 2)
+	b.stop()
+	again := s.open(t, first)
+	if e, data := again.next(t); e.Subject != "item-2" {
+		t.Fatalf("resumed with %s", data)
+	}
+}
+
+// What changes while nobody listens is not looked for, so a stream that comes back after a quiet time gets the gapped event and reads everything again; the Source runs again for it.
+func TestAStreamComingBackAfterAQuietTimeGetsAGap(t *testing.T) {
+	src := newSending()
+	s := serving(t, true, func(c *events.Config) { c.Source = src.source })
+	a := s.open(t, "")
+	src.next(t)(added("item-1"))
+	last := a.ids(t, 1)[0]
+	a.stop()
+	src.stopped(t)
+	again := s.open(t, last)
+	if e, data := again.next(t); e.Type != "shop."+events.Gapped {
+		t.Fatalf("came back with %s", data)
+	}
+	src.next(t)(added("item-2"))
+	if e, _ := again.next(t); e.Subject != "item-2" {
+		t.Fatalf("the second run's event %+v", e)
+	}
+	if src.count() != 2 {
+		t.Fatalf("runs %d", src.count())
+	}
+}
+
+// A send from a run that was stopped is dropped, even when it comes after the next run started.
+func TestASendFromAStoppedRunIsDropped(t *testing.T) {
+	src := newSending()
+	s := serving(t, true, func(c *events.Config) { c.Source = src.source })
+	a := s.open(t, "")
+	stale := src.next(t)
+	a.stop()
+	src.stopped(t)
+	b := s.open(t, "")
+	fresh := src.next(t)
+	stale(added("item-stale"))
+	fresh(added("item-fresh"))
+	if e, data := b.next(t); e.Subject != "item-fresh" {
+		t.Fatalf("got %s", data)
+	}
+}
+
+// Switching the feature off stops the Source.
+func TestSwitchingTheFeatureOffStopsTheSource(t *testing.T) {
+	src := newSending()
+	s := serving(t, true, func(c *events.Config) { c.Source = src.source; c.Heartbeat = time.Hour })
+	s.open(t, "")
+	src.next(t)
+	if err := s.list.Set(events.Feature.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	src.stopped(t)
+}
+
+// A Source that panics is said once and its run ends; the next stream starts it again.
+func TestAPanickingSourceIsSaidAndStartsAgain(t *testing.T) {
+	var mu sync.Mutex
+	runs := 0
+	started := make(chan struct{}, 4)
+	s, said := servingSaid(t, func(c *events.Config) {
+		c.Source = func(ctx context.Context, send func(events.Found)) {
+			mu.Lock()
+			runs++
+			n := runs
+			mu.Unlock()
+			started <- struct{}{}
+			if n == 1 {
+				panic("broken")
+			}
+			<-ctx.Done()
+		}
+	})
+	a := s.open(t, "")
+	<-started
+	a.stop()
+	b := s.open(t, "")
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the source did not start again")
+	}
+	b.stop()
+	if got := said(); strings.Count(got, "the source panicked with broken") != 1 {
+		t.Fatalf("said %q", got)
+	}
 }
