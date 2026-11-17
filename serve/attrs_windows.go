@@ -41,3 +41,6 @@ func openNoFollow(path string) (*os.File, error) {
 
 // connRefused are the error numbers of a connection nothing listens for: Windows answers WSAECONNREFUSED, not ECONNREFUSED.
 var connRefused = []error{syscall.ECONNREFUSED, syscall.Errno(10061)}
+
+// familyUnreachable are the error numbers of a dial to an address family the machine cannot reach at all: WSAEADDRNOTAVAIL, WSAEAFNOSUPPORT, WSAENETUNREACH.
+var familyUnreachable = []error{syscall.Errno(10049), syscall.Errno(10047), syscall.Errno(10051)}

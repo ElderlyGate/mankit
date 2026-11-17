@@ -28,12 +28,7 @@ func (a App) cookieName(host string) string {
 
 // pageLink is the link that opens the page of the server at addr; the server swaps the token for a cookie.
 func pageLink(addr, token string) string {
-	if host, port, err := net.SplitHostPort(addr); err == nil {
-		if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
-			addr = net.JoinHostPort("127.0.0.1", port)
-		}
-	}
-	return "http://" + addr + "/?" + tokenParam + "=" + url.QueryEscape(token)
+	return "http://" + atLoopback(addr)[0] + "/?" + tokenParam + "=" + url.QueryEscape(token)
 }
 
 // bearer is the token of an Authorization: Bearer header, the one way every app's clients send it; empty without one.
