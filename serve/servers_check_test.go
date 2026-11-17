@@ -3,8 +3,10 @@ package serve_test
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -96,5 +98,71 @@ func TestServersCheckFailsWhenNoServerIsListed(t *testing.T) {
 	var said struct{ Errors []struct{ Code string } }
 	if json.Unmarshal([]byte(out), &said) != nil || len(said.Errors) != 1 || said.Errors[0].Code != serve.ReasonNoneListed {
 		t.Fatalf("json: %s", out)
+	}
+}
+
+// servers --check <addr>: only that server is asked, and no record is removed, as a container's health check shares the records of servers it cannot reach.
+
+func TestServersCheckAnAddressPassesWhenItAnswers(t *testing.T) {
+	machine(t)
+	addr := addrOf(detached(t))
+	e := answer(t, listSchema, "servers", "--check", addr)
+	if list, _ := e.Data.([]any); len(e.Errors) != 0 || len(list) != 1 || list[0].(map[string]any)["answering"] != true {
+		t.Fatalf("got %+v", e)
+	}
+}
+
+// A server on every address is checked at loopback, and an address no record names still passes while it answers.
+func TestServersCheckAnAddressAtLoopback(t *testing.T) {
+	machine(t)
+	e := answer(t, "", "serve", "--detach", "--addr", "0.0.0.0:0", "--allow-remote")
+	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+	_, port, _ := net.SplitHostPort(addrOf(e.Data.(map[string]any)))
+	if out, err := run(t, "servers", "--check", net.JoinHostPort("127.0.0.1", port)); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// One that does not answer fails with not_answering, in one envelope, and every record stays, its own and the others'.
+func TestServersCheckAnAddressFailsAndRemovesNothing(t *testing.T) {
+	dir := machine(t)
+	gone := goneAddr(t)
+	mine := writeRecord(t, dir, gone, 999999)
+	other := writeRecord(t, dir, goneAddr(t), 999998)
+
+	out, err := run(t, "servers", "--check", gone, "-o", "json")
+	if !errors.As(err, new(helpout.Printed)) {
+		t.Fatalf("got %v\n%s", err, out)
+	}
+	if err := contracts.Validate(listSchema, []byte(out)); err != nil {
+		t.Fatalf("not %s: %v\n%s", listSchema, err, out)
+	}
+	dec := json.NewDecoder(strings.NewReader(out))
+	var said, second struct {
+		Data   []map[string]any
+		Errors []struct{ Code string }
+	}
+	if dec.Decode(&said) != nil || dec.Decode(&second) == nil {
+		t.Fatalf("not exactly one envelope:\n%s", out)
+	}
+	if len(said.Data) != 1 || said.Data[0]["answering"] != false || len(said.Errors) != 1 || said.Errors[0].Code != serve.ReasonNotAnswering {
+		t.Fatalf("got %+v", said)
+	}
+	for _, f := range []string{mine, other} {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("a record was removed: %v", err)
+		}
+	}
+	var p *serve.Problem
+	if _, err := run(t, "servers", "--check", gone); !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
+		t.Fatalf("table: %v", err)
+	}
+}
+
+// An address is taken only with --check.
+func TestServersTakesAnAddressOnlyWithCheck(t *testing.T) {
+	machine(t)
+	if out, err := run(t, "servers", "127.0.0.1:7799"); err == nil || !strings.Contains(out+err.Error(), "only with --check") {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }

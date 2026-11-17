@@ -193,6 +193,26 @@ func (a App) live(dir string) ([]status, error) {
 	return out, nil
 }
 
+// one is whether the server at addr answers now, asked at addr alone, with the records for that address; no record is removed, as one this machine cannot reach, from inside a container, may be another's.
+func (a App) one(dir, addr string) ([]status, bool, error) {
+	all, err := readRecords(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	p := a.probe(addr, probeWait)
+	at := atLoopback(addr)[0]
+	out := []status{}
+	for _, r := range all {
+		if r.Metadata.Addr == addr || atLoopback(r.Metadata.Addr)[0] == at {
+			if p.version != "" {
+				r.Spec.Version = p.version
+			}
+			out = append(out, status{Record: r, Answering: p.answering})
+		}
+	}
+	return out, p.answering, nil
+}
+
 // find is the record a target names: its address or the name of what it serves; more than one is refused with the list.
 func (a App) find(recs []record, target string) (record, error) {
 	var hits []record

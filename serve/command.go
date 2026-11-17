@@ -319,13 +319,26 @@ A record is a claim, not proof, so every one is asked as it is listed, and a
 record whose address refuses a connection is removed.
 
 --check, for a health check, fails unless at least one server is listed and every
-one listed answers: the list is the same, and the answer's errors say why.`,
-		Args: cobra.NoArgs,
+one listed answers: the list is the same, and the answer's errors say why.
+
+--check <addr> asks only the server at addr, at loopback when it is on every
+address, and removes no record: for a container's health check, where the
+records folder is shared with servers it cannot reach. It lists the records for
+that address and fails unless the server answers.`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+				return err
+			}
+			if len(args) == 1 && !cmd.Flags().Changed("check") {
+				return fmt.Errorf("an address is taken only with --check, as in `%s servers --check %s`", a.command(), args[0])
+			}
+			return nil
+		},
 	}
 	out := a.printing(c)
 	var check bool
 	c.Flags().BoolVar(&check, "check", false, "fail unless at least one server is listed and every one answers")
-	c.RunE = func(cmd *cobra.Command, _ []string) error {
+	c.RunE = func(cmd *cobra.Command, args []string) error {
 		if err := out.check(); err != nil {
 			return err
 		}
@@ -333,17 +346,31 @@ one listed answers: the list is the same, and the answer's errors say why.`,
 		if err != nil {
 			return err
 		}
-		live, err := a.live(dir)
-		if err != nil {
-			return err
-		}
+		var live []status
 		var problems []error
-		if check {
-			if failed := checked(live); failed != nil {
-				problems = []error{failed}
+		if len(args) == 1 {
+			var answering bool
+			if live, answering, err = a.one(dir, args[0]); err != nil {
+				return err
+			}
+			if !answering {
+				problems = []error{Fail(TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%s does not answer", args[0]))}
+			}
+		} else {
+			if live, err = a.live(dir); err != nil {
+				return err
+			}
+			if check {
+				if failed := checked(live); failed != nil {
+					problems = []error{failed}
+				}
 			}
 		}
 		if err := out.printWith(cmd.OutOrStdout(), "", ServerListKind, live, problems, func(w io.Writer) {
+			if len(live) == 0 && len(args) == 1 {
+				fmt.Fprintf(w, "no record names %s\n", args[0])
+				return
+			}
 			if len(live) == 0 {
 				fmt.Fprintf(w, "no server is running; `%s serve --detach` starts one\n", a.command())
 				return
