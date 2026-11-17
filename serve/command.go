@@ -24,6 +24,7 @@ import (
 
 	"github.com/tugbayatilla/mankit/v3/ask"
 	"github.com/tugbayatilla/mankit/v3/features"
+	"github.com/tugbayatilla/mankit/v3/helpout"
 )
 
 // The kinds of the answers the commands print with -o json or yaml.
@@ -67,6 +68,11 @@ func (a App) printing(c *cobra.Command) *printing {
 
 // print writes data as kind in the envelope for json and yaml, else as the table rows draws.
 func (p *printing) print(w io.Writer, name, kind string, data any, rows func(io.Writer)) error {
+	return p.printWith(w, name, kind, data, nil, rows)
+}
+
+// printWith is print with the problems the answer carries beside its data, in the envelope's errors; a table leaves them to the caller.
+func (p *printing) printWith(w io.Writer, name, kind string, data any, problems []error, rows func(io.Writer)) error {
 	if p.output == "table" {
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		rows(tw)
@@ -77,6 +83,9 @@ func (p *printing) print(w io.Writer, name, kind string, data any, rows func(io.
 		return err
 	}
 	env := p.app.Answer(name, contract, kind, data)
+	for _, err := range problems {
+		env.Errors = append(env.Errors, problemOf(err))
+	}
 	if p.output == "json" {
 		return Encode(w, env)
 	}
@@ -309,8 +318,8 @@ func (a App) serversCommand(confirm func(*cobra.Command, ask.Action) error) *cob
 A record is a claim, not proof, so every one is asked as it is listed, and a
 record whose address refuses a connection is removed.
 
---check, for a health check, gives the same answer, then fails unless at least
-one server is listed and every one listed answers.`,
+--check, for a health check, fails unless at least one server is listed and every
+one listed answers: the list is the same, and the answer's errors say why.`,
 		Args: cobra.NoArgs,
 	}
 	out := a.printing(c)
@@ -328,7 +337,13 @@ one server is listed and every one listed answers.`,
 		if err != nil {
 			return err
 		}
-		if err := out.print(cmd.OutOrStdout(), "", ServerListKind, live, func(w io.Writer) {
+		var problems []error
+		if check {
+			if failed := checked(live); failed != nil {
+				problems = []error{failed}
+			}
+		}
+		if err := out.printWith(cmd.OutOrStdout(), "", ServerListKind, live, problems, func(w io.Writer) {
 			if len(live) == 0 {
 				fmt.Fprintf(w, "no server is running; `%s serve --detach` starts one\n", a.command())
 				return
@@ -339,42 +354,33 @@ one server is listed and every one listed answers.`,
 				fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%t\t%t\n", r.Metadata.Addr, r.Spec.Name, r.Metadata.PID,
 					time.Since(r.Spec.StartedAt).Round(time.Second), r.Spec.Version, r.Spec.Detached, s.Answering)
 			}
-		}); err != nil || !check {
+		}); err != nil || len(problems) == 0 {
 			return err
 		}
-		return a.checked(cmd, out.output, live)
+		if out.output == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s servers --check: %v\n", a.command(), problems[0])
+		}
+		return helpout.Printed{Err: problems[0]}
 	}
 	c.AddCommand(a.stopCommand(confirm), a.linkCommand(), a.tokenCommand(confirm))
 	return c
 }
 
-// AlreadyAnswered is a refusal whose answer is already printed: the app exits as Err says and prints nothing more, so -o json stays one envelope.
-type AlreadyAnswered struct{ Err error }
-
-func (e AlreadyAnswered) Error() string { return e.Err.Error() }
-func (e AlreadyAnswered) Unwrap() error { return e.Err }
-
-// checked is servers --check after the answer: nil when at least one server is listed and every one answers, else AlreadyAnswered with why, said on standard error under a table.
-func (a App) checked(cmd *cobra.Command, output string, live []status) error {
+// checked is why servers --check fails on live: no server listed, or one that does not answer; nil when every listed one answers.
+func checked(live []status) error {
 	var silent []string
 	for _, s := range live {
 		if !s.Answering {
 			silent = append(silent, s.Record.Metadata.Addr)
 		}
 	}
-	var why string
 	switch {
 	case len(live) == 0:
-		why = "no server is listed"
+		return Fail(TypeNotFound, "", "no server is listed")
 	case len(silent) > 0:
-		why = fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", "))
-	default:
-		return nil
+		return Fail(TypeNotFound, "", fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", ")))
 	}
-	if output == "table" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s servers --check: %s\n", a.command(), why)
-	}
-	return AlreadyAnswered{Err: Fail(TypeFailed, "", why)}
+	return nil
 }
 
 func (a App) stopCommand(confirm func(*cobra.Command, ask.Action) error) *cobra.Command {

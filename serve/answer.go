@@ -176,6 +176,13 @@ func (a App) Answer(name, contract, kind string, data any) Envelope {
 // Failure is the answer that carries err; an error that is not a *Problem is a Problem of type failed.
 // The answer's kind is Error in both envelopes: it says the answer failed, and each Problem in errors says why, so the two words never name one thing.
 func (a App) Failure(name, contract string, err error) Envelope {
+	env := a.Answer(name, contract, "Error", nil)
+	env.Errors = []Problem{problemOf(err)}
+	return env
+}
+
+// problemOf is err as the Problem an answer carries: its own when it is a *Problem, else one of type failed, filled in as problem/v1 asks.
+func problemOf(err error) Problem {
 	p := Fail(TypeFailed, "", err.Error())
 	if errors.As(err, &p) {
 		copied := *p
@@ -190,9 +197,7 @@ func (a App) Failure(name, contract string, err error) Envelope {
 	if len(p.At) == 0 {
 		p.At = nil
 	}
-	env := a.Answer(name, contract, "Error", nil)
-	env.Errors = []Problem{*p}
-	return env
+	return *p
 }
 
 // codeOf is the error/v1 code a Problem had before Problems: the owner's words back from type and reason, else the reason, else the type.
