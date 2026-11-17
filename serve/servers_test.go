@@ -2,6 +2,7 @@ package serve_test
 
 import (
 	"errors"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -30,6 +31,31 @@ func TestServersListsADetachedServer(t *testing.T) {
 	out, err := run(t, "servers")
 	if err != nil || !strings.Contains(out, addr) || !strings.Contains(out, "shop") || !strings.Contains(out, "DETACHED") {
 		t.Fatalf("table %q, %v", out, err)
+	}
+}
+
+// A server on every address records it as such, 0.0.0.0 or [::]; it is asked at loopback, which the guard takes, so it is listed as answering.
+func TestServersFindsAServerOnEveryAddressAnswering(t *testing.T) {
+	for _, every := range []string{"0.0.0.0", "::"} {
+		t.Run(every, func(t *testing.T) {
+			machine(t)
+			e := answer(t, "", "serve", "--detach", "--addr", net.JoinHostPort(every, "0"), "--allow-remote")
+			t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+			list, _ := answer(t, listSchema, "servers").Data.([]any)
+			if len(list) != 1 || list[0].(map[string]any)["answering"] != true {
+				t.Fatalf("started %v, listed %v", e.Data, list)
+			}
+		})
+	}
+}
+
+// A record on every address whose port nothing listens on, at either loopback, is removed as one gone.
+func TestServersRemovesAnEveryAddressRecordWhoseServerIsGone(t *testing.T) {
+	dir := machine(t)
+	_, port, _ := net.SplitHostPort(goneAddr(t))
+	writeRecord(t, dir, net.JoinHostPort("0.0.0.0", port), 999999)
+	if list, _ := answer(t, listSchema, "servers").Data.([]any); len(list) != 0 {
+		t.Fatalf("listed %v", list)
 	}
 }
 

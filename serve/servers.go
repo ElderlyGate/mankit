@@ -341,9 +341,20 @@ type probed struct {
 // This app answers it with refused for its token from its guard, and says in ran or source which app and version it is; Envelope reads either envelope, so an app on mankit v2 is still found.
 // Left open: another user's process could answer so on a reused port; a signal still reaches only this user's processes, and only on a reused pid.
 func (a App) probe(addr string, timeout time.Duration) probed {
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return probed{refused: refused(err)}
+	var conn net.Conn
+	// Gone only when some place refuses and none may still hold it: a family the machine cannot reach, [::1] with IPv6 off, holds nothing, but alone it proves nothing, as an address that dropped off the network (Wi-Fi, DHCP) may still have its server.
+	gone, anyRefused := true, false
+	for _, at := range atLoopback(addr) {
+		c, err := dial("tcp", at, timeout)
+		if err == nil {
+			conn, addr = c, at
+			break
+		}
+		anyRefused = anyRefused || refused(err)
+		gone = gone && (refused(err) || unreachable(err))
+	}
+	if conn == nil {
+		return probed{refused: gone && anyRefused}
 	}
 	conn.Close()
 	resp, err := (&http.Client{Timeout: timeout}).Get("http://" + addr + "/api/version")
@@ -360,7 +371,27 @@ func (a App) probe(addr string, timeout time.Duration) probed {
 	return probed{answering: true, version: e.Source.Version}
 }
 
+// dial is how the probe connects; a test puts its own in place.
+var dial = net.DialTimeout
+
+// atLoopback is where a server at addr is reached from this machine: addr itself, or, for every address (0.0.0.0, [::], :port), 127.0.0.1 then [::1], since only a loopback name passes the guard and a [::] listener takes IPv4 too (macOS records a 0.0.0.0 server as [::]).
+func atLoopback(addr string) []string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return []string{addr}
+	}
+	if ip := net.ParseIP(host); host != "" && (ip == nil || !ip.IsUnspecified()) {
+		return []string{addr}
+	}
+	return []string{net.JoinHostPort("127.0.0.1", port), net.JoinHostPort("::1", port)}
+}
+
 // refused reports whether a dial failed because nothing listens, by its error number (G-STACK-15).
 func refused(err error) bool {
 	return slices.ContainsFunc(connRefused, func(n error) bool { return errors.Is(err, n) })
+}
+
+// unreachable reports whether a dial failed because the machine cannot reach that address family at all, by its error number (G-STACK-15).
+func unreachable(err error) bool {
+	return slices.ContainsFunc(familyUnreachable, func(n error) bool { return errors.Is(err, n) })
 }
