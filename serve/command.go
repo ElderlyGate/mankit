@@ -307,10 +307,15 @@ func (a App) serversCommand(confirm func(*cobra.Command, ask.Action) error) *cob
 (serve --detach), and say which.
 
 A record is a claim, not proof, so every one is asked as it is listed, and a
-record whose address refuses a connection is removed.`,
+record whose address refuses a connection is removed.
+
+--check, for a health check, gives the same answer, then fails unless at least
+one server is listed and every one listed answers.`,
 		Args: cobra.NoArgs,
 	}
 	out := a.printing(c)
+	var check bool
+	c.Flags().BoolVar(&check, "check", false, "fail unless at least one server is listed and every one answers")
 	c.RunE = func(cmd *cobra.Command, _ []string) error {
 		if err := out.check(); err != nil {
 			return err
@@ -323,7 +328,7 @@ record whose address refuses a connection is removed.`,
 		if err != nil {
 			return err
 		}
-		return out.print(cmd.OutOrStdout(), "", ServerListKind, live, func(w io.Writer) {
+		if err := out.print(cmd.OutOrStdout(), "", ServerListKind, live, func(w io.Writer) {
 			if len(live) == 0 {
 				fmt.Fprintf(w, "no server is running; `%s serve --detach` starts one\n", a.command())
 				return
@@ -334,10 +339,42 @@ record whose address refuses a connection is removed.`,
 				fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%t\t%t\n", r.Metadata.Addr, r.Spec.Name, r.Metadata.PID,
 					time.Since(r.Spec.StartedAt).Round(time.Second), r.Spec.Version, r.Spec.Detached, s.Answering)
 			}
-		})
+		}); err != nil || !check {
+			return err
+		}
+		return a.checked(cmd, out.output, live)
 	}
 	c.AddCommand(a.stopCommand(confirm), a.linkCommand(), a.tokenCommand(confirm))
 	return c
+}
+
+// AlreadyAnswered is a refusal whose answer is already printed: the app exits as Err says and prints nothing more, so -o json stays one envelope.
+type AlreadyAnswered struct{ Err error }
+
+func (e AlreadyAnswered) Error() string { return e.Err.Error() }
+func (e AlreadyAnswered) Unwrap() error { return e.Err }
+
+// checked is servers --check after the answer: nil when at least one server is listed and every one answers, else AlreadyAnswered with why, said on standard error under a table.
+func (a App) checked(cmd *cobra.Command, output string, live []status) error {
+	var silent []string
+	for _, s := range live {
+		if !s.Answering {
+			silent = append(silent, s.Record.Metadata.Addr)
+		}
+	}
+	var why string
+	switch {
+	case len(live) == 0:
+		why = "no server is listed"
+	case len(silent) > 0:
+		why = fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", "))
+	default:
+		return nil
+	}
+	if output == "table" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s servers --check: %s\n", a.command(), why)
+	}
+	return AlreadyAnswered{Err: Fail(TypeFailed, "", why)}
 }
 
 func (a App) stopCommand(confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
