@@ -342,18 +342,19 @@ type probed struct {
 // Left open: another user's process could answer so on a reused port; a signal still reaches only this user's processes, and only on a reused pid.
 func (a App) probe(addr string, timeout time.Duration) probed {
 	var conn net.Conn
-	// Gone only when nothing listens at any place it is asked; a family the machine cannot reach, [::1] with IPv6 off, holds nothing.
-	gone := true
+	// Gone only when some place refuses and none may still hold it: a family the machine cannot reach, [::1] with IPv6 off, holds nothing, but alone it proves nothing, as an address that dropped off the network (Wi-Fi, DHCP) may still have its server.
+	gone, anyRefused := true, false
 	for _, at := range atLoopback(addr) {
 		c, err := dial("tcp", at, timeout)
 		if err == nil {
 			conn, addr = c, at
 			break
 		}
+		anyRefused = anyRefused || refused(err)
 		gone = gone && (refused(err) || unreachable(err))
 	}
 	if conn == nil {
-		return probed{refused: gone}
+		return probed{refused: gone && anyRefused}
 	}
 	conn.Close()
 	resp, err := (&http.Client{Timeout: timeout}).Get("http://" + addr + "/api/version")

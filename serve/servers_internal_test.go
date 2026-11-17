@@ -58,3 +58,21 @@ func TestAnEveryAddressServerIsKeptWhileOnePlaceMayHoldIt(t *testing.T) {
 		t.Fatalf("got %+v", p)
 	}
 }
+
+// A server on one address that dropped off the network, Wi-Fi gone or DHCP took it back, is not proven gone: its record stays, so stop still finds its pid.
+func TestAServerOnAnAddressOffTheNetworkIsKept(t *testing.T) {
+	for _, errno := range familyUnreachable {
+		dialing(t, map[string]error{"192.168.1.5:7799": errno})
+		if p := (App{ID: "designer"}).probe("192.168.1.5:7799", 10*time.Millisecond); p.refused {
+			t.Fatalf("%v: got %+v", errno, p)
+		}
+	}
+}
+
+// Every loopback out of reach, with no refusal, proves nothing either.
+func TestAnEveryAddressServerIsKeptWhenNoLoopbackRefuses(t *testing.T) {
+	dialing(t, map[string]error{"127.0.0.1:7799": syscall.ENETUNREACH, "[::1]:7799": familyUnreachable[0]})
+	if p := (App{ID: "designer"}).probe("[::]:7799", 10*time.Millisecond); p.refused {
+		t.Fatalf("got %+v", p)
+	}
+}
