@@ -341,9 +341,19 @@ type probed struct {
 // This app answers it with refused for its token from its guard, and says in ran or source which app and version it is; Envelope reads either envelope, so an app on mankit v2 is still found.
 // Left open: another user's process could answer so on a reused port; a signal still reaches only this user's processes, and only on a reused pid.
 func (a App) probe(addr string, timeout time.Duration) probed {
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return probed{refused: refused(err)}
+	var conn net.Conn
+	// Gone only when every place it is asked at refuses, so a machine without IPv6 does not lose a record its IPv4 loopback answers for.
+	gone := true
+	for _, at := range asked(addr) {
+		c, err := net.DialTimeout("tcp", at, timeout)
+		if err == nil {
+			conn, addr = c, at
+			break
+		}
+		gone = gone && refused(err)
+	}
+	if conn == nil {
+		return probed{refused: gone}
 	}
 	conn.Close()
 	resp, err := (&http.Client{Timeout: timeout}).Get("http://" + addr + "/api/version")
@@ -358,6 +368,23 @@ func (a App) probe(addr string, timeout time.Duration) probed {
 		return probed{}
 	}
 	return probed{answering: true, version: e.Source.Version}
+}
+
+// asked is where addr is asked: as written, or at loopback when it is every address (0.0.0.0, [::]), its own family first, as the guard takes only a loopback name or a known host.
+func asked(addr string) []string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return []string{addr}
+	}
+	ip := net.ParseIP(host)
+	if host != "" && (ip == nil || !ip.IsUnspecified()) {
+		return []string{addr}
+	}
+	v4, v6 := net.JoinHostPort("127.0.0.1", port), net.JoinHostPort("::1", port)
+	if ip != nil && ip.To4() == nil {
+		return []string{v6, v4}
+	}
+	return []string{v4, v6}
 }
 
 // refused reports whether a dial failed because nothing listens, by its error number (G-STACK-15).
