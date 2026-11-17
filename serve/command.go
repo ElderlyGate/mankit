@@ -329,15 +329,21 @@ that address and fails unless the server answers.`,
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
 				return err
 			}
-			if len(args) == 1 && !cmd.Flags().Changed("check") {
+			if len(args) == 0 {
+				return nil
+			}
+			if on, _ := cmd.Flags().GetBool("check"); !on {
 				return fmt.Errorf("an address is taken only with --check, as in `%s servers --check %s`", a.command(), args[0])
+			}
+			if _, port, err := net.SplitHostPort(args[0]); err != nil || port == "" {
+				return fmt.Errorf("%q is not an address: --check takes host:port, as in `%s servers --check 127.0.0.1:5173`", args[0], a.command())
 			}
 			return nil
 		},
 	}
 	out := a.printing(c)
 	var check bool
-	c.Flags().BoolVar(&check, "check", false, "fail unless at least one server is listed and every one answers")
+	c.Flags().BoolVar(&check, "check", false, "fail unless at least one server is listed and every one answers, or, with an address, unless that server answers")
 	c.RunE = func(cmd *cobra.Command, args []string) error {
 		if err := out.check(); err != nil {
 			return err

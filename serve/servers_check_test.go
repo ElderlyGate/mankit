@@ -162,7 +162,16 @@ func TestServersCheckAnAddressFailsAndRemovesNothing(t *testing.T) {
 // An address is taken only with --check.
 func TestServersTakesAnAddressOnlyWithCheck(t *testing.T) {
 	machine(t)
-	if out, err := run(t, "servers", "127.0.0.1:7799"); err == nil || !strings.Contains(out+err.Error(), "only with --check") {
-		t.Fatalf("%v\n%s", err, out)
+	for _, args := range [][]string{{"servers", "127.0.0.1:7799"}, {"servers", "--check=false", "127.0.0.1:7799"}} {
+		if out, err := run(t, args...); err == nil || !strings.Contains(out+err.Error(), "only with --check") {
+			t.Errorf("%v: %v\n%s", args, err, out)
+		}
+	}
+	// A typo is a usage mistake, never a server reported as not answering.
+	for _, addr := range []string{"5173", "not an address", "127.0.0.1:"} {
+		out, err := run(t, "servers", "--check", addr)
+		if err == nil || errors.As(err, new(helpout.Printed)) || !strings.Contains(out+err.Error(), "is not an address") {
+			t.Errorf("%q: %v\n%s", addr, err, out)
+		}
 	}
 }
