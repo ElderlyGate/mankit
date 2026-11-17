@@ -364,3 +364,16 @@ func TestAnUnknownVerbAtTheRootSuggestsOne(t *testing.T) {
 		t.Errorf("code %d, stderr:\n%s", code, errOut)
 	}
 }
+
+// A failure the command already gave in its answer exits 1, and Execute prints nothing more and hands back no error to print.
+func TestAPrintedFailureExitsOneAndPrintsNothingMore(t *testing.T) {
+	root := noArgsRoot()
+	root.RunE = func(c *cobra.Command, _ []string) error {
+		fmt.Fprintln(c.OutOrStdout(), `{"errors":[{"detail":"no server is listed"}]}`)
+		return Printed{Err: errors.New("no server is listed")}
+	}
+	out, errOut, code, err := execute(root)
+	if code != 1 || err != nil || out != "{\"errors\":[{\"detail\":\"no server is listed\"}]}\n" || errOut != "" {
+		t.Errorf("code %d, err %v, stdout %q, stderr %q", code, err, out, errOut)
+	}
+}

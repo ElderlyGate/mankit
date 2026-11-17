@@ -49,7 +49,13 @@ type mistake struct {
 
 func (m *mistake) Error() string { return m.err.Error() }
 
-// Execute runs root: 0 when it went well, 2 after printing a usage mistake and its usage to stderr, 3 and the error for an ask refusal, 1 and the run-time error untouched otherwise.
+// Printed is a failure the command has already given in full, in its answer: Execute exits 1 and nothing more is printed, so an -o json answer stays one envelope.
+type Printed struct{ Err error }
+
+func (p Printed) Error() string { return p.Err.Error() }
+func (p Printed) Unwrap() error { return p.Err }
+
+// Execute runs root: 0 when it went well, 2 after printing a usage mistake and its usage to stderr, 3 and the error for an ask refusal, 1 and no error for a failure already Printed, 1 and the run-time error untouched otherwise.
 func Execute(ctx context.Context, root *cobra.Command) (code int, err error) {
 	root.SilenceErrors, root.SilenceUsage = true, true
 	root.InitDefaultHelpCmd()
@@ -67,6 +73,8 @@ func Execute(ctx context.Context, root *cobra.Command) (code int, err error) {
 		cmd = m.cmd
 	case errors.Is(err, ask.ErrRefused):
 		return 3, err
+	case errors.As(err, new(Printed)):
+		return 1, nil
 	case cmd != root || !root.TraverseChildren || !isFlagError(err):
 		return 1, err
 	}
