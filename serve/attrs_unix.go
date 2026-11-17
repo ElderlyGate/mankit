@@ -53,3 +53,6 @@ func openNoFollow(path string) (*os.File, error) {
 
 // connRefused are the error numbers of a connection nothing listens for.
 var connRefused = []error{syscall.ECONNREFUSED}
+
+// familyUnreachable are the error numbers of a dial to an address family the machine cannot reach at all, such as [::1] with IPv6 off.
+var familyUnreachable = []error{syscall.EADDRNOTAVAIL, syscall.EAFNOSUPPORT, syscall.ENETUNREACH}

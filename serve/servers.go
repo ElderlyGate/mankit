@@ -342,15 +342,15 @@ type probed struct {
 // Left open: another user's process could answer so on a reused port; a signal still reaches only this user's processes, and only on a reused pid.
 func (a App) probe(addr string, timeout time.Duration) probed {
 	var conn net.Conn
-	// Gone only when every place it is asked at refuses, so a machine without IPv6 does not lose a record its IPv4 loopback answers for.
+	// Gone only when nothing listens at any place it is asked; a family the machine cannot reach, [::1] with IPv6 off, holds nothing.
 	gone := true
-	for _, at := range asked(addr) {
-		c, err := net.DialTimeout("tcp", at, timeout)
+	for _, at := range atLoopback(addr) {
+		c, err := dial("tcp", at, timeout)
 		if err == nil {
 			conn, addr = c, at
 			break
 		}
-		gone = gone && refused(err)
+		gone = gone && (refused(err) || unreachable(err))
 	}
 	if conn == nil {
 		return probed{refused: gone}
@@ -370,24 +370,27 @@ func (a App) probe(addr string, timeout time.Duration) probed {
 	return probed{answering: true, version: e.Source.Version}
 }
 
-// asked is where addr is asked: as written, or at loopback when it is every address (0.0.0.0, [::]), its own family first, as the guard takes only a loopback name or a known host.
-func asked(addr string) []string {
+// dial is how the probe connects; a test puts its own in place.
+var dial = net.DialTimeout
+
+// atLoopback is where a server at addr is reached from this machine: addr itself, or, for every address (0.0.0.0, [::], :port), 127.0.0.1 then [::1], since only a loopback name passes the guard and a [::] listener takes IPv4 too (macOS records a 0.0.0.0 server as [::]).
+func atLoopback(addr string) []string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return []string{addr}
 	}
-	ip := net.ParseIP(host)
-	if host != "" && (ip == nil || !ip.IsUnspecified()) {
+	if ip := net.ParseIP(host); host != "" && (ip == nil || !ip.IsUnspecified()) {
 		return []string{addr}
 	}
-	v4, v6 := net.JoinHostPort("127.0.0.1", port), net.JoinHostPort("::1", port)
-	if ip != nil && ip.To4() == nil {
-		return []string{v6, v4}
-	}
-	return []string{v4, v6}
+	return []string{net.JoinHostPort("127.0.0.1", port), net.JoinHostPort("::1", port)}
 }
 
 // refused reports whether a dial failed because nothing listens, by its error number (G-STACK-15).
 func refused(err error) bool {
 	return slices.ContainsFunc(connRefused, func(n error) bool { return errors.Is(err, n) })
+}
+
+// unreachable reports whether a dial failed because the machine cannot reach that address family at all, by its error number (G-STACK-15).
+func unreachable(err error) bool {
+	return slices.ContainsFunc(familyUnreachable, func(n error) bool { return errors.Is(err, n) })
 }
