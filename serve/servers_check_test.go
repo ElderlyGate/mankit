@@ -41,8 +41,8 @@ func TestServersCheckFailsWhenAServerDoesNotAnswer(t *testing.T) {
 		t.Fatalf("table: %v\n%s", err, out)
 	}
 	var p *serve.Problem
-	if !errors.As(err, &p) || p.Type != serve.TypeNotFound {
-		t.Fatalf("not a not_found problem: %v", err)
+	if !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
+		t.Fatalf("not a not_found problem for not_answering: %v", err)
 	}
 }
 
@@ -62,8 +62,9 @@ func TestServersCheckAnswersOneEnvelopeWithItsReason(t *testing.T) {
 	}
 	dec := json.NewDecoder(strings.NewReader(out))
 	var checked, second struct {
-		Kind string
-		Data json.RawMessage
+		Kind   string
+		Data   json.RawMessage
+		Errors []struct{ Code, Message string }
 	}
 	if dec.Decode(&checked) != nil || dec.Decode(&second) == nil {
 		t.Fatalf("not exactly one envelope:\n%s", out)
@@ -78,15 +79,22 @@ func TestServersCheckAnswersOneEnvelopeWithItsReason(t *testing.T) {
 	if checked.Kind != serve.ServerListKind || string(sameJSON) != string(wasJSON) {
 		t.Fatalf("kind %q, data differs from servers:\n%s\n%s", checked.Kind, sameJSON, wasJSON)
 	}
-	if e := envelope(t, []byte(out)); len(e.Errors) != 1 || e.Errors[0].Type != serve.TypeNotFound || !strings.Contains(e.Errors[0].Detail, "do not answer") {
-		t.Fatalf("errors %+v", e.Errors)
+	// envelope/v1 writes the reason as error/v1's code, the word a program decides by.
+	if len(checked.Errors) != 1 || checked.Errors[0].Code != serve.ReasonNotAnswering || !strings.Contains(checked.Errors[0].Message, "do not answer") {
+		t.Fatalf("errors %+v", checked.Errors)
 	}
 }
 
 func TestServersCheckFailsWhenNoServerIsListed(t *testing.T) {
 	machine(t)
 	out, err := run(t, "servers", "--check")
-	if !errors.As(err, new(helpout.Printed)) || strings.Count(out, "no server is listed") != 1 {
+	var p *serve.Problem
+	if !errors.As(err, new(helpout.Printed)) || strings.Count(out, "no server is listed") != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNoneListed {
 		t.Fatalf("%v\n%s", err, out)
+	}
+	out, _ = run(t, "servers", "--check", "-o", "json")
+	var said struct{ Errors []struct{ Code string } }
+	if json.Unmarshal([]byte(out), &said) != nil || len(said.Errors) != 1 || said.Errors[0].Code != serve.ReasonNoneListed {
+		t.Fatalf("json: %s", out)
 	}
 }

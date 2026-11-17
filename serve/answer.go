@@ -78,6 +78,9 @@ const (
 	ReasonConfigUnreadable = "config_unreadable"
 	ReasonCoreNeedsValues  = "core_needs_values"
 	ReasonTooLarge         = "too_large"
+	// servers --check: no server is listed, or one listed does not answer.
+	ReasonNoneListed   = "none_listed"
+	ReasonNotAnswering = "not_answering"
 )
 
 // Source says where an answer comes from; contracts envelope/v2 describes each field and why it exists, and envelope/v1 names it ran.

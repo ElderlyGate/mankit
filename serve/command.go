@@ -376,9 +376,9 @@ func checked(live []status) error {
 	}
 	switch {
 	case len(live) == 0:
-		return Fail(TypeNotFound, "", "no server is listed")
+		return Fail(TypeNotFound, ReasonNoneListed, "no server is listed")
 	case len(silent) > 0:
-		return Fail(TypeNotFound, "", fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", ")))
+		return Fail(TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", ")))
 	}
 	return nil
 }
