@@ -498,13 +498,28 @@ func (a App) linkCommand() *cobra.Command {
 		Long: `Print the link that opens the page of the server on addr (` + a.Addr + ` by default).
 
 The link carries this machine's token once: the server swaps it for a cookie and
-takes it out of the address, so the page never holds it.`,
+takes it out of the address, so the page never holds it.
+
+--base starts the link with another address than addr's, for a server that
+people reach through a proxy or a host's own name, such as
+https://board.example.com; the server answers to that name only when serve
+was given it with --host.`,
 		Args: cobra.MaximumNArgs(1),
 	}
 	out := a.printing(c)
+	var base string
+	c.Flags().StringVar(&base, "base", "", "the scheme and host the link starts with, such as https://board.example.com (default: http:// and addr)")
 	c.RunE = func(cmd *cobra.Command, args []string) error {
 		if err := out.check(); err != nil {
 			return err
+		}
+		start := ""
+		if base != "" {
+			b, err := baseOf(base)
+			if err != nil {
+				return err
+			}
+			start = b
 		}
 		dir, err := a.serversDir()
 		if err != nil {
@@ -519,6 +534,9 @@ takes it out of the address, so the page never holds it.`,
 			addr = args[0]
 		}
 		link := pageLink(addr, token)
+		if start != "" {
+			link = linkAt(start, token)
+		}
 		return out.print(cmd.OutOrStdout(), "", LinkKind, map[string]string{"url": link}, func(w io.Writer) { fmt.Fprintln(w, link) })
 	}
 	return c

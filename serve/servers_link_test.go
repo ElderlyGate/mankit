@@ -37,6 +37,20 @@ func TestServersLinkOpensThePage(t *testing.T) {
 	}
 }
 
+func TestServersLinkStartsAtTheBaseGiven(t *testing.T) {
+	machine(t)
+	addr := addrOf(detached(t))
+	own := answer(t, linkSchema, "servers", "link", addr).Data.(map[string]any)["url"].(string)
+	_, query, _ := strings.Cut(own, "/?")
+	for _, base := range []string{"https://board.example.com", "https://board.example.com/", "http://board.example.com:8080"} {
+		e := answer(t, linkSchema, "servers", "link", addr, "--base", base)
+		want := strings.TrimSuffix(base, "/") + "/?" + query
+		if link := e.Data.(map[string]any)["url"].(string); link != want {
+			t.Errorf("--base %s: link %q, want %q", base, link, want)
+		}
+	}
+}
+
 // Contract
 
 func TestServersLinkRefusesAContractItDoesNotAnswer(t *testing.T) {
@@ -55,6 +69,25 @@ func TestServersLinkNeedsAToken(t *testing.T) {
 	machine(t)
 	if _, err := run(t, "servers", "link"); err == nil || !strings.Contains(err.Error(), "no server token") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestServersLinkRefusesABaseThatIsNotASchemeAndHost(t *testing.T) {
+	machine(t)
+	detached(t)
+	for _, base := range []string{"board.example.com", "ftp://board.example.com", "https://", "https://:8080", "https://board.example.com/board",
+		"https://board.example.com/?a=b", "https://board.example.com/?", "https://board.example.com/#", "https://board.example.com#x", "https://user@board.example.com",
+		"https://board.example.com:", "https://board.example.com:0", "https://board.example.com:65536", "https://board.example.com:http"} {
+		if out, err := run(t, "servers", "link", "--base", base); err == nil || !strings.Contains(err.Error(), "--base takes") || strings.Contains(out, "token=") {
+			t.Errorf("--base %s: %q, %v", base, out, err)
+		}
+	}
+	// A pasted link is refused without its token in the message.
+	if _, err := run(t, "servers", "link", "--base", "https://board.example.com/?token=secret"); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Errorf("a pasted link: %v", err)
+	}
+	if out, err := run(t, "servers", "link", "--base", "https://board.example.com:65535"); err != nil || !strings.HasPrefix(out, "https://board.example.com:65535/?token=") {
+		t.Errorf("port 65535: %q, %v", out, err)
 	}
 }
 
@@ -80,7 +113,7 @@ func TestServersLinkAnswersLikeHTTP(t *testing.T) {
 
 func TestServersLinkHelpNamesItsDefaultAddress(t *testing.T) {
 	out := help(t, "servers", "link")
-	for _, want := range []string{"127.0.0.1:0", "--output", "--contract"} {
+	for _, want := range []string{"127.0.0.1:0", "--output", "--contract", "--base"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("servers link --help has no %s:\n%s", want, out)
 		}
