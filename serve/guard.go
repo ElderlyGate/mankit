@@ -28,7 +28,22 @@ func (a App) cookieName(host string) string {
 
 // pageLink is the link that opens the page of the server at addr; the server swaps the token for a cookie.
 func pageLink(addr, token string) string {
-	return "http://" + atLoopback(addr)[0] + "/?" + tokenParam + "=" + url.QueryEscape(token)
+	return linkAt("http://"+atLoopback(addr)[0], token)
+}
+
+// linkAt is the link that opens the page at base, a scheme and host that baseOf took.
+func linkAt(base, token string) string {
+	return base + "/?" + tokenParam + "=" + url.QueryEscape(token)
+}
+
+// baseOf is raw as the start of a link, http or https and a host with nothing after it, for a server reached at another address than its own, such as behind a proxy.
+func baseOf(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return "", fmt.Errorf("--base takes http:// or https:// and a host, with no path, such as https://board.example.com, not %q", raw)
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 // bearer is the token of an Authorization: Bearer header, the one way every app's clients send it; empty without one.
