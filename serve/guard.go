@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -37,13 +38,23 @@ func linkAt(base, token string) string {
 }
 
 // baseOf is raw as the start of a link, http or https and a host with nothing after it, for a server reached at another address than its own, such as behind a proxy.
+// A refusal never repeats raw: a pasted link would put its token in the message.
 func baseOf(raw string) (string, error) {
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
-		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
-		return "", fmt.Errorf("--base takes http:// or https:// and a host, with no path, such as https://board.example.com, not %q", raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || !validPort(u) ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "#") || u.Opaque != "" {
+		return "", fmt.Errorf("--base takes http:// or https:// and a host, with an optional port and no path, query or user, such as https://board.example.com")
 	}
 	return u.Scheme + "://" + u.Host, nil
+}
+
+// validPort reports whether u's host has no port, or one from 1 to 65535; a host ending in a bare colon has none to give.
+func validPort(u *url.URL) bool {
+	if u.Port() == "" {
+		return !strings.HasSuffix(u.Host, ":")
+	}
+	n, err := strconv.Atoi(u.Port())
+	return err == nil && n >= 1 && n <= 65535
 }
 
 // bearer is the token of an Authorization: Bearer header, the one way every app's clients send it; empty without one.

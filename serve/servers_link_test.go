@@ -75,10 +75,19 @@ func TestServersLinkNeedsAToken(t *testing.T) {
 func TestServersLinkRefusesABaseThatIsNotASchemeAndHost(t *testing.T) {
 	machine(t)
 	detached(t)
-	for _, base := range []string{"board.example.com", "ftp://board.example.com", "https://", "https://board.example.com/board", "https://board.example.com/?a=b", "https://user@board.example.com"} {
+	for _, base := range []string{"board.example.com", "ftp://board.example.com", "https://", "https://:8080", "https://board.example.com/board",
+		"https://board.example.com/?a=b", "https://board.example.com/?", "https://board.example.com/#", "https://board.example.com#x", "https://user@board.example.com",
+		"https://board.example.com:", "https://board.example.com:0", "https://board.example.com:65536", "https://board.example.com:http"} {
 		if out, err := run(t, "servers", "link", "--base", base); err == nil || !strings.Contains(err.Error(), "--base takes") || strings.Contains(out, "token=") {
 			t.Errorf("--base %s: %q, %v", base, out, err)
 		}
+	}
+	// A pasted link is refused without its token in the message.
+	if _, err := run(t, "servers", "link", "--base", "https://board.example.com/?token=secret"); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Errorf("a pasted link: %v", err)
+	}
+	if out, err := run(t, "servers", "link", "--base", "https://board.example.com:65535"); err != nil || !strings.HasPrefix(out, "https://board.example.com:65535/?token=") {
+		t.Errorf("port 65535: %q, %v", out, err)
 	}
 }
 
