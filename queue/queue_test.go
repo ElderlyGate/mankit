@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -1022,5 +1023,27 @@ func TestATicketWhoseOwnerShowsNoSignOfLifeIsSetAsideAndSaid(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "stale") {
 		t.Errorf("said %q, want it named stale", log.String())
+	}
+}
+
+// The queue's folder is this user's own: one that is a link is refused before any ticket is written, and nothing lands where it leads.
+func TestAQueueFolderThatIsALinkIsRefused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no link checks")
+	}
+	q, _ := newQueue(t)
+	elsewhere := t.TempDir()
+	if err := os.MkdirAll(q.Folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(q.Folder, ".queue")); err != nil {
+		t.Fatal(err)
+	}
+	err := q.Change(context.Background(), "add item", nothing, nothing)
+	if err == nil || !strings.Contains(err.Error(), "is not this user's own") {
+		t.Fatalf("err = %v, want the folder refused as not this user's own", err)
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+		t.Errorf("written through the link: %v", entries)
 	}
 }

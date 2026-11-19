@@ -1,5 +1,0 @@
-# mankit's exceptions to the storage wall (ADR-S22), read by cmd/storewall: what a package may do, the package, and why.
-write   ...:tests  tests make the files they read in t.TempDir()
-encode  ...:tests  tests write the YAML and JSON they feed in
-encode  serve      the HTTP door answers in the contracts envelope, JSON on the wire and with -o
-encode  events     live events go out on the stream as CloudEvents JSON

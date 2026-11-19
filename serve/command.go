@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
-	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/v3/ask"
 	"github.com/tugbayatilla/mankit/v3/features"
@@ -94,16 +93,12 @@ func (p *printing) printWith(w io.Writer, name, kind string, data any, problems 
 	if err != nil {
 		return err
 	}
+	// Through its JSON, so the YAML has the envelope its contract names.
 	var doc any
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return err
 	}
-	enc := yaml.NewEncoder(w)
-	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
-		return err
-	}
-	return enc.Close()
+	return helpout.Encode(w, "yaml", doc)
 }
 
 // check refuses an unknown -o or a contract the app does not answer before anything happens.

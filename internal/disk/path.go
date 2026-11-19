@@ -89,7 +89,7 @@ func WriteOnce(path string, data []byte, mode fs.FileMode) error {
 	if err := os.Link(tmp.Name(), path); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
-	return nil
+	return syncPath(filepath.Dir(path))
 }
 
 // Remove takes the file at path away; one already gone is not an error, as two tidying the same file are both right.
