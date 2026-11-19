@@ -12,9 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/home"
-	settingscli "github.com/tugbayatilla/mankit/v3/settings/cli"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/home"
+	settingscli "github.com/tugbayatilla/mankit/v4/settings/cli"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 // sandbox gives the test its own home and returns the app's config file.
@@ -147,12 +148,12 @@ func oldConfig(t *testing.T, body string) string {
 	return path
 }
 
-// homeAsker reads the styles where home.Current says and copies the old config with home.Migrate after the yes.
+// homeAsker reads the styles where home.Current says and copies the old config with store.Migrate after the yes.
 func homeAsker(config string) Asker {
 	return Asker{
 		Config:  func() string { return config },
 		Read:    func() string { p, _ := home.Current("app", "config.yaml"); return p },
-		Migrate: func() error { return home.Migrate("app", "config.yaml") },
+		Migrate: func() error { return store.Migrate("app", "config.yaml") },
 	}
 }
 

@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
 )
 
 // The servers folder is the app's own: one that is a link is refused, and nothing is written where it leads.

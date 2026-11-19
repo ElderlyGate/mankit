@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 // The servers stop command: stop a server by its address or its name, or every one.
@@ -61,8 +62,8 @@ func TestServersStopRemovesTheRecordOfAServerAlreadyGone(t *testing.T) {
 func TestServersStopRefusesAContractItDoesNotAnswer(t *testing.T) {
 	machine(t)
 	_, err := run(t, "servers", "stop", "--all", "--yes", "-o", "json", "--contract", "v9")
-	var e *serve.Problem
-	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract {
+	var e *problem.Problem
+	if !errors.As(err, &e) || e.Type != problem.TypeUnsupportedContract {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -86,11 +87,11 @@ func TestServersStopSignalsNothingItCannotName(t *testing.T) {
 		"another program": http.NotFoundHandler(),
 		"another app": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = serve.Encode(w, serve.App{ID: "kanban", Version: "1.0.0", Contracts: []serve.Contract{{Version: "v1"}}}.Failure("", "v1", serve.Fail(serve.TypeRefused, serve.ReasonToken, "no token")))
+			_ = serve.Encode(w, serve.App{ID: "kanban", Version: "1.0.0", Contracts: []serve.Contract{{Version: "v1"}}}.Failure("", "v1", problem.Fail(problem.TypeRefused, serve.ReasonToken, "no token")))
 		}),
 		"this app's id with another code": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = serve.Encode(w, app.Failure("", "v1", serve.Fail(serve.TypeRefused, serve.ReasonUnconfirmed, "not the guard")))
+			_ = serve.Encode(w, app.Failure("", "v1", problem.Fail(problem.TypeRefused, serve.ReasonUnconfirmed, "not the guard")))
 		}),
 	}
 	for name, h := range foreign {

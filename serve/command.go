@@ -21,10 +21,11 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/features"
-	"github.com/tugbayatilla/mankit/v3/helpout"
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // The kinds of the answers the commands print with -o json or yaml.
@@ -356,7 +357,7 @@ that address and fails unless the server answers.`,
 				return err
 			}
 			if !answering {
-				problems = []error{Fail(TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%s does not answer", args[0]))}
+				problems = []error{problem.Fail(problem.TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%s does not answer", args[0]))}
 			}
 		} else {
 			if live, err = a.live(dir); err != nil {
@@ -405,9 +406,9 @@ func checked(live []status) error {
 	}
 	switch {
 	case len(live) == 0:
-		return Fail(TypeNotFound, ReasonNoneListed, "no server is listed")
+		return problem.Fail(problem.TypeNotFound, ReasonNoneListed, "no server is listed")
 	case len(silent) > 0:
-		return Fail(TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", ")))
+		return problem.Fail(problem.TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", ")))
 	}
 	return nil
 }

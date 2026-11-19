@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/queue"
-	"github.com/tugbayatilla/mankit/v3/settings"
-	"github.com/tugbayatilla/mankit/v3/theme"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/queue"
+	"github.com/tugbayatilla/mankit/v4/settings"
+	"github.com/tugbayatilla/mankit/v4/store"
+	"github.com/tugbayatilla/mankit/v4/theme"
 )
 
 var prefix = settings.Key{Name: "prefix", Help: "free text"}
@@ -54,7 +54,7 @@ func TestPathCopiesNothingMigrateTakesTheOldConfigAlong(t *testing.T) {
 	if got := row(t, settings.Path("app", ""), "theme"); got.Set {
 		t.Fatalf("theme = %+v before Migrate, want the default", got)
 	}
-	if err := home.Migrate("app", "config.yaml"); err != nil {
+	if err := store.Migrate("app", "config.yaml"); err != nil {
 		t.Fatal(err)
 	}
 	if got := row(t, settings.Path("app", ""), "theme"); got.Value != "nord" || !got.Set {

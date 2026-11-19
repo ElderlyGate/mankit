@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/store"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 // TestTwoUsers is one step of testdata/twouser.sh, which runs each step as one of two users on one of two machines sharing a served folder.
@@ -35,8 +35,8 @@ func TestTwoUsers(t *testing.T) {
 		t.Fatal("the change was not stopped")
 	case "refused":
 		err := put(t, s, "shop/a.yml", "the other user's")
-		var p *serve.Problem
-		if !errors.As(err, &p) || p.Type != serve.TypeRefused || p.Reason != store.ReasonUnfinished {
+		var p *problem.Problem
+		if !errors.As(err, &p) || p.Type != problem.TypeRefused || p.Reason != store.ReasonUnfinished {
 			t.Fatalf("the other user's change = %v, want refused unfinished_change", err)
 		}
 		for _, says := range strings.Fields(os.Getenv("STORE_TWOUSER_NAMES")) {

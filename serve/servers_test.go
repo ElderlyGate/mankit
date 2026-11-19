@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 // The servers command: every server of the app on this machine.
@@ -87,8 +88,8 @@ func TestServersAnswersTheContractAskedFor(t *testing.T) {
 func TestServersRefusesAContractItDoesNotAnswer(t *testing.T) {
 	machine(t)
 	_, err := run(t, "servers", "-o", "json", "--contract", "v9")
-	var e *serve.Problem
-	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract || !strings.Contains(e.Detail, "it answers v1") {
+	var e *problem.Problem
+	if !errors.As(err, &e) || e.Type != problem.TypeUnsupportedContract || !strings.Contains(e.Detail, "it answers v1") {
 		t.Fatalf("got %v", err)
 	}
 }

@@ -18,11 +18,11 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/tugbayatilla/mankit/v3/features"
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
-	"github.com/tugbayatilla/mankit/v3/queue"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/internal/queue"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // The reasons of the store's Problems (contracts problem/v1); a program decides by type and reason, never by the detail (G-STACK-15).
@@ -52,7 +52,7 @@ var reserved = map[string]bool{".queue": true, ".store": true}
 // ParseKey is s as a key: empty and . steps and a trailing slash dropped; a .. step, a backslash, a control character, a machine path's start or one of the store's own folders refused as outside.
 func ParseKey(s string) (Key, error) {
 	refuse := func(why string) (Key, error) {
-		return "", fail(serve.TypeRefused, ReasonOutside, "", fmt.Sprintf("%q is no key inside the scope: %s", s, why))
+		return "", problem.FailAt(problem.TypeRefused, ReasonOutside, "", fmt.Sprintf("%q is no key inside the scope: %s", s, why))
 	}
 	switch {
 	case s == "":
@@ -109,7 +109,7 @@ func (k Key) check() error {
 		return err
 	}
 	if got != k {
-		return fail(serve.TypeRefused, ReasonOutside, string(k), fmt.Sprintf("%q is not in the one form a key takes, %q", k, got))
+		return problem.FailAt(problem.TypeRefused, ReasonOutside, string(k), fmt.Sprintf("%q is not in the one form a key takes, %q", k, got))
 	}
 	return nil
 }
@@ -209,7 +209,7 @@ type Scope struct {
 func Served(app App, root string, line func(thing Key) string) (*Scope, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
-		return nil, fail(serve.TypeFailed, "", "", fmt.Sprintf("the folder %s cannot be found: %v", root, err))
+		return nil, problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the folder %s cannot be found: %v", root, err))
 	}
 	return open(app, abs, false, line)
 }
@@ -223,7 +223,7 @@ func Data(app App) (*Scope, error) { return own(app, home.ProductData) }
 func own(app App, where func(string) (string, error)) (*Scope, error) {
 	dir, err := where(app.ID)
 	if err != nil {
-		return nil, fail(serve.TypeFailed, "", "", fmt.Sprintf("%s's own folder cannot be found: %v", app.ID, err))
+		return nil, problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("%s's own folder cannot be found: %v", app.ID, err))
 	}
 	// This user's own folder that others could read is made private, and said; another user's, or a link, is refused.
 	tightened, err := disk.Private(dir)
@@ -289,7 +289,7 @@ func (s *Scope) Change(ctx context.Context, thing Key, what string, fn func(Tx) 
 			return err
 		}
 		if thing.thing() != thing {
-			return fail(serve.TypeRefused, ReasonOutside, string(thing), fmt.Sprintf("%s is inside a thing; a change takes the turn of the thing %s", thing, thing.thing()))
+			return problem.FailAt(problem.TypeRefused, ReasonOutside, string(thing), fmt.Sprintf("%s is inside a thing; a change takes the turn of the thing %s", thing, thing.thing()))
 		}
 	}
 	if err := s.a.settle(ctx, thing); err != nil {
@@ -359,20 +359,8 @@ func (s *Scope) Unfinished(thing Key) ([]Unfinished, error) {
 	return s.a.unfinished(thing)
 }
 
-// Clear removes the marks of every change cut short in thing's turn, each in its turns, and says which, with this user's journal when it is on this machine (File); it puts nothing back, and a journal stays in its user's data folder, shown as Left by Unfinished.
-// A mark already gone once its turns are taken, put back or cleared meanwhile, is not counted.
-//
-// Deprecated: Clear removes marks a person may never have seen; use ClearShown with the ids the question showed.
-func (s *Scope) Clear(ctx context.Context, thing Key) ([]Unfinished, error) {
-	if thing != "" {
-		if err := thing.check(); err != nil {
-			return nil, err
-		}
-	}
-	return s.a.clear(ctx, thing, nil)
-}
-
-// ClearShown is Clear of only the marks whose ids a person was shown: each is checked again once its turns are taken, so a mark put back, cleared or new meanwhile is left as it is, and what it says is what was removed; no id clears nothing.
+// ClearShown removes the marks of the changes cut short in thing's turn whose ids a person was shown, each in its turns, and says which, with this user's journal when it is on this machine (File); it puts nothing back, and a journal stays in its user's data folder, shown as Left by Unfinished.
+// Each is checked again once its turns are taken, so a mark put back, cleared or new meanwhile is left as it is, and what it says is what was removed; no id clears nothing.
 // It is for store unfinished clear, which shows the change and asks first (G-STACK-13), once a person is sure the change was put back or given up; nothing clears a mark unasked.
 func (s *Scope) ClearShown(ctx context.Context, thing Key, ids []string) ([]Unfinished, error) {
 	if thing != "" {
@@ -445,7 +433,7 @@ func (x *tx) Get(key Key) (Item, bool, error) {
 		return Item{}, false, err
 	}
 	if folder {
-		return Item{}, false, fail(serve.TypeRefused, "", string(key), fmt.Sprintf("%s is a folder, not a file", key))
+		return Item{}, false, problem.FailAt(problem.TypeRefused, "", string(key), fmt.Sprintf("%s is a folder, not a file", key))
 	}
 	return Item{Body: body, Sum: SumOf(body)}, true, nil
 }
@@ -571,7 +559,7 @@ func (x *tx) stage(o op) error {
 			return err
 		}
 		if x.thing != "" && !k.within(x.thing) {
-			return fail(serve.TypeRefused, ReasonOutside, string(k), fmt.Sprintf("%s is outside the thing %s, whose turn this change holds", k, x.thing))
+			return problem.FailAt(problem.TypeRefused, ReasonOutside, string(k), fmt.Sprintf("%s is outside the thing %s, whose turn this change holds", k, x.thing))
 		}
 		// The thing itself is added, moved or removed in the folder's turn, which must come before the thing's.
 		if x.thing != "" && k == x.thing && o.kind != opPut && !x.t.holds("") {
@@ -599,14 +587,14 @@ func (x *tx) meets(o op) error {
 	if o.kind == opMove {
 		at = o.from
 		if o.key.within(o.from) {
-			return fail(serve.TypeRefused, "", string(o.key), fmt.Sprintf("%s is inside %s, so %s cannot move there", o.key, o.from, o.from))
+			return problem.FailAt(problem.TypeRefused, "", string(o.key), fmt.Sprintf("%s is inside %s, so %s cannot move there", o.key, o.from, o.from))
 		}
 		_, taken, _, err := x.view(o.key)
 		if err != nil {
 			return err
 		}
 		if taken {
-			return fail(serve.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s is there already, so %s is not moved onto it", o.key, o.from))
+			return problem.FailAt(problem.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s is there already, so %s is not moved onto it", o.key, o.from))
 		}
 	}
 	if o.kind != opRemove {
@@ -620,9 +608,9 @@ func (x *tx) meets(o op) error {
 	}
 	switch {
 	case o.kind == opPut && folder:
-		return fail(serve.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s is a folder, so no file is written there", at))
+		return problem.FailAt(problem.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s is a folder, so no file is written there", at))
 	case o.kind == opMove && !there:
-		return fail(serve.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s is not there, so it is not moved", at))
+		return problem.FailAt(problem.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s is not there, so it is not moved", at))
 	}
 	return unmet(at, o.want, there, folder, body)
 }
@@ -635,7 +623,7 @@ func (x *tx) noFileAbove(k Key) error {
 			return err
 		}
 		if there && !folder {
-			return fail(serve.TypeRefused, ReasonChanged, p, fmt.Sprintf("%s is a file, so nothing is written inside it", p))
+			return problem.FailAt(problem.TypeRefused, ReasonChanged, p, fmt.Sprintf("%s is a file, so nothing is written inside it", p))
 		}
 	}
 	return nil
@@ -657,34 +645,25 @@ func unmet(at Key, want Want, there, folder bool, body []byte) error {
 	case there:
 		now = sum
 	}
-	return fail(serve.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s holds %s, not %s as the writer read; read it again before trying again", at, now, want))
-}
-
-// fail is a Problem pointing at key, when it names one.
-func fail(typ, reason string, key string, detail string) *serve.Problem {
-	p := serve.Fail(typ, reason, detail)
-	if key != "" {
-		p.At = []serve.Place{{File: key}}
-	}
-	return p
+	return problem.FailAt(problem.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s holds %s, not %s as the writer read; read it again before trying again", at, now, want))
 }
 
 // diskFail says what the safety core refused, with the store's reason for it; anything else is the disk failing.
 func diskFail(err error, key, what string) error {
-	var p *serve.Problem
+	var p *problem.Problem
 	switch {
 	case errors.As(err, &p):
 		return err
 	case errors.Is(err, disk.ErrLink):
-		return fail(serve.TypeRefused, ReasonOutside, key, fmt.Sprintf("%s leads through a link, so it is not read or written: %v", what, err))
+		return problem.FailAt(problem.TypeRefused, ReasonOutside, key, fmt.Sprintf("%s leads through a link, so it is not read or written: %v", what, err))
 	case errors.Is(err, disk.ErrNotOwned):
-		return fail(serve.TypeFailed, ReasonNotOwned, key, fmt.Sprintf("%s is not this user's own, or others can read or write it, so it is not used: %v", what, err))
+		return problem.FailAt(problem.TypeFailed, ReasonNotOwned, key, fmt.Sprintf("%s is not this user's own, or others can read or write it, so it is not used: %v", what, err))
 	case errors.Is(err, disk.ErrNotFile):
-		return fail(serve.TypeRefused, "", key, fmt.Sprintf("%s is not a regular file, so it is not read or written", what))
+		return problem.FailAt(problem.TypeRefused, "", key, fmt.Sprintf("%s is not a regular file, so it is not read or written", what))
 	case escapes(err):
-		return fail(serve.TypeRefused, ReasonOutside, key, fmt.Sprintf("%s leads out of the scope, so it is not read or written", what))
+		return problem.FailAt(problem.TypeRefused, ReasonOutside, key, fmt.Sprintf("%s leads out of the scope, so it is not read or written", what))
 	}
-	return fail(serve.TypeFailed, "", key, fmt.Sprintf("%s: %v", what, err))
+	return problem.FailAt(problem.TypeFailed, "", key, fmt.Sprintf("%s: %v", what, err))
 }
 
 // escapes says whether an open folder refused a name for leading out of it.

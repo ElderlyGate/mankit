@@ -16,8 +16,9 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/features"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 // The serve command: in the foreground, or detached with --detach.
@@ -186,8 +187,8 @@ func TestServeDetachAnswersTheContractAskedFor(t *testing.T) {
 func TestServeRefusesAContractItDoesNotAnswerBeforeItStarts(t *testing.T) {
 	dir := machine(t)
 	_, err := run(t, "serve", "--detach", "-o", "json", "--contract", "v9")
-	var e *serve.Problem
-	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract {
+	var e *problem.Problem
+	if !errors.As(err, &e) || e.Type != problem.TypeUnsupportedContract {
 		t.Fatalf("got %v", err)
 	}
 	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {
@@ -208,8 +209,8 @@ func TestServeRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) {
 	r.SetErr(&syncBuffer{})
 	r.SetArgs([]string{"serve"})
 	err := r.Execute()
-	var e *serve.Problem
-	if !errors.As(err, &e) || e.Type != serve.TypeFailed || e.Reason != serve.ReasonCoreNeedsValues || !strings.Contains(e.Detail, "SHOP_DIR (where the shop lives)") {
+	var e *problem.Problem
+	if !errors.As(err, &e) || e.Type != problem.TypeFailed || e.Reason != serve.ReasonCoreNeedsValues || !strings.Contains(e.Detail, "SHOP_DIR (where the shop lives)") {
 		t.Fatalf("got %v, want core_needs_values naming SHOP_DIR", err)
 	}
 	if recs, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(recs) != 0 {

@@ -16,8 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // A record is a claim a detached server leaves, never proof: a process can die without removing it, and a pid is reused.
@@ -340,7 +341,7 @@ func (a App) probe(addr string, timeout time.Duration) probed {
 	var e Envelope
 	// An answer with ran: null is not envelope/v1, so UpgradeEnvelope refuses it and the decode fails: not this app.
 	if resp.StatusCode != http.StatusUnauthorized || json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&e) != nil ||
-		len(e.Errors) != 1 || e.Errors[0].Type != TypeRefused || e.Errors[0].Reason != ReasonToken || e.Source.App != a.ID || e.Source.Version == "" {
+		len(e.Errors) != 1 || e.Errors[0].Type != problem.TypeRefused || e.Errors[0].Reason != ReasonToken || e.Source.App != a.ID || e.Source.Version == "" {
 		return probed{}
 	}
 	return probed{answering: true, version: e.Source.Version}

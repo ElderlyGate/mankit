@@ -2,11 +2,8 @@
 package home
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
-
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 // Org is the name of the org's folders, written only here so a rename changes one line.
@@ -42,14 +39,14 @@ func Config(id, dir string) (string, error) {
 }
 
 // Current is the file to read id's name from now: File(id, name), or the old file in the system's config folder, read in place,
-// while File is missing, Migrate has not copied it and the old one exists. It never touches a file.
+// while File is missing, store.Migrate has not copied it and the old one exists. It never touches a file.
 func Current(id, name string) (string, error) {
 	to, err := File(id, name)
 	if err != nil || exists(to) {
 		return to, err
 	}
-	dir, err := Dir()
-	if err != nil || exists(filepath.Join(dir, ".migrated", id, name)) {
+	mark, err := MigratedMark(id, name)
+	if err != nil || exists(mark) {
 		return to, err
 	}
 	if old, err := os.UserConfigDir(); err == nil && exists(filepath.Join(old, id, name)) {
@@ -58,34 +55,13 @@ func Current(id, name string) (string, error) {
 	return to, nil
 }
 
-// Migrate copies each named file the app kept before in the system's config folder (<config dir>/<id>/<name>) to File(id, name), once per file:
-// a done copy leaves a mark in <Dir>/.migrated/<id>/, so a file the user deletes later never comes back. A missing old file or a copy that fails leaves no mark.
-func Migrate(id string, names ...string) error {
-	old, err := os.UserConfigDir()
-	if err != nil {
-		return nil // no old folder to copy from
-	}
+// MigratedMark is the mark store.Migrate leaves once it copied id's old name: Current reads the old file in place only while it is missing.
+func MigratedMark(id, name string) (string, error) {
 	dir, err := Dir()
 	if err != nil {
-		return err
+		return "", err
 	}
-	marks := filepath.Join(dir, ".migrated", id)
-	var errs []error
-	for _, name := range names {
-		mark, from := filepath.Join(marks, name), filepath.Join(old, id, name)
-		if exists(mark) || !exists(from) {
-			continue
-		}
-		to, err := File(id, name)
-		if err == nil {
-			err = CopyOnce(from, to)
-		}
-		if err == nil {
-			err = disk.Replace(mark, nil, 0o644) // the empty mark
-		}
-		errs = append(errs, err)
-	}
-	return errors.Join(errs...)
+	return filepath.Join(dir, ".migrated", id, name), nil
 }
 
 // exists reports whether something is at path.
@@ -93,10 +69,6 @@ func exists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
 }
-
-// CopyOnce copies the file or folder from to to when to is missing and from exists, and leaves from as it was; otherwise it does nothing.
-// A folder appears whole or not at all, and a to made meanwhile by someone else is kept, never overwritten.
-func CopyOnce(from, to string) error { return disk.CopyOnce(from, to) }
 
 // base is $env/<Org> when env holds an absolute path, else ~/<fallback>/<Org>.
 func base(env, fallback string) (string, error) {

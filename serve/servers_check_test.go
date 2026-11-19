@@ -11,8 +11,10 @@ import (
 	"testing"
 
 	"github.com/ElderlyGate/contracts"
-	"github.com/tugbayatilla/mankit/v3/helpout"
-	"github.com/tugbayatilla/mankit/v3/serve"
+
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 // servers --check: the list of servers, and a failure unless at least one server is listed and every one answers, said in the answer's errors.
@@ -42,8 +44,8 @@ func TestServersCheckFailsWhenAServerDoesNotAnswer(t *testing.T) {
 	if !errors.As(err, new(helpout.Printed)) || strings.Count(out, why) != 1 {
 		t.Fatalf("table: %v\n%s", err, out)
 	}
-	var p *serve.Problem
-	if !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Type != problem.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
 		t.Fatalf("not a not_found problem for not_answering: %v", err)
 	}
 }
@@ -90,8 +92,8 @@ func TestServersCheckAnswersOneEnvelopeWithItsReason(t *testing.T) {
 func TestServersCheckFailsWhenNoServerIsListed(t *testing.T) {
 	machine(t)
 	out, err := run(t, "servers", "--check")
-	var p *serve.Problem
-	if !errors.As(err, new(helpout.Printed)) || strings.Count(out, "no server is listed") != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNoneListed {
+	var p *problem.Problem
+	if !errors.As(err, new(helpout.Printed)) || strings.Count(out, "no server is listed") != 1 || !errors.As(err, &p) || p.Type != problem.TypeNotFound || p.Reason != serve.ReasonNoneListed {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	out, _ = run(t, "servers", "--check", "-o", "json")
@@ -153,8 +155,8 @@ func TestServersCheckAnAddressFailsAndRemovesNothing(t *testing.T) {
 			t.Errorf("a record was removed: %v", err)
 		}
 	}
-	var p *serve.Problem
-	if _, err := run(t, "servers", "--check", gone); !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
+	var p *problem.Problem
+	if _, err := run(t, "servers", "--check", gone); !errors.As(err, &p) || p.Type != problem.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
 		t.Fatalf("table: %v", err)
 	}
 }

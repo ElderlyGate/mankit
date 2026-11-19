@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // Another site the user visits can send requests to a port on this machine; the guard takes only the page's own.
@@ -68,7 +70,7 @@ func bearer(r *http.Request) string {
 
 func (a App) guard(dir string, hosts []string, name string, next http.Handler) http.Handler {
 	// A refusal is in the contract the reader asked for when the app serves it, so a reader of an older contract can read it (CT-RULE-1); otherwise in the default.
-	refuse := func(w http.ResponseWriter, r *http.Request, status int, p *Problem) {
+	refuse := func(w http.ResponseWriter, r *http.Request, status int, p *problem.Problem) {
 		// Only an API reader asks a contract, as choose reads it; the page gets the default.
 		asked := ""
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -85,7 +87,7 @@ func (a App) guard(dir string, hosts []string, name string, next http.Handler) h
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		if !allowedHost(r.Host, hosts) {
-			refuse(w, r, http.StatusForbidden, Fail(TypeRefused, ReasonHost, fmt.Sprintf("%s answers on this machine's own address only; serve --host <name> names another", a.command())))
+			refuse(w, r, http.StatusForbidden, problem.Fail(problem.TypeRefused, ReasonHost, fmt.Sprintf("%s answers on this machine's own address only; serve --host <name> names another", a.command())))
 			return
 		}
 		page := !strings.HasPrefix(r.URL.Path, "/api/")
@@ -96,7 +98,7 @@ func (a App) guard(dir string, hosts []string, name string, next http.Handler) h
 				writePage(w, http.StatusInternalServerError, a.command(), err.Error())
 				return
 			}
-			refuse(w, r, http.StatusInternalServerError, Fail(TypeFailed, ReasonConfigUnreadable, err.Error()))
+			refuse(w, r, http.StatusInternalServerError, problem.Fail(problem.TypeFailed, ReasonConfigUnreadable, err.Error()))
 			return
 		}
 		valid := func(t string) bool { return subtle.ConstantTimeCompare([]byte(t), []byte(token)) == 1 }
@@ -119,11 +121,11 @@ func (a App) guard(dir string, hosts []string, name string, next http.Handler) h
 			return
 		}
 		if o := r.Header.Get("Origin"); o != "" && o != "http://"+r.Host && o != "https://"+r.Host {
-			refuse(w, r, http.StatusForbidden, Fail(TypeRefused, ReasonOrigin, fmt.Sprintf("%s takes an API request only from its own page", a.command())))
+			refuse(w, r, http.StatusForbidden, problem.Fail(problem.TypeRefused, ReasonOrigin, fmt.Sprintf("%s takes an API request only from its own page", a.command())))
 			return
 		}
 		if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
-			refuse(w, r, http.StatusForbidden, Fail(TypeRefused, ReasonOrigin, fmt.Sprintf("%s takes an API request only from its own page", a.command())))
+			refuse(w, r, http.StatusForbidden, problem.Fail(problem.TypeRefused, ReasonOrigin, fmt.Sprintf("%s takes an API request only from its own page", a.command())))
 			return
 		}
 		t := bearer(r)
@@ -131,14 +133,14 @@ func (a App) guard(dir string, hosts []string, name string, next http.Handler) h
 			t = c.Value
 		}
 		if !valid(t) {
-			refuse(w, r, http.StatusUnauthorized, Fail(TypeRefused, ReasonToken, fmt.Sprintf(
+			refuse(w, r, http.StatusUnauthorized, problem.Fail(problem.TypeRefused, ReasonToken, fmt.Sprintf(
 				"%s takes an API request only with its token, as Authorization: Bearer <token> or in the cookie the page's link left; `%s servers link` prints the link",
 				a.command(), a.command())))
 			return
 		}
 		if r.ContentLength != 0 && r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if t, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); t != "application/json" {
-				refuse(w, r, http.StatusUnsupportedMediaType, Fail(TypeRefused, ReasonNotJSON, fmt.Sprintf("%s takes a request body as JSON only (Content-Type: application/json)", a.command())))
+				refuse(w, r, http.StatusUnsupportedMediaType, problem.Fail(problem.TypeRefused, ReasonNotJSON, fmt.Sprintf("%s takes a request body as JSON only (Content-Type: application/json)", a.command())))
 				return
 			}
 		}

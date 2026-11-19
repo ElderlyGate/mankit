@@ -8,9 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/settings"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
+	"github.com/tugbayatilla/mankit/v4/settings"
 )
 
 // SettingsKind is the kind of the answer <app> config queue gives (contracts mankit/v1 queue-settings).
@@ -112,7 +113,7 @@ func setCommand(a serve.App, key settings.Key, word string, path func() string, 
 			return err
 		}
 		if err := settings.Set(path(), keys(), key.Name, value); err != nil {
-			return serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, fmt.Sprintf("%s could not be written: %v", key.Name, err))
+			return problem.Fail(problem.TypeFailed, serve.ReasonConfigUnreadable, fmt.Sprintf("%s could not be written: %v", key.Name, err))
 		}
 		data, err := settingsAt(path())
 		if err != nil {
@@ -133,7 +134,7 @@ func setCommand(a serve.App, key settings.Key, word string, path func() string, 
 func settingsAt(path string) (SettingsData, error) {
 	rows, err := settings.Load(path, keys())
 	if err != nil {
-		return SettingsData{}, serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, err.Error())
+		return SettingsData{}, problem.Fail(problem.TypeFailed, serve.ReasonConfigUnreadable, err.Error())
 	}
 	var data SettingsData
 	for _, r := range rows {
@@ -142,9 +143,9 @@ func settingsAt(path string) (SettingsData, error) {
 			key = LimitKey
 		}
 		d, err := Duration(key, r.Value)
-		var p *serve.Problem
+		var p *problem.Problem
 		if errors.As(err, &p) {
-			return SettingsData{}, serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, p.Detail)
+			return SettingsData{}, problem.Fail(problem.TypeFailed, serve.ReasonConfigUnreadable, p.Detail)
 		}
 		s := Setting{Value: d.String(), Default: r.Default, Set: r.Set}
 		switch r.Key {

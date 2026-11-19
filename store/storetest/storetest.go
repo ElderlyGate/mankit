@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/store"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 // Harness is how an adapter is handed to the suite.
@@ -90,7 +90,7 @@ func state(t *testing.T, s *store.Scope) map[string]string {
 
 // reason is the store's reason in err, or empty when err is no Problem.
 func reason(err error) string {
-	var p *serve.Problem
+	var p *problem.Problem
 	if errors.As(err, &p) {
 		return p.Reason
 	}

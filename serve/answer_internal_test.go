@@ -5,13 +5,15 @@ import (
 	"testing"
 
 	"github.com/ElderlyGate/contracts"
+
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // Every envelope serve says it writes has its branch in MarshalJSON and meets its contracts schema, so envelopes and the writer cannot drift apart.
 func TestEveryEnvelopeHasItsWriter(t *testing.T) {
 	for _, form := range envelopes {
 		a := App{ID: "designer", Version: "5.0.0", Contracts: []Contract{{Version: "v1", Envelope: form}}}
-		for _, e := range []Envelope{a.Answer("shop", "v1", "Greeting", map[string]string{"text": "hello"}), a.Failure("shop", "v1", Fail(TypeNotFound, "", "nothing here"))} {
+		for _, e := range []Envelope{a.Answer("shop", "v1", "Greeting", map[string]string{"text": "hello"}), a.Failure("shop", "v1", problem.Fail(problem.TypeNotFound, "", "nothing here"))} {
 			body, err := json.Marshal(e)
 			if err != nil {
 				t.Fatalf("envelope %s: %v", form, err)

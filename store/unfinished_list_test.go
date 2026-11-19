@@ -15,11 +15,12 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/helpout"
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/store"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/serve"
+	"github.com/tugbayatilla/mankit/v4/store"
+	storecli "github.com/tugbayatilla/mankit/v4/store/cli"
 )
 
 // The tests of <app> store unfinished list, in ADR-S19's six parts; the helpers are shared with the clear tests.
@@ -37,7 +38,7 @@ func unfinishedRun(t *testing.T, dir string, words ...string) (out string, code 
 	t.Helper()
 	cli := &cobra.Command{Use: app.ID}
 	group := &cobra.Command{Use: "store"}
-	group.AddCommand(store.UnfinishedCommand(serving, opener(dir)))
+	group.AddCommand(storecli.UnfinishedCommand(serving, opener(dir)))
 	cli.AddCommand(group)
 	var buf bytes.Buffer
 	cli.SetOut(&buf)
@@ -60,7 +61,7 @@ func unfinishedServer(t *testing.T, dir string) http.Handler {
 	if err := os.WriteFile(filepath.Join(tokens, "token"), []byte(token+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h, err := serving.Handler(serve.Site{Routes: store.UnfinishedRoutes(opener(dir))}, nil)
+	h, err := serving.Handler(serve.Site{Routes: storecli.UnfinishedRoutes(opener(dir))}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,7 @@ func TestUnfinishedListOverHTTPAnswersAsTheCLI(t *testing.T) {
 	markOf(t, lines(filepath.Join(dir, "served"))("shop"), "alice", "elsewhere", false, "shop/z.yml")
 	h := unfinishedServer(t, dir)
 	for _, q := range []string{"", "?thing=shop"} {
-		w := call(t, h, http.MethodGet, store.UnfinishedPath+q)
+		w := call(t, h, http.MethodGet, storecli.UnfinishedPath+q)
 		if w.Code != http.StatusOK {
 			t.Fatalf("GET%s = %d %s", q, w.Code, w.Body)
 		}
@@ -239,7 +240,7 @@ func TestUnfinishedListOverHTTPAnswersAsTheCLI(t *testing.T) {
 			t.Fatalf("GET%s and list differ: %v\n%s\n%s", q, err, w.Body, cli)
 		}
 	}
-	if w := call(t, h, http.MethodGet, store.UnfinishedPath+"?thing=shop/a.yml"); w.Code != http.StatusBadRequest {
+	if w := call(t, h, http.MethodGet, storecli.UnfinishedPath+"?thing=shop/a.yml"); w.Code != http.StatusBadRequest {
 		t.Fatalf("GET of a key = %d %s, want 400", w.Code, w.Body)
 	}
 }

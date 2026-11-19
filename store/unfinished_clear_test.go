@@ -12,9 +12,10 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/store"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store"
+	storecli "github.com/tugbayatilla/mankit/v4/store/cli"
 )
 
 // The tests of <app> store unfinished clear, in ADR-S19's six parts.
@@ -96,18 +97,18 @@ func TestUnfinishedClearNeedsTheMarkToExist(t *testing.T) {
 	dir := fresh(t)
 	s := served(t, dir)
 	out, code, err := unfinishedRun(t, dir, "clear", "shop", "--yes")
-	var p *serve.Problem
-	if code != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound || !strings.Contains(p.Detail, "storetest store unfinished list") {
+	var p *problem.Problem
+	if code != 1 || !errors.As(err, &p) || p.Type != problem.TypeNotFound || !strings.Contains(p.Detail, "storetest store unfinished list") {
 		t.Fatalf("clear with no mark = %d, %v\n%s", code, err, out)
 	}
 	cutShort(t, s, 5)
 	if _, err := s.ClearShown(ctx, "shop", idsOf(t, s, "shop")); err != nil {
 		t.Fatal(err)
 	}
-	if _, code, err := unfinishedRun(t, dir, "clear", "shop", "--yes"); code != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound {
+	if _, code, err := unfinishedRun(t, dir, "clear", "shop", "--yes"); code != 1 || !errors.As(err, &p) || p.Type != problem.TypeNotFound {
 		t.Fatalf("clear with only a left journal = %d, %v", code, err)
 	}
-	if _, code, err := unfinishedRun(t, dir, "clear", "shop/a.yml", "--yes"); code != 1 || !errors.As(err, &p) || p.Type != serve.TypeRefused {
+	if _, code, err := unfinishedRun(t, dir, "clear", "shop/a.yml", "--yes"); code != 1 || !errors.As(err, &p) || p.Type != problem.TypeRefused {
 		t.Fatalf("clear of a key = %d, %v", code, err)
 	}
 	if _, code, _ := unfinishedRun(t, dir, "clear", "--yes"); code != 2 {
@@ -125,8 +126,8 @@ func TestUnfinishedClearOfAMarkGoneMeanwhileIsNotFound(t *testing.T) {
 		return os.Remove(filepath.Join(line, ".queue", ".unfinished-17000000000000000001.json"))
 	})
 	_, code, err := unfinishedRun(t, dir, "clear", "shop")
-	var p *serve.Problem
-	if code != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound || !strings.Contains(p.Detail, "nothing was cleared") {
+	var p *problem.Problem
+	if code != 1 || !errors.As(err, &p) || p.Type != problem.TypeNotFound || !strings.Contains(p.Detail, "nothing was cleared") {
 		t.Fatalf("clear of a mark gone meanwhile = %d, %v", code, err)
 	}
 }
@@ -147,7 +148,7 @@ func TestTheRefusalAndTheCommandNameTheAppsCLIAlike(t *testing.T) {
 	if err := put(t, s, "shop/a.yml", "x"); !strings.Contains(fmt.Sprint(err), "`e-storetest store unfinished clear shop`") {
 		t.Fatalf("the refusal = %v", err)
 	}
-	cli := store.UnfinishedCommand(serving, func() (*store.Scope, error) { return store.Served(named, root, lines(root)) })
+	cli := storecli.UnfinishedCommand(serving, func() (*store.Scope, error) { return store.Served(named, root, lines(root)) })
 	cli.SetArgs([]string{"clear", "cart", "--yes"})
 	cli.SilenceErrors, cli.SilenceUsage = true, true
 	if err := cli.Execute(); !strings.Contains(fmt.Sprint(err), "`e-storetest store unfinished list`") {
@@ -212,14 +213,14 @@ func TestUnfinishedClearOverHTTPAsksAndAnswersAsTheCLI(t *testing.T) {
 			mine = id
 		}
 	}
-	target := store.UnfinishedPath + "/shop?id=" + mine
+	target := storecli.UnfinishedPath + "/shop?id=" + mine
 	if w := call(t, h, http.MethodDelete, target); w.Code != http.StatusPreconditionRequired {
 		t.Fatalf("DELETE without a yes = %d %s, want 428", w.Code, w.Body)
 	}
-	if w := call(t, h, http.MethodDelete, store.UnfinishedPath+"/shop"); w.Code != http.StatusBadRequest {
+	if w := call(t, h, http.MethodDelete, storecli.UnfinishedPath+"/shop"); w.Code != http.StatusBadRequest {
 		t.Fatalf("DELETE naming no mark, unasked = %d %s, want 400 before 428", w.Code, w.Body)
 	}
-	if w := call(t, h, http.MethodDelete, store.UnfinishedPath+"/shop?confirm=yes"); w.Code != http.StatusBadRequest {
+	if w := call(t, h, http.MethodDelete, storecli.UnfinishedPath+"/shop?confirm=yes"); w.Code != http.StatusBadRequest {
 		t.Fatalf("DELETE naming no mark = %d %s, want 400", w.Code, w.Body)
 	}
 	if got := idsOf(t, s, "shop"); len(got) != 2 {
@@ -245,7 +246,7 @@ func TestUnfinishedClearOverHTTPAsksAndAnswersAsTheCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	markOf(t, lines(filepath.Join(dir, "served"))("shop"), "alice", "elsewhere", false, "shop/z.yml")
-	over := call(t, h, http.MethodDelete, store.UnfinishedPath+"/shop?id=17000000000000000001&confirm=yes")
+	over := call(t, h, http.MethodDelete, storecli.UnfinishedPath+"/shop?id=17000000000000000001&confirm=yes")
 	if dataOf(t, over.Body.Bytes()) != dataOf(t, []byte(cli)) {
 		t.Fatalf("DELETE and clear differ:\n%s\n%s", over.Body, cli)
 	}

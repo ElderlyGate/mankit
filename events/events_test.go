@@ -20,11 +20,12 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/events"
-	"github.com/tugbayatilla/mankit/v3/features"
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/events"
+	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 var app = serve.App{ID: "shop", Version: "1.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
@@ -66,7 +67,7 @@ func routes() []serve.Route {
 	answer := func(status int) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if r.PathValue("id") == "missing" {
-				serve.WriteError(w, r, http.StatusNotFound, serve.Fail(serve.TypeNotFound, "", "no such item"))
+				serve.WriteError(w, r, http.StatusNotFound, problem.Fail(problem.TypeNotFound, "", "no such item"))
 				return
 			}
 			serve.Write(w, r, status, "Item", item{ID: r.PathValue("id")})
@@ -406,7 +407,7 @@ func TestAnAppWithoutEventsServesTheSameRoutes(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusNotFound, serve.TypeNotFound, "")
+	refusal(t, resp, http.StatusNotFound, problem.TypeNotFound, "")
 }
 
 // Contract
@@ -563,7 +564,7 @@ func TestTheGuardRefusesAStreamWithoutTheToken(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, nil)
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusUnauthorized, serve.TypeRefused, serve.ReasonToken)
+	refusal(t, resp, http.StatusUnauthorized, problem.TypeRefused, serve.ReasonToken)
 }
 
 func TestSwitchesThatCannotBeReadAreSaid(t *testing.T) {
@@ -572,7 +573,7 @@ func TestSwitchesThatCannotBeReadAreSaid(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusInternalServerError, serve.TypeFailed, serve.ReasonConfigUnreadable)
+	refusal(t, resp, http.StatusInternalServerError, problem.TypeFailed, serve.ReasonConfigUnreadable)
 }
 
 // The feature off
@@ -602,7 +603,7 @@ func TestTheFeatureOffServesNoStream(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusNotFound, serve.TypeNotFound, "")
+	refusal(t, resp, http.StatusNotFound, problem.TypeNotFound, "")
 }
 
 func TestTheFeatureOffKeepsNothingAndAStreamThatComesBackGetsAGap(t *testing.T) {
@@ -827,7 +828,7 @@ func TestTooManyStreamsAreRefused(t *testing.T) {
 	resp, cancel := s.do(t, http.MethodGet, events.Path, map[string]string{"Authorization": "Bearer " + token})
 	defer cancel()
 	defer resp.Body.Close()
-	refusal(t, resp, http.StatusServiceUnavailable, serve.TypeRefused, events.ReasonTooManyStreams)
+	refusal(t, resp, http.StatusServiceUnavailable, problem.TypeRefused, events.ReasonTooManyStreams)
 }
 
 // CLI and HTTP parity: none, since no command reads the stream; the decisions call for none.

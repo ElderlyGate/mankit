@@ -1,12 +1,14 @@
-package store
+package cli
 
 import (
 	"fmt"
 	"net/http"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 // The paths of store unfinished over HTTP (G-STACK-4).
@@ -19,7 +21,7 @@ const (
 // UnfinishedRoutes are store unfinished on the app's server, which every app with a store scope adds to its Site's routes beside mounting UnfinishedCommand:
 // GET UnfinishedPath[?thing=] answers StoreUnfinishedList as list does, and DELETE ClearPath?id=…, a delete of the system itself that serve asks for first (G-STACK-6, G-STACK-13), removes the marks named that still hold thing and answers StoreUnfinishedCleared, as clear does.
 // A client shows the changes list gave and asks for the thing's name before it sends confirm=yes; remember never silences the question, as for every change to the system itself.
-func UnfinishedRoutes(open func() (*Scope, error)) []serve.Route {
+func UnfinishedRoutes(open func() (*store.Scope, error)) []serve.Route {
 	return []serve.Route{
 		{Pattern: http.MethodGet + " " + UnfinishedPath, Handler: func(w http.ResponseWriter, r *http.Request) {
 			data, err := listed(open, r.URL.Query().Get("thing"))
@@ -43,14 +45,14 @@ func UnfinishedRoutes(open func() (*Scope, error)) []serve.Route {
 					"clear the changes cut short holding %s (marks %s); nothing is put back", thing, strings.Join(r.URL.Query()["id"], ", "))}, true
 			},
 			Handler: func(w http.ResponseWriter, r *http.Request) {
-				thing, err := thingOf(r.PathValue("thing"))
+				thing, err := store.ParseThing(r.PathValue("thing"))
 				if err != nil {
 					serve.WriteError(w, r, statusOf(err), err)
 					return
 				}
 				marks := r.URL.Query()["id"]
 				if len(marks) == 0 {
-					serve.WriteError(w, r, http.StatusBadRequest, fail(serve.TypeRefused, "", string(thing),
+					serve.WriteError(w, r, http.StatusBadRequest, problem.FailAt(problem.TypeRefused, "", string(thing),
 						"nothing was cleared: name each mark to clear with id=, as "+UnfinishedPath+" shows them, so only the changes a person saw are cleared"))
 					return
 				}
@@ -74,9 +76,9 @@ func UnfinishedRoutes(open func() (*Scope, error)) []serve.Route {
 // statusOf is the HTTP status of err: not_found 404, refused 400, anything else the server's own failure.
 func statusOf(err error) int {
 	switch problemType(err) {
-	case serve.TypeNotFound:
+	case problem.TypeNotFound:
 		return http.StatusNotFound
-	case serve.TypeRefused:
+	case problem.TypeRefused:
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

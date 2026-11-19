@@ -7,13 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/queue"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/queue"
+	"github.com/tugbayatilla/mankit/v4/serve"
+	"github.com/tugbayatilla/mankit/v4/settings"
 )
 
 // configRun runs `config queue` words under a config of its own, as an app mounts it, against the config.yaml at path.
@@ -87,8 +90,8 @@ func TestConfigQueueRefusesWhatTheQueueWouldRefuse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	for value, reason := range map[string]string{"1ms": "out_of_range", "1500ms": "out_of_range", "soon": "wrong_type", "": "empty"} {
 		_, err := configRun(t, path, "limit", value, "--yes")
-		var p *serve.Problem
-		if !errors.As(err, &p) || p.Type != serve.TypeRefused || p.Reason != reason || !strings.Contains(p.Detail, "queue.limit") {
+		var p *problem.Problem
+		if !errors.As(err, &p) || p.Type != problem.TypeRefused || p.Reason != reason || !strings.Contains(p.Detail, "queue.limit") {
 			t.Fatalf("%q: got %v, want refused %s", value, err, reason)
 		}
 	}
@@ -126,8 +129,8 @@ func TestAHandEditedValueTheQueueRefusesIsReported(t *testing.T) {
 	}
 	for _, words := range [][]string{{"-o", "json"}, {}} {
 		_, err := configRun(t, path, words...)
-		var p *serve.Problem
-		if !errors.As(err, &p) || p.Type != serve.TypeFailed || p.Reason != serve.ReasonConfigUnreadable || !strings.Contains(p.Detail, "queue.wait") {
+		var p *problem.Problem
+		if !errors.As(err, &p) || p.Type != problem.TypeFailed || p.Reason != serve.ReasonConfigUnreadable || !strings.Contains(p.Detail, "queue.wait") {
 			t.Fatalf("%v: got %v", words, err)
 		}
 	}
@@ -143,7 +146,7 @@ func TestConfigQueueWritesNothingWithoutAYes(t *testing.T) {
 	root := &cobra.Command{Use: "e-designer", SilenceUsage: true, SilenceErrors: true}
 	config := &cobra.Command{Use: "config"}
 	config.AddCommand(queue.ConfigCommand(app, func() string { return path }, func(*cobra.Command, ask.Action) error {
-		return serve.Fail(serve.TypeRefused, serve.ReasonUnconfirmed, "nothing was changed")
+		return problem.Fail(problem.TypeRefused, serve.ReasonUnconfirmed, "nothing was changed")
 	}))
 	root.AddCommand(config)
 	root.SetOut(&bytes.Buffer{})
@@ -153,5 +156,38 @@ func TestConfigQueueWritesNothingWithoutAYes(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("a change without its yes was written")
+	}
+}
+
+func TestTheWaitAndLimitComeFromTheAppsSettingsRows(t *testing.T) {
+	wait, limit, err := queue.Settings("45s", "5m")
+	if err != nil || wait != 45*time.Second || limit != 5*time.Minute {
+		t.Fatalf("got wait %s limit %s, %v; want 45s and 5m", wait, limit, err)
+	}
+	if wait, limit, err := queue.Settings("", ""); err != nil || wait != 0 || limit != 0 {
+		t.Fatalf("empty rows gave waits %s %s, %v; want zero, the store's defaults", wait, limit, err)
+	}
+	for _, k := range []settings.Key{queue.WaitKey, queue.LimitKey} {
+		if k.Help == "" || !strings.HasPrefix(k.Name, "queue.") {
+			t.Errorf("%+v needs a queue. name and a purpose line", k)
+		}
+	}
+	if queue.WaitKey.Default != queue.DefaultWait.String() || queue.LimitKey.Default != queue.DefaultLimit.String() {
+		t.Errorf("the rows' defaults %s, %s are not the queue's", queue.WaitKey.Default, queue.LimitKey.Default)
+	}
+}
+
+func TestAWaitOrLimitThatIsNoDurationOrTooShortIsRefusedNamingTheRow(t *testing.T) {
+	for _, c := range []struct{ wait, limit, row string }{
+		{"soon", "", "queue.wait"},
+		{"", "-1m", "queue.limit"},
+		{"1ms", "", "queue.wait"},
+		{"", "0s", "queue.limit"},
+	} {
+		_, _, err := queue.Settings(c.wait, c.limit)
+		var p *problem.Problem
+		if !errors.As(err, &p) || p.Reason != serve.ReasonConfigUnreadable || !strings.Contains(err.Error(), c.row) {
+			t.Errorf("%q %q: got %v, want %s naming %s", c.wait, c.limit, err, serve.ReasonConfigUnreadable, c.row)
+		}
 	}
 }

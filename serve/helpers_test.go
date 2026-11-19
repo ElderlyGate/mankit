@@ -18,9 +18,10 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 // The tests serve as designer, so its version answer is checked against its own contract too.
@@ -119,7 +120,7 @@ func envelope(t *testing.T, body []byte) serve.Envelope {
 }
 
 // refusal checks an error answer: its status, its one Problem's type and reason, and where it ran.
-func refusal(t *testing.T, w *httptest.ResponseRecorder, status int, typ, reason string) serve.Problem {
+func refusal(t *testing.T, w *httptest.ResponseRecorder, status int, typ, reason string) problem.Problem {
 	t.Helper()
 	if w.Code != status {
 		t.Fatalf("status %d, want %d: %s", w.Code, status, w.Body)
