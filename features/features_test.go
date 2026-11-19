@@ -1,9 +1,11 @@
 package features_test
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -165,9 +167,9 @@ func (k *keeping) store() features.Store {
 	}
 }
 
-// needy is a feature that needs two values and starts off, beside one that needs a value and starts on.
+// needy is an enterprise feature that needs two values and starts off, beside one that needs a value and starts on.
 var needy = []features.Feature{
-	{ID: "telemetry", Title: "Telemetry", Covers: "traces", StartsOff: true, Needs: []features.Value{
+	{ID: "telemetry", Title: "Telemetry", Covers: "traces", StartsOff: true, Tier: features.Enterprise, Needs: []features.Value{
 		{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Purpose: "where traces go"},
 		{Name: "OTEL_SERVICE_NAME", Purpose: "the name traces carry"},
 	}},
@@ -283,12 +285,12 @@ func TestAFeatureClosedAndMissingAValueIsOffByTheCloserNotBroken(t *testing.T) {
 }
 
 func TestACloserStillClosesAFeatureSwitchedOnWithItsValues(t *testing.T) {
-	license := features.Closer{By: "license", Closed: func() ([]string, error) { return []string{"telemetry"}, nil }}
+	license := features.Closer{By: features.License, Closed: func() ([]string, error) { return []string{"telemetry"}, nil }}
 	l := features.New(needy, (&keeping{}).store(), license).WithLookup(set(everyValue))
 	if err := l.Set("telemetry", true); err != nil {
 		t.Fatal(err)
 	}
-	if got := states(t, l); got[0].On || got[0].By != "license" {
+	if got := states(t, l); got[0].On || got[0].By != features.License {
 		t.Fatalf("telemetry = %+v, want off by license", got[0])
 	}
 }
@@ -337,8 +339,39 @@ func TestAFeatureInBothOffAndOnIsOff(t *testing.T) {
 }
 
 func TestAFeatureThatStartsOffIsOffByItsDefaultBeforeACloser(t *testing.T) {
-	license := features.Closer{By: "license", Closed: func() ([]string, error) { return []string{"telemetry"}, nil }}
+	license := features.Closer{By: features.License, Closed: func() ([]string, error) { return []string{"telemetry"}, nil }}
 	if got := states(t, features.New(needy, (&keeping{}).store(), license).WithLookup(set(everyValue))); got[0].On || got[0].By != features.Default {
 		t.Fatalf("telemetry = %+v, want off by default", got[0])
+	}
+}
+
+func TestATierIsAnsweredAndFreeIsLeftOut(t *testing.T) {
+	tiered := []features.Feature{{ID: "edit", Title: "Edit", Covers: "changes"}, {ID: "sync", Title: "Sync", Covers: "copies", Tier: features.Enterprise}}
+	raw, err := json.Marshal(states(t, features.New(tiered, memory())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(raw); strings.Count(got, `"tier"`) != 1 || !strings.Contains(got, `"tier":"enterprise"`) {
+		t.Fatalf("answer = %s, want only sync's tier, enterprise", got)
+	}
+}
+
+// Only an enterprise feature can be locked (ADR-L2): a license closer naming a free feature leaves it on.
+func TestALicenseLocksEnterpriseFeaturesOnly(t *testing.T) {
+	tiered := []features.Feature{{ID: "edit", Title: "Edit", Covers: "changes", Tier: features.Free}, {ID: "export", Title: "Export", Covers: "files"}, {ID: "sync", Title: "Sync", Covers: "copies", Tier: features.Enterprise}}
+	license := features.Closer{By: features.License, Closed: func() ([]string, error) { return []string{"edit", "export", "sync"}, nil }}
+	got := states(t, features.New(tiered, memory(), license))
+	if !got[0].On || !got[1].On || got[2].On || got[2].By != features.License {
+		t.Fatalf("states = %+v, want edit and export on, sync locked by license", got)
+	}
+}
+
+func TestATierTheListDoesNotKnowIsRefused(t *testing.T) {
+	l := features.New([]features.Feature{{ID: "sync", Title: "Sync", Covers: "copies", Tier: "pro"}}, memory())
+	if _, err := l.States(); err == nil || !strings.Contains(err.Error(), `"pro"`) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := l.Attach("sync", struct{}{}); err == nil {
+		t.Fatal("attached to a list with an unknown tier")
 	}
 }
