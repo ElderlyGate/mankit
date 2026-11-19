@@ -728,7 +728,8 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   its `Site.Routes`. `store unfinished list [<thing>]` and `GET
   /api/store/unfinished[?thing=]` show every user's marks in the scope `open`
   opens (the folder's own turn, every thing's, and those the folder's marks and
-  this user's journals name, so a mark on a thing gone shows too), with this
+  this user's journals name; a mark only in the turn of a thing that is gone
+  shows with `list <thing>`, as the refusal names the thing), with this
   user's journal file, and this user's left journals (contracts mankit/v1
   `StoreUnfinishedList`). `store unfinished clear <thing>` shows each change
   holding the thing (user, machine, mark, journal, keys and, for this user's

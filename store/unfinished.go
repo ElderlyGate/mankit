@@ -66,7 +66,8 @@ func listCommand(a serve.App, open func() (*Scope, error)) *cobra.Command {
 		Long: "Show every change cut short whose mark is in the scope, every user's, with your\n" +
 			"journal's file when it is yours on this machine, and your journals whose marks\n" +
 			"are gone (left): kept as the only copy of what was there. A thing shows only\n" +
-			"the changes that hold it.",
+			"the changes that hold it. A change to a thing that is gone, whose mark is only\n" +
+			"in that thing's turn, shows only with `list <thing>`: the refusal names it.",
 		Args: cobra.MaximumNArgs(1),
 	}
 	out := a.Printer(cmd)

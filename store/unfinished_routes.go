@@ -31,9 +31,14 @@ func UnfinishedRoutes(open func() (*Scope, error)) []serve.Route {
 		}},
 		{
 			Pattern: http.MethodDelete + " " + ClearPath,
-			Action:  ask.Action{Type: ask.Delete, System: true, What: "clear changes cut short"},
+			// Not a change to the system itself here, which would ask even a request naming no mark; ActionFor makes every clear one.
+			Action: ask.Action{Type: ask.Delete, What: "clear changes cut short"},
 			ActionFor: func(r *http.Request) (ask.Action, bool) {
 				thing := r.PathValue("thing")
+				// A request naming no mark is refused before anything is asked.
+				if len(r.URL.Query()["id"]) == 0 {
+					return ask.Action{Type: ask.Delete}, false
+				}
 				return ask.Action{Type: ask.Delete, System: true, Name: thing, What: fmt.Sprintf(
 					"clear the changes cut short holding %s (marks %s); nothing is put back", thing, strings.Join(r.URL.Query()["id"], ", "))}, true
 			},

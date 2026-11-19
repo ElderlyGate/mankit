@@ -129,16 +129,14 @@ func TestUnfinishedListShowsEveryUsersMarksAndThisUsersJournal(t *testing.T) {
 	}
 }
 
-// A mark on a thing that is gone, which the folder's turn names, is listed with no thing given.
-func TestUnfinishedListFindsAMarkOnAThingGone(t *testing.T) {
+// A mark only in the turn of a thing that is gone is found by naming the thing, as the refusal does.
+func TestUnfinishedListOfAThingGoneFindsItsMark(t *testing.T) {
 	dir := fresh(t)
 	served(t, dir)
-	root := filepath.Join(dir, "served")
-	markOf(t, lines(root)(""), "alice", "elsewhere", true, "gone/a.yml")
-	markOf(t, lines(root)("gone"), "alice", "elsewhere", true, "gone/a.yml")
-	out, _, err := unfinishedRun(t, dir, "list", "-o", "json")
+	markOf(t, lines(filepath.Join(dir, "served"))("gone"), "alice", "elsewhere", false, "gone/a.yml")
+	out, _, err := unfinishedRun(t, dir, "list", "gone", "-o", "json")
 	if err != nil || strings.Count(out, `"id"`) != 1 || !strings.Contains(out, "gone/a.yml") {
-		t.Fatalf("a mark on a thing gone is not listed once: %v\n%s", err, out)
+		t.Fatalf("list gone does not find its mark: %v\n%s", err, out)
 	}
 }
 
@@ -249,7 +247,7 @@ func TestUnfinishedListOverHTTPAnswersAsTheCLI(t *testing.T) {
 // 6. Help.
 func TestUnfinishedListHelpSaysWhatItShows(t *testing.T) {
 	out, code, err := unfinishedRun(t, fresh(t), "list", "--help")
-	if err != nil || code != 0 || !strings.Contains(out, "list [<thing>]") || !strings.Contains(out, "left") {
+	if err != nil || code != 0 || !strings.Contains(out, "list [<thing>]") || !strings.Contains(out, "left") || !strings.Contains(out, "list <thing>") {
 		t.Fatalf("help = %d, %v\n%s", code, err, out)
 	}
 }

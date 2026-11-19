@@ -216,6 +216,9 @@ func TestUnfinishedClearOverHTTPAsksAndAnswersAsTheCLI(t *testing.T) {
 	if w := call(t, h, http.MethodDelete, target); w.Code != http.StatusPreconditionRequired {
 		t.Fatalf("DELETE without a yes = %d %s, want 428", w.Code, w.Body)
 	}
+	if w := call(t, h, http.MethodDelete, store.UnfinishedPath+"/shop"); w.Code != http.StatusBadRequest {
+		t.Fatalf("DELETE naming no mark, unasked = %d %s, want 400 before 428", w.Code, w.Body)
+	}
 	if w := call(t, h, http.MethodDelete, store.UnfinishedPath+"/shop?confirm=yes"); w.Code != http.StatusBadRequest {
 		t.Fatalf("DELETE naming no mark = %d %s, want 400", w.Code, w.Body)
 	}
