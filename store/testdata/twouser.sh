@@ -8,6 +8,8 @@ work=$(mktemp -d)
 id=$$
 arch=$(docker version -f '{{.Server.Arch}}')
 CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go test -c -tags twouser -o "$work/store.test" ./store
+# The containers' users are not this one, so they need to enter the folder and run the test.
+chmod 755 "$work" "$work/store.test"
 cleanup() { docker volume rm -f "twouser-shared-$id" "twouser-alice-$id" "twouser-bob-$id" >/dev/null 2>&1 || true; rm -rf "$work"; }
 trap cleanup EXIT
 
