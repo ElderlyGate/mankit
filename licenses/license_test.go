@@ -205,7 +205,7 @@ func TestASignedFileMeetsItsSchema(t *testing.T) {
 // A field a newer nw-license adds to the spec or the signed payload is passed over, and the signature still covers the payload's every byte (ADR-S15, CT-RULE-4).
 func TestANewerFileWithFieldsItDoesNotKnowIsTaken(t *testing.T) {
 	k, release, _ := signer(t)
-	body := []byte(`{"id":"acme-2026","kind":"org","for":"Acme Ltd","products":{"designer":["events"]},"issued":"2026-11-06","until":"2027-11-06","keyId":"prod-2026","seats":5}`)
+	body := []byte(`{"id":"acme-2026","kind":"org","for":"Acme Ltd","products":{"designer":["events"]},"issued":"2026-11-06","until":"2027-11-06","keyId":"prod-2026","note":"issued for testing"}`)
 	sig, _ := k.Sign("prod-2026", body)
 	raw, _ := json.Marshal(map[string]any{
 		"apiVersion": licenses.APIVersion, "kind": licenses.FileKind, "metadata": map[string]any{"id": "acme-2026"},
@@ -217,7 +217,7 @@ func TestANewerFileWithFieldsItDoesNotKnowIsTaken(t *testing.T) {
 	}
 	changed := edit(t, raw, func(f map[string]any) {
 		spec := f["spec"].(map[string]any)
-		spec["payload"] = base64.StdEncoding.EncodeToString(bytes.Replace(body, []byte(`"seats":5`), []byte(`"seats":500`), 1))
+		spec["payload"] = base64.StdEncoding.EncodeToString(bytes.Replace(body, []byte(`"note":"issued for testing"`), []byte(`"note":"issued for testinG"`), 1))
 	})
 	if _, err := licenses.Verify(changed, release); reason(err) != licenses.ReasonSignature {
 		t.Fatalf("a changed unknown field: err = %v, want refused for its signature", err)
