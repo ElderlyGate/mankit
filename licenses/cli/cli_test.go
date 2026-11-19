@@ -1,0 +1,213 @@
+package cli_test
+
+import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ElderlyGate/contracts"
+	"github.com/spf13/cobra"
+
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/licenses"
+	"github.com/tugbayatilla/mankit/v4/licenses/cli"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
+)
+
+const schema = "mankit/v1/license-show.schema.json"
+
+var all = []features.Feature{
+	{ID: "edit", Title: "Change a design", Covers: "apply and edit"},
+	{ID: "events", Title: "Live events", Covers: "the /api/events stream", StartsOff: true, Tier: features.Enterprise},
+	{ID: "multi-design", Title: "Many designs", Covers: "more than one design", Tier: features.Enterprise},
+	{ID: "sync", Title: "Sync designs", Covers: "designs on several machines", Tier: features.Enterprise},
+}
+
+type keys map[string]ed25519.PrivateKey
+
+func (k keys) Sign(id string, message []byte) ([]byte, error) {
+	return ed25519.Sign(k[id], message), nil
+}
+
+// world is one machine: its org folder, a signer, the trust of a release, and the day it is.
+type world struct {
+	t     *testing.T
+	dir   string
+	keys  keys
+	trust licenses.Trust
+	today string
+}
+
+func newWorld(t *testing.T, today string) *world {
+	base := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", base)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	return &world{t: t, dir: filepath.Join(base, "elderlygate"), keys: keys{"prod-2026": priv}, today: today,
+		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"prod-2026": pub}}}
+}
+
+func day(s string) time.Time { d, _ := time.Parse("2006-01-02", s); return d }
+
+func (w *world) sign(kind licenses.Kind, products map[string][]string, issued, until string) []byte {
+	raw, err := licenses.Sign(licenses.License{Kind: kind, For: "Acme Ltd", Products: products, Issued: day(issued), Until: day(until), KeyID: "prod-2026"}, w.keys)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return raw
+}
+
+func (w *world) put(rel string, raw []byte) {
+	path := filepath.Join(w.dir, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		w.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// run runs `license` words as an app mounts the thing; the events feature is switched on, as an owner would.
+func (w *world) run(words ...string) (string, error) {
+	w.t.Helper()
+	c, err := licenses.New(licenses.Config{ID: "designer", Trust: w.trust, Now: func() time.Time { return day(w.today) }})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	store := features.Store{Off: func() ([]string, error) { return nil, nil }, Keep: func(string, bool) error { return nil }, On: func() ([]string, error) { return []string{"events"}, nil }}
+	list := features.New(all, store, c.Closer(all))
+	app := serve.App{ID: "designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
+	asked := func(cc *cobra.Command, a ask.Action) error {
+		if f := cc.Flags().Lookup("yes"); f == nil || f.Value.String() != "true" {
+			return ask.ErrRefused
+		}
+		return nil
+	}
+	root := &cobra.Command{Use: "e-designer", SilenceUsage: true, SilenceErrors: true}
+	root.AddCommand(cli.Command(app, c, list, asked))
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs(append([]string{"license"}, words...))
+	err = root.Execute()
+	return out.String(), err
+}
+
+// show is `license show -o json`, checked against contracts mankit/v1 LicenseShow, and its data.
+func (w *world) show() licenses.Show {
+	w.t.Helper()
+	out, err := w.run("show", "-o", "json")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if err := contracts.Validate(schema, []byte(out)); err != nil {
+		w.t.Fatalf("not a LicenseShow answer: %v\n%s", err, out)
+	}
+	var e struct{ Data licenses.Show }
+	if err := json.Unmarshal([]byte(out), &e); err != nil {
+		w.t.Fatal(err)
+	}
+	return e.Data
+}
+
+func from(s licenses.Show) string {
+	var words []string
+	for _, f := range s.Features {
+		words = append(words, f.ID+"="+string(f.From))
+	}
+	return strings.Join(words, " ")
+}
+
+func TestShowWithNoLicense(t *testing.T) {
+	s := newWorld(t, "2026-11-19").show()
+	if s.State != licenses.StateNone || !s.Build.Release || len(s.Licenses) != 0 || s.Counts != (licenses.Counts{Free: 1, Enterprise: 3, On: 1, Locked: 3}) {
+		t.Fatalf("show = %+v", s)
+	}
+}
+
+// ADR-L8's example: each feature says where it is unlocked from, org, product, both or none.
+func TestShowSaysWhereEachFeatureIsUnlockedFrom(t *testing.T) {
+	w := newWorld(t, "2026-11-19")
+	w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events", "multi-design"}, "kanban": {"sync"}}, "2026-11-06", "2027-11-06"))
+	w.put("designer/license", w.sign(licenses.Product, map[string][]string{"designer": {"multi-design"}}, "2026-03-01", "2027-03-01"))
+	s := w.show()
+	if s.State != licenses.StateLicensed || len(s.Licenses) != 2 || s.Licenses[0].Kind != licenses.Org || s.Licenses[0].Window != nil {
+		t.Fatalf("show = %+v", s)
+	}
+	if got := from(s); got != "edit=none events=org multi-design=both sync=none" {
+		t.Fatalf("from = %s", got)
+	}
+	if s.Features[2].Until != "2027-11-06" || s.Counts.Locked != 1 {
+		t.Fatalf("show = %+v", s)
+	}
+	table, err := w.run("show")
+	if err != nil || !strings.Contains(table, "licensed") || !strings.Contains(table, "multi-design  enterprise") {
+		t.Fatalf("table %q, %v", table, err)
+	}
+}
+
+func TestShowATrialKeyWithItsWindow(t *testing.T) {
+	w := newWorld(t, "2026-11-23")
+	w.put("designer/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
+	s := w.show()
+	if s.State != licenses.StateTrial || *s.Licenses[0].Window != (licenses.Window{Left: 10, Of: 14}) || from(s) != "edit=none events=trial multi-design=trial sync=trial" {
+		t.Fatalf("show = %+v", s)
+	}
+	w.today = "2026-12-03"
+	if s := w.show(); s.State != licenses.StateTrialEnded || s.Licenses[0].Window != nil || !s.Licenses[0].Ended || s.Counts.Locked != 3 {
+		t.Fatalf("after the trial = %+v", s)
+	}
+}
+
+func TestShowAnEndedLicenseAndARefusedFile(t *testing.T) {
+	w := newWorld(t, "2027-12-01")
+	w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+	w.put("designer/license", []byte("garbage"))
+	s := w.show()
+	if s.State != licenses.StateEnded || s.Licenses[0].DaysLeft != 0 || len(s.Refused) != 1 || s.Refused[0].Reason != licenses.ReasonUnreadable || s.Refused[0].File != filepath.Join(w.dir, "designer", "license") {
+		t.Fatalf("show = %+v", s)
+	}
+}
+
+func TestAddChecksAsksAndKeeps(t *testing.T) {
+	w := newWorld(t, "2026-11-19")
+	file := filepath.Join(t.TempDir(), "acme.license")
+	if err := os.WriteFile(file, w.sign(licenses.Org, map[string][]string{"designer": {"sync"}}, "2026-11-06", "2027-11-06"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.run("add", "--org", file); !errors.Is(err, ask.ErrRefused) {
+		t.Fatalf("without a yes: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(w.dir, "license")); !os.IsNotExist(err) {
+		t.Fatal("kept without a yes")
+	}
+	out, err := w.run("add", "--org", file, "--yes", "-o", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contracts.Validate(schema, []byte(out)); err != nil || !strings.Contains(out, `"from": "org"`) {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+func TestAddRefusesWhatItCannotTakeNamingTheFile(t *testing.T) {
+	w := newWorld(t, "2026-11-19")
+	file := filepath.Join(t.TempDir(), "acme.license")
+	if err := os.WriteFile(file, w.sign(licenses.Org, map[string][]string{"designer": {"sync"}}, "2026-11-06", "2027-11-06"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for words, want := range map[string]string{file: licenses.ReasonWrongType, file + ".gone": licenses.ReasonUnreadable} {
+		_, err := w.run("add", words, "--yes")
+		var p *problem.Problem
+		if !errors.As(err, &p) || p.Reason != want || len(p.At) != 1 || p.At[0].File != words {
+			t.Fatalf("%s: err = %v, want %s at the file", words, err, want)
+		}
+	}
+}
