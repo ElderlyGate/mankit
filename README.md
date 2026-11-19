@@ -522,10 +522,11 @@ list := features.New(all, store, c.Closer(all))
 root.AddCommand(cli.Command(app, c, list, asker.Ask))
 ```
 
-- A license file is the payload's bytes as they were signed and the Ed25519
-  signature over them. Its one Go type is `licenses.License`
-  (`Kind`, `For`, `Products`, `Issued`, `Until`, `KeyID`); what each field
-  means is in contracts mankit/v1. `licenses.Sign(l, signer)` writes one,
+- A license file is a Resource (ADR-S15) whose spec is the payload's bytes as
+  they were signed and the Ed25519 signature over them. Its one Go type is
+  `licenses.License` (`ID`, `Kind`, `For`, `Products`, `Issued`, `Until`,
+  `KeyID`); what each field means is in contracts mankit/v1 `license-file` and
+  `license-payload`. `licenses.Sign(l, signer)` writes one,
   `licenses.Verify(raw, trust)` reads one.
 - A release takes licenses signed by a prod key only, any other build by a dev
   key only. A file it cannot read or verify is refused with its file and a
