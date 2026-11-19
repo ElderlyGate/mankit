@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -448,6 +450,69 @@ func (x *tx) Get(key Key) (Item, bool, error) {
 	return Item{Body: body, Sum: SumOf(body)}, true, nil
 }
 
+// ListIn is every thing at or inside prefix as the change in has it so far, in the order Scope.List gives: what was there when the change began, with the writes its fn has staged on top. An empty prefix lists the whole scope.
+func ListIn(in Tx, prefix Key) ([]Key, error) {
+	x, ok := in.(*tx)
+	if !ok {
+		return nil, fmt.Errorf("store: ListIn takes the Tx a change hands its fn, not a %T", in)
+	}
+	if prefix != "" {
+		if err := prefix.check(); err != nil {
+			return nil, err
+		}
+	}
+	return x.list(prefix)
+}
+
+// list replays the staged writes, first to last, over what is there under prefix and under every key a write moves from, then keeps what ends inside prefix.
+// view is its twin for one key: what one lists, the other finds there; storetest's agree holds them to it, so a write kind added to one goes into both.
+func (x *tx) list(prefix Key) ([]Key, error) {
+	have := map[Key]bool{}
+	add := func(at Key) error {
+		keys, err := x.s.a.list(at)
+		for _, k := range keys {
+			have[k] = true
+		}
+		return err
+	}
+	if err := add(prefix); err != nil {
+		return nil, err
+	}
+	for _, o := range x.ops {
+		if o.kind == opMove {
+			if err := add(o.from); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for _, o := range x.ops {
+		switch o.kind {
+		case opPut:
+			have[o.key] = true
+		case opRemove:
+			maps.DeleteFunc(have, func(k Key, _ bool) bool { return k.within(o.key) })
+		case opMove:
+			for k := range have {
+				if k.within(o.from) {
+					delete(have, k)
+					have[o.key+k[len(o.from):]] = true
+				}
+			}
+		}
+	}
+	out := []Key{}
+	for k := range have {
+		if prefix == "" || k.within(prefix) {
+			out = append(out, k)
+		}
+	}
+	// A walk of the folders: a key's steps compared one by one, so shop/a/x.yml comes before shop/a-b.yml as Scope.List has it.
+	slices.SortFunc(out, func(a, b Key) int {
+		return slices.Compare(strings.Split(string(a), "/"), strings.Split(string(b), "/"))
+	})
+	return out, nil
+}
+
 func (x *tx) Put(key Key, body []byte, want Want) error {
 	return x.stage(op{kind: opPut, key: key, body: append([]byte{}, body...), want: want})
 }
@@ -461,6 +526,7 @@ func (x *tx) Move(from, to Key, want Want) error {
 }
 
 // view is key as the staged writes leave it, read from the last one back to the disk: a file's body, or a folder.
+// list is its twin for a folder: what one finds there, the other lists; storetest's agree holds them to it, so a write kind added to one goes into both.
 func (x *tx) view(key Key) (body []byte, there, folder bool, err error) {
 	k := key
 	for i := len(x.ops) - 1; i >= 0; i-- {
