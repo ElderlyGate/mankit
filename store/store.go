@@ -123,6 +123,10 @@ func (k Key) thing() Key {
 // within says whether k is at or inside the key at.
 func (k Key) within(at Key) bool { return k == at || strings.HasPrefix(string(k), string(at)+"/") }
 
+// rebase is k, at or inside from, named under to instead: where a move of from to to takes it. The one rule a change's view, its list and the read-back after it follow for a move.
+// The caller checks k.within(from) first: rebase only cuts from's length off k, so a k outside from comes out as a wrong key, never an error.
+func (k Key) rebase(from, to Key) Key { return to + k[len(from):] }
+
 // overlaps says whether one of a and b is at or inside the other, so a change to one reaches the other.
 func overlaps(a, b Key) bool { return a.within(b) || b.within(a) }
 
@@ -495,7 +499,7 @@ func (x *tx) list(prefix Key) ([]Key, error) {
 			for k := range have {
 				if k.within(o.from) {
 					delete(have, k)
-					have[o.key+k[len(o.from):]] = true
+					have[k.rebase(o.from, o.key)] = true
 				}
 			}
 		}
@@ -550,7 +554,7 @@ func (x *tx) view(key Key) (body []byte, there, folder bool, err error) {
 			switch {
 			case k.within(o.key):
 				// Before the move it was under the old name.
-				k = o.from + k[len(o.key):]
+				k = k.rebase(o.key, o.from)
 			case k.within(o.from):
 				return nil, false, false, nil
 			case o.key.within(k):

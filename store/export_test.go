@@ -24,6 +24,12 @@ func ExitAfter(n int) {
 	crashAfter.Store(int64(n))
 }
 
+// BeforeReadBack runs fn once a change's writes are made and before they are read back, until the test ends.
+func BeforeReadBack(t interface{ Cleanup(func()) }, fn func()) {
+	beforeReadBack = fn
+	t.Cleanup(func() { beforeReadBack = nil })
+}
+
 // AskWith stands in fn for the name question store unfinished clear asks, until the test ends.
 func AskWith(t interface{ Cleanup(func()) }, fn func(*cobra.Command, ask.Action) error) {
 	was := askName

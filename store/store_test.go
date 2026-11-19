@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
+	"github.com/tugbayatilla/mankit/v3/queue"
 	"github.com/tugbayatilla/mankit/v3/serve"
 	"github.com/tugbayatilla/mankit/v3/store"
 	"github.com/tugbayatilla/mankit/v3/store/storetest"
@@ -875,5 +877,64 @@ func BenchmarkChangeOfThreeWrites(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// A write lost between the writes and their read-back fails the change as not read back, and leaves the scope as it was: a plain write, whole by itself, whose old body is back; and a file written into a folder then moved, read back under its new name, whose change is put back.
+func TestAWriteLostBeforeItsReadBackFailsAndLeavesTheScopeAsItWas(t *testing.T) {
+	cases := []struct {
+		name   string
+		before map[string]string
+		change func(tx store.Tx) error
+		meddle func(served string) // what changes the disk before the read-back
+		want   map[string]string
+	}{
+		{"a plain write", map[string]string{"shop/a.yml": "a"}, func(tx store.Tx) error {
+			return tx.Put(key(t, "shop/a.yml"), []byte("a2"), store.Anything())
+		}, func(served string) { write(t, filepath.Join(served, "shop/a.yml"), "a") }, map[string]string{"shop/a.yml": "a"}},
+		{"a file written, then its folder moved", map[string]string{"shop/f/b.yml": "b"}, func(tx store.Tx) error {
+			if err := tx.Put(key(t, "shop/f/c.yml"), []byte("c"), store.Absent()); err != nil {
+				return err
+			}
+			return tx.Move(key(t, "shop/f"), key(t, "shop/g"), store.Anything())
+		}, func(served string) {
+			if err := os.Remove(filepath.Join(served, "shop/g/c.yml")); err != nil {
+				t.Error(err)
+			}
+		}, map[string]string{"shop/f/b.yml": "b"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := fresh(t)
+			s := served(t, dir)
+			for k, v := range c.before {
+				if err := put(t, s, k, v); err != nil {
+					t.Fatal(err)
+				}
+			}
+			store.BeforeReadBack(t, func() { c.meddle(filepath.Join(dir, "served")) })
+			if err := s.Change(ctx, "shop", c.name, c.change); reason(err) != queue.ReasonNotReadBack {
+				t.Fatalf("the change = %v, want not_read_back", err)
+			}
+			store.BeforeReadBack(t, nil)
+			got := map[string]string{}
+			keys, err := s.List("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, k := range keys {
+				item, _, err := s.Get(k)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got[string(k)] = string(item.Body)
+			}
+			if !maps.Equal(got, c.want) {
+				t.Fatalf("after the change %v, want %v", got, c.want)
+			}
+			if left, err := s.Unfinished("shop"); err != nil || len(left) != 0 {
+				t.Fatalf("unfinished: %v, %v", left, err)
+			}
+		})
 	}
 }
