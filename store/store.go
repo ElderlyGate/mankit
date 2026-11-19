@@ -186,6 +186,7 @@ func (w Want) String() string {
 // App is the app a scope writes for: its product ID and version, written on its tickets and journals, its feature list, through which an adapter other than files is picked (ADR-E9), and its queue waits.
 type App struct {
 	ID       string
+	Command  string // the CLI's name, such as e-designer, which the unfinished_change refusal and store unfinished name; empty is ID
 	Version  string
 	Features *features.List // nil has no feature: files
 	Wait     time.Duration  // how long a change waits for its turn; zero is queue.DefaultWait
@@ -357,14 +358,38 @@ func (s *Scope) Unfinished(thing Key) ([]Unfinished, error) {
 }
 
 // Clear removes the marks of every change cut short in thing's turn, each in its turns, and says which, with this user's journal when it is on this machine (File); it puts nothing back, and a journal stays in its user's data folder, shown as Left by Unfinished.
-// It is for the app's own command, which shows the change and asks first (G-STACK-13), once a person is sure the change was put back or given up; nothing clears a mark unasked.
+// A mark already gone once its turns are taken, put back or cleared meanwhile, is not counted.
+//
+// Deprecated: Clear removes marks a person may never have seen; use ClearShown with the ids the question showed.
 func (s *Scope) Clear(ctx context.Context, thing Key) ([]Unfinished, error) {
 	if thing != "" {
 		if err := thing.check(); err != nil {
 			return nil, err
 		}
 	}
-	return s.a.clear(ctx, thing)
+	return s.a.clear(ctx, thing, nil)
+}
+
+// ClearShown is Clear of only the marks whose ids a person was shown: each is checked again once its turns are taken, so a mark put back, cleared or new meanwhile is left as it is, and what it says is what was removed; no id clears nothing.
+// It is for store unfinished clear, which shows the change and asks first (G-STACK-13), once a person is sure the change was put back or given up; nothing clears a mark unasked.
+func (s *Scope) ClearShown(ctx context.Context, thing Key, ids []string) ([]Unfinished, error) {
+	if thing != "" {
+		if err := thing.check(); err != nil {
+			return nil, err
+		}
+	}
+	if len(ids) == 0 {
+		return []Unfinished{}, nil
+	}
+	return s.a.clear(ctx, thing, ids)
+}
+
+// command is the app's CLI name, the one the unfinished_change refusal and store unfinished name.
+func (a App) command() string {
+	if a.Command != "" {
+		return a.Command
+	}
+	return a.ID
 }
 
 // Tx is what a change's fn reads and writes through, inside its turn; writes are made only once fn returns nil, so what Get reads is what was there when the change began.
