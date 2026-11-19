@@ -672,7 +672,7 @@ s, err := store.Served(app, filepath.Join(repo, ".designer"), func(thing store.K
 	}
 	return filepath.Join(repo, ".designer", ".queue", "design", string(thing))
 })
-cfg, err := store.Config(app) // ~/.config/elderlygate/<app>, private; store.Data likewise
+cfg, err := store.Config(app) // ~/.config/elderlygate/<app>, made private; store.Data likewise
 defer s.Close()
 
 item, there, err := s.Get(key)              // never waits; Item{Body, Sum "sha256:…"}
@@ -682,8 +682,9 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
 ```
 
 - `ParseKey` gives a key in its one form (contracts `mankit/v1` `storeKey`); a
-  `..` step, a backslash, a machine path's start or the store's own `.queue`
-  and `.store` folders are refused as `outside`.
+  `..` step, a backslash, a machine path's start are refused as `outside`, and
+  so is a step named `.queue` or `.store`, the store's own folders: stricter
+  than `storeKey`, which allows them.
 - A thing is a key's first step. `Change(ctx, thing, what, fn)` takes the
   thing's turn in the change queue (ADR-S14), and the folder's own turn first
   when the thing is not there yet; `Change(ctx, "", …)` is a change to the
@@ -691,25 +692,45 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   writes as it writes it. `Config` and `Data` have one turn, in `<scope>/.queue/`.
   There is no separate lock.
 - `fn` stages `Put`, `Remove` and `Move`; nothing is written unless it returns
-  nil. Each write is made only if the thing still holds what its `Want` says,
-  else `changed`. `Tx.Get` reads what was there when the change began.
+  nil. `Tx.Get` reads the change as it stands: what was there, with what `fn`
+  has staged on top. Each write's `Want` is checked as it is staged, against
+  that, and again at commit against the disk, for a writer outside the store;
+  either refuses with `changed`. `fn` must not call `Change` on the same scope:
+  it would wait for ever for the turn its own change holds.
 - One write alone is whole by itself. More are all or nothing: the change's
   mark goes into the `.queue/` of every turn it holds, its journal into this
   user's data folder (`<data>/<app>/.store/<machine>/`, 0700, one per machine),
   then the writes, the read-back, the journal removed, the marks last. The
   shapes and their lifetime are contracts `mankit/v1` `store-journal`,
   `store-journal-change` and `store-unfinished`.
+- Past the queue's limit (`App.Limit`) a change stops before its next write,
+  is put back and fails with `change_too_long`; one already made and read back
+  when the limit passes is done, and that it overran is said on the app's log.
 - A change cut short is put back by the next change of the same user on the
-  same machine, once its writer no longer runs. Another user's change to a key
-  a mark holds is refused with `unfinished_change`, naming the user, the
-  machine and `<app> store unfinished clear <thing>`; `Unfinished` lists the
-  marks and `Clear` removes them, for that command, which asks first.
+  same machine, once its writer no longer runs: its process id no longer runs
+  there (a pid reused by another process meanwhile counts as running; where
+  the system cannot be asked, outside Linux and macOS, it always does). A cut
+  short change of another thing that cannot be put back is said and does not
+  stop this one. Another user's change to a key a mark holds is refused with
+  `unfinished_change`, naming the user, the machine and `<app> store unfinished
+  clear <thing>`; `Unfinished` lists the marks, with this user's journal file,
+  and this user's journals whose marks are gone (`Left`), and `Clear` removes
+  marks, for that command, which asks first.
+- A machine is known by its host name, so a product's container needs a fixed
+  `--hostname` (such as `<product>-<project>`): a container made anew under
+  another name would never find its own journals to put back.
 - The safety rules live once, in `internal/disk`, which the queue writes
-  through too: every call inside one open folder (`os.Root`), no link followed,
-  regular files only, opened without waiting on a pipe, written whole. The
-  app's own scopes and the journals are private (0700, 0600) and refused as
-  `not_owned` when they are not this user's alone; a served file keeps the
-  mode of the file it replaces.
+  through too: every call inside one open folder (`os.Root`), regular files
+  only, opened without waiting on a pipe, written whole. No link is followed,
+  one leading inside the scope included: a key with a link on its way is
+  refused as `outside`. The app's own scopes and the journals are private: a
+  folder or file there that this user owns but others could read or write is
+  made 0700 or 0600, and said on the app's log; one another user owns, or a
+  link, is refused as `not_owned`. A served file keeps the mode of the file it
+  replaces, a moved file its own, and a new one gets 0644 whatever the umask
+  says. Putting a change back in the process that made it gives a removed
+  file its mode back; after a crash, the journal holds no mode, so a removed
+  file returns 0644 (0600 in the own scopes).
 - `Revision` moves whenever a thing changes; a reader polls it, or a server's
   live events watch it (ADR-E3).
 - The adapter is picked in one place, through the app's feature list
