@@ -22,8 +22,9 @@ import (
 	"github.com/gofrs/flock"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/internal/encode"
 	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
 )
 
 // The reasons of the queue's Problems, each with the type failed: the request was fine and the app could not do it; a program decides by type and reason, never by the detail (G-STACK-15).
@@ -455,7 +456,7 @@ func (q Queue) join(ctx context.Context, change string) (*ticket, error) {
 		}
 		t.alive = alive
 		q.process().hold(t.path, true)
-		data, err := disk.JSON(Ticket{
+		data, err := encode.JSON(Ticket{
 			APIVersion: APIVersion(),
 			Kind:       Kind,
 			Metadata:   Metadata{ID: t.id, App: q.App, PID: os.Getpid(), Host: host},

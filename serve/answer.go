@@ -93,12 +93,6 @@ type Envelope struct {
 	supported []string // the contracts an error/v1 unsupported_contract lists
 }
 
-// The apiVersion and kind every Problem carries (problem/v1).
-const (
-	problemAPIVersion = "elderlygate/contracts/problem/v1"
-	problemKind       = "Problem"
-)
-
 // APIVersion is the apiVersion of the app's answers in contract: <org>/<id>/app/<contract>.
 func (a App) APIVersion(contract string) string { return home.Org + "/" + a.ID + "/app/" + contract }
 
@@ -154,7 +148,7 @@ func problemOf(err error) problem.Problem {
 		copied := *p
 		p = &copied
 	}
-	p.APIVersion, p.Kind = problemAPIVersion, problemKind
+	p.APIVersion, p.Kind = problem.APIVersion, problem.Kind
 	if p.Detail == "" {
 		p.Detail = strings.TrimSuffix(p.Type+": "+p.Reason, ": ")
 	}

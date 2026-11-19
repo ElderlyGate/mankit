@@ -1,4 +1,4 @@
-// Package disk is the one safety core every writer in mankit shares, the store, the change queue and the writers below the store alike: inside an open folder it follows no link, reads and writes regular files only, never waits on a pipe, writes a file whole (G-CODE-5) and keeps an app's own folders private. Replace alone follows a link, on purpose: a config file a person edits may be a link to their own copy.
+// Package disk is the store's safety core, which its change queue writes through too: inside an open folder it follows no link, reads and writes regular files only, never waits on a pipe, writes a file whole (G-CODE-5) and keeps an app's own folders private. It sits inside the store, so no package outside it writes past the port (ADR-S22).
 package disk
 
 import (

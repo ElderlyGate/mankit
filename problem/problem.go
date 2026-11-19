@@ -12,6 +12,12 @@ const (
 	TypeOld                 = "old"
 )
 
+// The apiVersion and kind every Problem carries (problem/v1), filled in where one is answered or logged.
+const (
+	APIVersion = "elderlygate/contracts/problem/v1"
+	Kind       = "Problem"
+)
+
 // Problem is one thing that went wrong (contracts problem/v1); Fail makes one, and an answer fills in its apiVersion and kind.
 type Problem struct {
 	APIVersion string  `json:"apiVersion"`

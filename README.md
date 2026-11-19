@@ -29,6 +29,7 @@ three, instead of being made three times.
 | `features` | An app's list of switchable features: each starts on or off, names the values it needs and has a tier, free or enterprise; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
 | `store/queue` | Shows the change queue and sets its waits: the tickets in a line, `queue.wait` and `queue.limit`, `<app> queue show`, `set` and `unset`. The turns are the store's own (see [Change queue](#change-queue)) |
+| `logs` | What every app logs: records in OpenTelemetry's log shape through `log/slog`, a detached server's rotated file in the logs folder, and the telemetry feature that sends them over OTLP (see [Logs](#logs)) |
 | `problem` | A Problem (contracts problem/v1) and its types, below everything that makes one: the store and serve say what went wrong the same way |
 | `store` | The one storage port (ADR-S22): a scope names its things by keys, reading never waits, every change takes the thing's turn and is made all or nothing, then read back; `store.Migrate` and `store.CopyOnce` bring old files along; `store/cli` is `<app> store unfinished`; `store/storetest` is the conformance suite every adapter passes (see [Store](#store)) |
 
@@ -78,7 +79,7 @@ that changes a key with `enter`.
 ## Where the files are
 
 Every app of the org keeps its files in one place, the same on Linux and macOS
-(never `~/Library`):
+but for its logs (G-STACK-8):
 
 | What | Where | `home` |
 |---|---|---|
@@ -86,6 +87,8 @@ Every app of the org keeps its files in one place, the same on Linux and macOS
 | one app's config (the app folder) | `<config folder>/<product id>/` | `home.Product(id)` |
 | the org's data folder | `$XDG_DATA_HOME/elderlygate`, else `~/.local/share/elderlygate` | `home.Data()` |
 | one app's data | `<data folder>/<product id>/` | `home.ProductData(id)` |
+| the org's logs folder | Linux: `$XDG_STATE_HOME/elderlygate`, else `~/.local/state/elderlygate`; macOS: `~/Library/Logs/elderlygate` | `home.Logs()` |
+| one app's logs | `<logs folder>/<product id>/` | `home.ProductLogs(id)` |
 
 The folder name is the one constant `home.Org`, so the org's rename changes one
 line. A relative `XDG_*` value is ignored, as the XDG rules say.
@@ -456,6 +459,9 @@ token is printed only when asked for: by `serve` (to a terminal only, since a
 running server's output may be its log), `serve --detach`, `server link` and
 `server token renew`; never into a server's log.
 
+A server logs records (see [Logs](#logs)): to stdout in the foreground, and
+detached to `<logs folder>/<folder>/<address>.log`, which its record names.
+
 `<folder>` is `App.Folder`, else `App.ID`: an app whose folders are named apart
 from its ID until the rename (e-designer answers as `designer`) sets it, and the
 ID still names its answers, cookie and command.
@@ -470,6 +476,39 @@ to other users lets nobody in.
 
 The tests check the real answers against the schemas in
 [contracts](https://github.com/ElderlyGate/contracts).
+
+## Logs
+
+`logs` is what every app logs: records in OpenTelemetry's log data model, one
+JSON object a line, through `log/slog` (`logs.New(w, id, version)`):
+`timestamp`, `severityText` and `severityNumber` (DEBUG 5, INFO 9, WARN 13,
+ERROR 17), `body`, `attributes` (flat, a group's keys joined by dots) and
+`resource` (`service.name`, `service.version`). A Problem in a record is an
+attribute in its own shape (contracts problem/v1), so a reader of the log
+decides by its type and reason as a reader of an answer does.
+
+- A foreground `serve` logs to stdout, every other command to stderr (the
+  store's and the queue's notices are records there unless `store.App.Log`
+  says otherwise), and a detached server to its file.
+- A person at a terminal reads each record as one plain line,
+  `designer: serving on 127.0.0.1:5174`, warnings and errors marked and a
+  Problem's detail after it; JSON lines go to anything else: a pipe, a file,
+  a container's log.
+- `logs.Open(path)` is a log file, this user's alone, rotated at 10 MB with
+  the five before it kept as `<name>.1` (the newest) to `<name>.5` (G-STACK-8).
+  Logs are the one thing an app writes outside the store (ADR-S22).
+- `logs.Writer(logger, level)` logs each line written to it, for what reports
+  through a writer, such as `serve.Site.Log`.
+- `logs.Telemetry` is the telemetry feature for the app's list (ADR-E5, E9):
+  off by default; on, every record is also sent over OTLP to
+  `OTEL_EXPORTER_OTLP_ENDPOINT` with the other standard `OTEL_*` variables.
+  Sending lives in `logs/otlp`, the one package that links OpenTelemetry's
+  modules: an app that offers telemetry sets
+  `serve.Site.Telemetry = otlp.For(list, id, version)`, and an app that does
+  not links none of them.
+  On without the endpoint sends nothing, and the list says so as
+  `feature_needs_values`, which the app's License and features section shows
+  and the server logs at start.
 
 ## Features
 
@@ -815,8 +854,8 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
 - A machine is known by its host name, so a product's container needs a fixed
   `--hostname` (such as `<product>-<project>`): a container made anew under
   another name would never find its own journals to put back.
-- The safety rules live once, in `internal/disk`, which the queue writes
-  through too: every call inside one open folder (`os.Root`), regular files
+- The safety rules live once, in `store/internal/disk`, which the queue writes
+  through too, and which Go keeps every package outside the store from: every call inside one open folder (`os.Root`), regular files
   only, opened without waiting on a pipe, written whole. No link is followed,
   one leading inside the scope included: a key with a link on its way is
   refused as `outside`. The app's own scopes and the journals are private:
