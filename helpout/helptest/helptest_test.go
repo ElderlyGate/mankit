@@ -17,7 +17,10 @@ func app() *cobra.Command {
 		helpout.Old(&cobra.Command{Use: "list", Short: "List the servers", Run: func(*cobra.Command, []string) {}}, "servers"),
 		helpout.Old(&cobra.Command{Use: "stop", Short: "Stop a server", Run: func(*cobra.Command, []string) {}}, "servers stop"),
 	)
-	root.AddCommand(server)
+	// config is a thing an old form passes through, with no verb of its own yet.
+	config := &cobra.Command{Use: "config", Short: "The settings"}
+	server.AddCommand(helpout.Old(&cobra.Command{Use: "show", Short: "Show the server settings", Run: func(*cobra.Command, []string) {}}, "config server"))
+	root.AddCommand(server, config)
 	helpout.Apply(root, helpout.Info{What: "a demo"})
 	return root
 }

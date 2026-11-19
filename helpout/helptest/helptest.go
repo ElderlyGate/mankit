@@ -62,10 +62,10 @@ func listed(t T, newRoot func() *cobra.Command, root *cobra.Command, path []stri
 	}
 }
 
-// visible says whether path is a command people see, before any old form is added.
+// visible says whether path is a command of the app's own, not hidden, before any old form is added: a thing an old form passes through is listed as itself.
 func visible(root *cobra.Command, path []string) bool {
 	c, rest, err := root.Find(path)
-	return err == nil && len(rest) == 0 && c != root && c.IsAvailableCommand()
+	return err == nil && len(rest) == 0 && c != root && !c.Hidden
 }
 
 func run(root *cobra.Command, args ...string) (stdout, stderr string, code int) {
