@@ -222,8 +222,18 @@ func own(app App, where func(string) (string, error)) (*Scope, error) {
 	if err != nil {
 		return nil, fail(serve.TypeFailed, "", "", fmt.Sprintf("%s's own folder cannot be found: %v", app.ID, err))
 	}
-	if err := disk.Private(dir); err != nil {
+	// This user's own folder that others could read is made private, and said; another user's, or a link, is refused.
+	tightened, err := disk.Private(dir)
+	if err == nil {
+		var inside []string
+		inside, err = disk.Tighten(dir)
+		tightened = append(tightened, inside...)
+	}
+	if err != nil {
 		return nil, diskFail(err, "", fmt.Sprintf("%s's own folder %s", app.ID, dir))
+	}
+	for _, p := range tightened {
+		fmt.Fprintf(logOf(app), "store: %s was open to other users; it is now this user's alone\n", p)
 	}
 	return open(app, dir, true, func(Key) string { return dir })
 }
@@ -264,6 +274,7 @@ func (s *Scope) Revision() (string, error) { return s.a.revision() }
 
 // Change runs fn in the turn of thing, a key's first step, or of the scope itself when thing is empty; what fn puts, removes and moves is made all or nothing once fn returns nil, then read back. what names the change on its ticket.
 // A thing not there yet is added in the folder's turn as well, taken first; a change to the scope itself takes the turn of each thing it writes, as it writes it.
+// fn must not call Change on the same scope: it would wait for the turn its own change holds, for ever.
 func (s *Scope) Change(ctx context.Context, thing Key, what string, fn func(Tx) error) error {
 	if thing != "" {
 		if err := thing.check(); err != nil {
@@ -276,34 +287,59 @@ func (s *Scope) Change(ctx context.Context, thing Key, what string, fn func(Tx) 
 	if err := s.a.settle(ctx, thing); err != nil {
 		return err
 	}
-	t := s.turns(ctx, what)
-	tx := &tx{s: s, t: t, thing: thing}
-	err := func() error {
-		if thing == "" || !s.a.there(thing) {
-			if err := t.take(""); err != nil {
+	folder := thing == "" || !s.a.there(thing)
+	for {
+		t := s.turns(ctx, what)
+		again := false
+		err := func() error {
+			if folder {
+				if err := t.take(""); err != nil {
+					return err
+				}
+				if err := s.a.blocked(t, ""); err != nil {
+					return err
+				}
+			}
+			if thing != "" {
+				if err := t.take(thing); err != nil {
+					return err
+				}
+				// Moved or removed while this change waited: it is added anew, in the folder's turn first.
+				if !folder && !s.a.there(thing) {
+					again = true
+					return nil
+				}
+			}
+			tx := &tx{s: s, t: t, thing: thing}
+			if err := fn(tx); err != nil {
 				return err
 			}
-			if err := s.a.blocked(t, ""); err != nil {
-				return err
+			if len(tx.ops) == 0 {
+				return nil
 			}
+			return s.a.commit(t, tx.ops)
+		}()
+		err = t.give(err)
+		if again {
+			folder = true
+			continue
 		}
-		if thing != "" {
-			if err := t.take(thing); err != nil {
-				return err
-			}
+		// A change that was made and read back is done, even past the limit; the queue's change_too_long is for a write that had to stop.
+		if err == nil && t.over() {
+			fmt.Fprintf(logOf(s.app), "store: %s held its turn in %s past the queue's limit, and was made\n", what, s.root)
 		}
-		if err := fn(tx); err != nil {
-			return err
-		}
-		if len(tx.ops) == 0 {
-			return nil
-		}
-		return s.a.commit(t, tx.ops)
-	}()
-	return t.give(err)
+		return err
+	}
 }
 
-// Unfinished is every change cut short whose mark is in thing's turn, or the folder's own when thing is empty: whose it is and what it holds back.
+func logOf(app App) io.Writer {
+	if app.Log != nil {
+		return app.Log
+	}
+	return os.Stderr
+}
+
+// Unfinished is every change cut short whose mark is in thing's turn, or the folder's own when thing is empty: whose it is and what it holds back; and this user's journals of the scope whose marks are gone (Left).
 func (s *Scope) Unfinished(thing Key) ([]Unfinished, error) {
 	if thing != "" {
 		if err := thing.check(); err != nil {
@@ -313,7 +349,7 @@ func (s *Scope) Unfinished(thing Key) ([]Unfinished, error) {
 	return s.a.unfinished(thing)
 }
 
-// Clear removes the marks of every change cut short in thing's turn, each in its turns, and says which; it puts nothing back, and a journal stays in its user's data folder.
+// Clear removes the marks of every change cut short in thing's turn, each in its turns, and says which, with this user's journal when it is on this machine (File); it puts nothing back, and a journal stays in its user's data folder, shown as Left by Unfinished.
 // It is for the app's own command, which shows the change and asks first (G-STACK-13), once a person is sure the change was put back or given up; nothing clears a mark unasked.
 func (s *Scope) Clear(ctx context.Context, thing Key) ([]Unfinished, error) {
 	if thing != "" {
@@ -365,7 +401,20 @@ type tx struct {
 	ops   []op
 }
 
-func (x *tx) Get(key Key) (Item, bool, error) { return x.s.Get(key) }
+// Get is the thing at key as the change has it so far: what was there when it began, with the writes fn has staged on top.
+func (x *tx) Get(key Key) (Item, bool, error) {
+	if err := key.check(); err != nil {
+		return Item{}, false, err
+	}
+	body, there, folder, err := x.view(key)
+	if err != nil || !there {
+		return Item{}, false, err
+	}
+	if folder {
+		return Item{}, false, fail(serve.TypeRefused, "", string(key), fmt.Sprintf("%s is a folder, not a file", key))
+	}
+	return Item{Body: body, Sum: SumOf(body)}, true, nil
+}
 
 func (x *tx) Put(key Key, body []byte, want Want) error {
 	return x.stage(op{kind: opPut, key: key, body: append([]byte{}, body...), want: want})
@@ -379,7 +428,39 @@ func (x *tx) Move(from, to Key, want Want) error {
 	return x.stage(op{kind: opMove, key: to, from: from, want: want})
 }
 
-// stage checks an op before it is kept: its keys inside the change's thing, its turns taken, no change cut short holding them.
+// view is key as the staged writes leave it, read from the last one back to the disk: a file's body, or a folder.
+func (x *tx) view(key Key) (body []byte, there, folder bool, err error) {
+	k := key
+	for i := len(x.ops) - 1; i >= 0; i-- {
+		o := x.ops[i]
+		switch o.kind {
+		case opPut:
+			if k == o.key {
+				return o.body, true, false, nil
+			}
+			if o.key.within(k) {
+				return nil, true, true, nil
+			}
+		case opRemove:
+			if k.within(o.key) {
+				return nil, false, false, nil
+			}
+		case opMove:
+			switch {
+			case k.within(o.key):
+				// Before the move it was under the old name.
+				k = o.from + k[len(o.key):]
+			case k.within(o.from):
+				return nil, false, false, nil
+			case o.key.within(k):
+				return nil, true, true, nil
+			}
+		}
+	}
+	return x.s.a.look(k)
+}
+
+// stage checks an op before it is kept: its keys inside the change's thing, its turns taken, no change cut short holding them, and its Want met by what the change has so far.
 func (x *tx) stage(o op) error {
 	if o.want.kind == 0 {
 		return fmt.Errorf("store: a write of %s names no Want (Absent, Holds or Anything)", o.key)
@@ -404,8 +485,59 @@ func (x *tx) stage(o op) error {
 			return err
 		}
 	}
+	if err := x.meets(o); err != nil {
+		return err
+	}
 	x.ops = append(x.ops, o)
 	return nil
+}
+
+// meets refuses an op the change so far does not allow: a Want not met as changed, a file over a folder, a move onto a taken name or into itself.
+func (x *tx) meets(o op) error {
+	at := o.key
+	if o.kind == opMove {
+		at = o.from
+		if o.key.within(o.from) {
+			return fail(serve.TypeRefused, "", string(o.key), fmt.Sprintf("%s is inside %s, so %s cannot move there", o.key, o.from, o.from))
+		}
+		_, taken, _, err := x.view(o.key)
+		if err != nil {
+			return err
+		}
+		if taken {
+			return fail(serve.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s is there already, so %s is not moved onto it", o.key, o.from))
+		}
+	}
+	body, there, folder, err := x.view(at)
+	if err != nil {
+		return err
+	}
+	switch {
+	case o.kind == opPut && folder:
+		return fail(serve.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s is a folder, so no file is written there", at))
+	case o.kind == opMove && !there:
+		return fail(serve.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s is not there, so it is not moved", at))
+	}
+	return unmet(at, o.want, there, folder, body)
+}
+
+// unmet refuses as changed a thing that is not what want wants.
+func unmet(at Key, want Want, there, folder bool, body []byte) error {
+	sum := ""
+	if there && !folder {
+		sum = SumOf(body)
+	}
+	if want.met(there, folder, sum) {
+		return nil
+	}
+	now := "nothing"
+	switch {
+	case folder:
+		now = "a folder"
+	case there:
+		now = sum
+	}
+	return fail(serve.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s holds %s, not %s as the writer read; read it again before trying again", at, now, want))
 }
 
 // fail is a Problem pointing at key, when it names one.

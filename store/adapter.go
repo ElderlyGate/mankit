@@ -9,6 +9,8 @@ import (
 // adapter is how a scope keeps its things; files is the one every build has, always on.
 type adapter interface {
 	get(key Key) (Item, bool, error)
+	// look is what is at key now: a file's body, or a folder.
+	look(key Key) (body []byte, there, folder bool, err error)
 	there(thing Key) bool
 	list(prefix Key) ([]Key, error)
 	revision() (string, error)
