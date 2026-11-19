@@ -36,7 +36,7 @@ type ClearedData struct {
 	Cleared []store.Unfinished `json:"cleared"`
 }
 
-// UnfinishedCommand is `unfinished`, which every app with a store scope mounts under its own store command, as it does config queue, and serves through UnfinishedRoutes:
+// UnfinishedCommand is `unfinished`, which every app with a store scope mounts under its own store command, and serves through UnfinishedRoutes:
 // `list [<thing>]` shows the changes cut short in the scope open opens, and `remove <thing>` shows those holding thing and, once the person types its name, removes the marks it showed (G-STACK-13).
 // It prints through serve's Printer, so every app shows and answers it the same way, and the unfinished_change refusal names it.
 func UnfinishedCommand(a serve.App, open func() (*store.Scope, error)) *cobra.Command {

@@ -2,6 +2,7 @@ package queue_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -213,4 +214,34 @@ func TestTheOldConfigQueueFormsRunTheirFullForms(t *testing.T) {
 		helpout.Apply(root, helpout.Info{What: "a test app"})
 		return root
 	})
+}
+
+// config queue wait default, the old way back to the default, still runs queue unset wait for one release.
+func TestTheOldConfigQueueDefaultUnsets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	app := serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
+	run := func(args ...string) (string, int, error) {
+		root := &cobra.Command{Use: "e-designer"}
+		root.AddCommand(&cobra.Command{Use: "config", Short: "The settings"}, queue.Command(app, func() string { return path }, func(*cobra.Command, ask.Action) error { return nil }))
+		helpout.Apply(root, helpout.Info{What: "a test app"})
+		var out, errOut bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+		root.SetArgs(args)
+		code, err := helpout.Execute(context.Background(), root)
+		return errOut.String(), code, err
+	}
+	if _, code, err := run("config", "queue", "wait", "45s", "--yes"); code != 0 || err != nil {
+		t.Fatalf("config queue wait 45s: %d %v", code, err)
+	}
+	if wait, _, _ := queue.Waits(path); wait != "45s" {
+		t.Fatalf("wait %q after the old set", wait)
+	}
+	said, code, err := run("config", "queue", "wait", "default", "--yes")
+	if code != 0 || err != nil || !strings.Contains(said, "config queue wait default is now queue unset wait") {
+		t.Fatalf("config queue wait default: %d %v, stderr %q", code, err, said)
+	}
+	if wait, _, _ := queue.Waits(path); wait != "" {
+		t.Fatalf("wait %q after the old default", wait)
+	}
 }

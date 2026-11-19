@@ -619,7 +619,7 @@ func loopback(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// Printer prints a command's answer the way serve's own commands do: rows as a table, or the envelope with -o json or yaml, in the contract asked with --contract; another package's command, such as `config queue`, uses it.
+// Printer prints a command's answer the way serve's own commands do: rows as a table, or the envelope with -o json or yaml, in the contract asked with --contract; another package's command, such as `queue show`, uses it.
 type Printer struct{ p *printing }
 
 // Printer gives c the -o and --contract flags and prints its answer.

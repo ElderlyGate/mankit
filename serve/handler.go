@@ -89,7 +89,7 @@ const VersionAPIVersion = "elderlygate/contracts/version/v1"
 
 var writing = map[string]bool{http.MethodPost: true, http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true}
 
-// Handler serves site behind the guard, with this machine's token read on every request, so servers token renew counts at once.
+// Handler serves site behind the guard, with this machine's token read on every request, so server token renew counts at once.
 func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 	if err := a.check(); err != nil {
 		return nil, err

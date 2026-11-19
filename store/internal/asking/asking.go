@@ -1,4 +1,4 @@
-// Package asking holds the name question store unfinished clear asks, so a test of the store stands in for it the way a person types the name.
+// Package asking holds the name question store unfinished remove asks, so a test of the store stands in for it the way a person types the name.
 package asking
 
 import (

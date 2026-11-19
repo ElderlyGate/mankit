@@ -92,6 +92,8 @@ func Command(a serve.App, path func() string, confirm func(*cobra.Command, ask.A
 	helpout.Old(show, "config queue")
 	helpout.OldArgs(set, "config queue wait", "wait")
 	helpout.OldArgs(set, "config queue limit", "limit")
+	helpout.OldArgs(unset, "config queue wait default", "wait")
+	helpout.OldArgs(unset, "config queue limit default", "limit")
 	cmd.AddCommand(show, set, unset)
 	return cmd
 }
