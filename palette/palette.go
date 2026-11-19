@@ -13,8 +13,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
 	"github.com/tugbayatilla/mankit/v4/settings"
+	"github.com/tugbayatilla/mankit/v4/store"
 	"github.com/tugbayatilla/mankit/v4/textinput"
 )
 
@@ -248,5 +248,6 @@ func (f Favorites) Toggle(id string, order []string) error {
 			b.WriteString(o + "\n")
 		}
 	}
-	return disk.Replace(f.File, []byte(b.String()), 0o644)
+	// Written whole in its folder's turn, as every write goes through the store (ADR-S22).
+	return store.EditFile(f.File, func([]byte, bool) ([]byte, error) { return []byte(b.String()), nil })
 }

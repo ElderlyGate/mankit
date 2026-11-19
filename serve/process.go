@@ -104,7 +104,7 @@ func (a App) stop(dir string, r record) (stopped, error) {
 	p := a.probe(r.Metadata.Addr, probeWait)
 	if p.refused {
 		out.Stale = true
-		return out, removeRecord(dir, r.Metadata.Addr)
+		return out, a.removeRecord(dir, r.Metadata.Addr)
 	}
 	if !p.answering {
 		return out, fmt.Errorf("%s is held by something that does not answer as %s; this will not signal a process it cannot name (recorded pid %d)",
@@ -128,5 +128,5 @@ func (a App) stop(dir string, r record) (stopped, error) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	out.Stopped = true
-	return out, removeRecord(dir, r.Metadata.Addr)
+	return out, a.removeRecord(dir, r.Metadata.Addr)
 }

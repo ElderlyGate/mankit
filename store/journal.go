@@ -52,6 +52,8 @@ type line struct {
 	From   Key     `json:"from,omitempty"`
 	// mode is the file's mode, kept while the change runs so putting it back in this process gives it back; a journal does not hold it.
 	mode fs.FileMode
+	// exec is a file put that may be run, kept while the change runs; a journal does not hold it.
+	exec bool
 }
 
 // content is body as a line holds it: nil stays nil, and an empty file stays an empty file.

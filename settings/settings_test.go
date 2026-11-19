@@ -1,12 +1,14 @@
 package settings_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/settings"
 	"github.com/tugbayatilla/mankit/v4/store"
 	"github.com/tugbayatilla/mankit/v4/store/queue"
@@ -253,18 +255,28 @@ func TestSetKeepsPermissions(t *testing.T) {
 	}
 }
 
-func TestSetWritesThroughASymlink(t *testing.T) {
+// A config.yaml that is a link, to a dotfiles repository say, is refused, never followed and never replaced (ADR-S22: nothing follows a link out); the link and what it leads to stay as they were.
+func TestSetRefusesALinkedConfigAndKeepsTheLink(t *testing.T) {
 	real := write(t, "theme: nord\n")
 	link := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.Symlink(real, link); err != nil {
 		t.Skip(err)
 	}
-	set(t, link, "theme", "mono", "theme: mono\n")
+	err := settings.Set(link, keys, "theme", "mono")
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Type != problem.TypeRefused || p.Reason != store.ReasonOutside {
+		t.Fatalf("a linked config.yaml = %v, want refused outside", err)
+	}
 	if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
 		t.Fatal("the link was replaced by a file")
 	}
-	if b, _ := os.ReadFile(real); string(b) != "theme: mono\n" {
-		t.Fatalf("%q", b)
+	if b, _ := os.ReadFile(real); string(b) != "theme: nord\n" {
+		t.Fatalf("what the link leads to changed: %q", b)
+	}
+	// Reading still follows it.
+	rows, err := settings.Load(link, keys)
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("Load through the link: %v, %v", rows, err)
 	}
 }
 
@@ -360,19 +372,18 @@ func TestSetKeepsAByteOrderMark(t *testing.T) {
 	set(t, path, "theme", "", "\ufeff")
 }
 
-func TestSetWritesThroughABrokenSymlink(t *testing.T) {
+func TestSetRefusesABrokenLink(t *testing.T) {
 	dir := t.TempDir()
-	real := filepath.Join(dir, "real", "config.yaml")
 	link := filepath.Join(dir, "config.yaml")
 	if err := os.Symlink(filepath.Join("real", "config.yaml"), link); err != nil {
 		t.Skip(err)
 	}
-	set(t, link, "theme", "mono", "theme: mono\n")
-	if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("the link was replaced by a file")
+	var p *problem.Problem
+	if err := settings.Set(link, keys, "theme", "mono"); !errors.As(err, &p) || p.Reason != store.ReasonOutside {
+		t.Fatalf("a broken link = %v, want refused outside", err)
 	}
-	if b, _ := os.ReadFile(real); string(b) != "theme: mono\n" {
-		t.Fatalf("%q", b)
+	if _, err := os.Stat(filepath.Join(dir, "real", "config.yaml")); !os.IsNotExist(err) {
+		t.Fatal("a file was made where the link leads")
 	}
 }
 

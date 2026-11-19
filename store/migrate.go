@@ -1,12 +1,15 @@
 package store
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // Migrate copies each named file the app kept before in the system's config folder (<config dir>/<id>/<name>) to home.File(id, name), once per file:
@@ -31,7 +34,7 @@ func Migrate(id string, names ...string) error {
 			err = CopyOnce(from, to)
 		}
 		if err == nil {
-			err = disk.Replace(mark, nil, 0o644) // the empty mark
+			err = EditFile(mark, func([]byte, bool) ([]byte, error) { return []byte{}, nil }) // the empty mark
 		}
 		errs = append(errs, err)
 	}
@@ -39,8 +42,107 @@ func Migrate(id string, names ...string) error {
 }
 
 // CopyOnce copies the file or folder from to to when to is missing and from exists, and leaves from as it was; otherwise it does nothing.
-// A folder appears whole or not at all, and a to made meanwhile by someone else is kept, never overwritten.
-func CopyOnce(from, to string) error { return disk.CopyOnce(from, to) }
+// The copy goes through the store: a file in the turn of the folder it goes into, a folder in its own turn, made by the copy, so nothing beside to is touched. It is whole or not at all, a to made meanwhile is kept, never overwritten, a file that may be run stays so, and a link inside from is refused, as the store writes no link (ADR-S22).
+func CopyOnce(from, to string) error {
+	if copied(to) {
+		return nil
+	}
+	fi, err := os.Stat(from)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	type file struct {
+		body []byte
+		exec bool
+	}
+	files := map[Key]file{}
+	root, prefix := to, ""
+	if !fi.IsDir() {
+		b, err := os.ReadFile(from)
+		if err != nil {
+			return err
+		}
+		root, prefix = filepath.Dir(to), filepath.Base(to)
+		files[Key(prefix)] = file{b, fi.Mode()&0o111 != 0}
+	} else if err := filepath.WalkDir(from, func(p string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.Type()&fs.ModeSymlink != 0:
+			return problem.FailAt(problem.TypeRefused, ReasonOutside, p, fmt.Sprintf("%s is a link, and the store writes no link, so %s is not copied", p, from))
+		case d.IsDir():
+			return nil
+		}
+		rel, err := filepath.Rel(from, p)
+		if err != nil {
+			return err
+		}
+		k, err := ParseKey(filepath.ToSlash(rel))
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		files[k] = file{b, info.Mode()&0o111 != 0}
+		return err
+	}); err != nil {
+		return err
+	}
+	s, err := ownFolder(root)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	err = s.Change(context.Background(), "", "copy "+from, func(tx Tx) error {
+		// Made meanwhile: the newer one stays.
+		var at Key
+		if prefix != "" {
+			at = Key(prefix)
+		}
+		if there, err := ListIn(tx, at); err != nil || len(there) > 0 {
+			return err
+		}
+		for k, f := range files {
+			put := tx.Put
+			if f.exec {
+				put = func(k Key, b []byte, w Want) error { return PutExec(tx, k, b, w) }
+			}
+			if err := put(k, f.body, Absent()); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil || prefix != "" {
+		return err
+	}
+	// A folder copied took its turn inside itself; once made, its .queue goes, so the copy holds what from held and nothing more. A copy cut short keeps it, for the next run to put back.
+	return os.RemoveAll(filepath.Join(to, ".queue"))
+}
+
+// copied says whether to holds something already: a file, or a folder with anything in it but the store's own .queue, which only a copy cut short leaves, for the next run to put back.
+func copied(to string) bool {
+	info, err := os.Lstat(to)
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return true
+	}
+	entries, _ := os.ReadDir(to)
+	for _, e := range entries {
+		if !reserved[e.Name()] {
+			return true
+		}
+	}
+	return false
+}
 
 // exists reports whether something is at path.
 func exists(path string) bool {

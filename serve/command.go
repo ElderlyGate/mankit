@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -185,11 +186,14 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 			Metadata: recordMetadata{App: a.ID, Addr: bound, PID: os.Getpid()},
 			Spec:     recordSpec{Name: site.Name, Version: a.Version, StartedAt: time.Now().UTC(), Log: logPath, Detached: child},
 		}
-		if err := rec.save(dir); err != nil {
+		if err := a.save(dir, rec); err != nil {
 			ln.Close()
 			return err
 		}
-		defer func() { _ = removeRecord(dir, bound) }()
+		// The record goes before the listener closes, so once its address refuses, the server writes nothing more: a server stop that saw it stop finds the record gone.
+		var forget sync.Once
+		drop := func() { forget.Do(func() { _ = a.removeRecord(dir, bound) }) }
+		defer drop()
 		w := cmd.OutOrStdout()
 		fmt.Fprintf(w, "%s serving on http://%s\n", a.command(), bound)
 		switch {
@@ -206,7 +210,7 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 			// A running server's output may be its log, so the link goes there only when it is a terminal.
 			fmt.Fprintf(w, "`%s server link %s` prints the link that opens it\n", a.command(), bound)
 		}
-		return run(cmd.Context(), &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}, ln)
+		return run(cmd.Context(), &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}, ln, drop)
 	}
 	c.Flags().StringVar(&addr, "addr", a.Addr, "address to bind (this machine's own address by default)")
 	c.Flags().StringSliceVar(&hosts, "host", nil, "a name besides localhost this server answers to, such as a tunnel's host name")
@@ -230,8 +234,8 @@ func (a App) logBroken(w io.Writer, list *features.List) error {
 	return nil
 }
 
-// run serves on ln until ctx ends or a signal comes, then shuts down gracefully so no write is cut off.
-func run(ctx context.Context, srv *http.Server, ln net.Listener) error {
+// run serves on ln until ctx ends or a signal comes, then runs before and shuts down gracefully so no write is cut off.
+func run(ctx context.Context, srv *http.Server, ln net.Listener, before func()) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -248,6 +252,7 @@ func run(ctx context.Context, srv *http.Server, ln net.Listener) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
+		before()
 		shutdown, cancel := context.WithTimeout(context.Background(), shutdownFor)
 		defer cancel()
 		return srv.Shutdown(shutdown)

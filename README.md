@@ -42,6 +42,21 @@ every other byte of the file stays as it was. A value it cannot change in place
 (a block, a list, an anchor, a key written twice, a second document) is refused,
 to be changed by hand.
 
+Every write of mankit's own goes through the store (ADR-S22), like every app's:
+`config.yaml` (`settings.Set`, `ask.Set`, `usercmd`), the split's width, the
+palette's favorites, `store.Migrate`'s mark and `store.CopyOnce`, and serve's
+records and token. A package handed a path opens its folder with
+`store.Own(app, dir)`, which changes nothing it did not make: a folder that is
+there keeps its mode and what is in it, one it makes is 0700, and each file it
+writes is this user's alone. `store.EditFile(path, edit)` reads, changes and
+writes one file in that folder's turn; called inside a change that already
+holds that turn (an app's change of its config folder calling `settings.Set`),
+it joins that change instead of waiting for it, and a folder another scope's
+change holds is refused at once. `store.PutExec` puts a file that may be run,
+so `store.CopyOnce` keeps a script runnable. A `config.yaml` that is a link, to a dotfiles repository say, is read as
+it is but refused on a write (`refused`, `outside`): nothing follows a link
+out, and the link is never replaced. Change the file it leads to instead.
+
 ```go
 keys := settings.Keys("hubman", settings.Key{Name: "github", Default: "https", Values: []string{"https", "ssh"}, Help: "how to reach GitHub"})
 cli.AddTo(root, keys, func() string { return settings.Path("hubman", "") })

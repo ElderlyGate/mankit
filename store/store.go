@@ -229,6 +229,11 @@ func own(app App, where func(string) (string, error)) (*Scope, error) {
 	if err != nil {
 		return nil, problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("%s's own folder cannot be found: %v", app.ID, err))
 	}
+	return ownAt(app, dir)
+}
+
+// ownAt is dir opened as an own folder of app: private to this user, every change in the one turn of its .queue.
+func ownAt(app App, dir string) (*Scope, error) {
 	// This user's own folder that others could read is made private, and said; another user's, or a link, is refused.
 	tightened, err := disk.Private(dir)
 	var skipped []string
@@ -323,7 +328,12 @@ func (s *Scope) Change(ctx context.Context, thing Key, what string, fn func(Tx) 
 				}
 			}
 			tx := &tx{s: s, t: t, thing: thing}
-			if err := fn(tx); err != nil {
+			// Known as running until fn returns, or panics.
+			if err := func() error {
+				done := holding(tx)
+				defer done()
+				return fn(tx)
+			}(); err != nil {
 				return err
 			}
 			if len(tx.ops) == 0 {
@@ -410,6 +420,7 @@ type op struct {
 	from Key // what is moved
 	body []byte
 	want Want
+	exec bool // a file put that may be run, such as a script
 }
 
 // keys are what the op writes.
@@ -503,6 +514,15 @@ func (x *tx) list(prefix Key) ([]Key, error) {
 		return slices.Compare(strings.Split(string(a), "/"), strings.Split(string(b), "/"))
 	})
 	return out, nil
+}
+
+// PutExec is Put of a file that may be run, such as a script: it is written with the run bit wherever it may be read.
+func PutExec(in Tx, key Key, body []byte, want Want) error {
+	x, ok := in.(*tx)
+	if !ok {
+		return fmt.Errorf("store: PutExec takes the Tx a change hands its fn, not a %T", in)
+	}
+	return x.stage(op{kind: opPut, key: key, body: append([]byte{}, body...), want: want, exec: true})
 }
 
 func (x *tx) Put(key Key, body []byte, want Want) error {
