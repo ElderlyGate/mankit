@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/logs"
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
@@ -129,42 +128,6 @@ func TestALogFileRotatesAndKeepsFive(t *testing.T) {
 	}
 }
 
-// The telemetry feature sends nothing off, or on without its endpoint, and sends once both are there (ADR-E5, E9).
-func TestTelemetrySendsOnlyWhenOnWithItsEndpoint(t *testing.T) {
-	ctx := context.Background()
-	if h, _, err := logs.Export(ctx, nil, "designer", "9.0.0"); h != nil || err != nil {
-		t.Fatalf("no list: %v %v", h, err)
-	}
-	env := map[string]bool{}
-	list := func(on bool) *features.List {
-		ids := func() ([]string, error) {
-			if on {
-				return []string{logs.Telemetry.ID}, nil
-			}
-			return nil, nil
-		}
-		store := features.Store{Off: func() ([]string, error) { return nil, nil }, Keep: func(string, bool) error { return nil }, On: ids}
-		return features.New([]features.Feature{logs.Telemetry}, store).WithLookup(func(name string) bool { return env[name] })
-	}
-	if h, _, err := logs.Export(ctx, list(false), "designer", "9.0.0"); h != nil || err != nil {
-		t.Fatalf("off: %v %v", h, err)
-	}
-	if h, _, err := logs.Export(ctx, list(true), "designer", "9.0.0"); h != nil || err != nil {
-		t.Fatalf("on without the endpoint: %v %v", h, err)
-	}
-	broken, _ := list(true).Broken()
-	if len(broken) != 1 || broken[0].Missing[0].Name != logs.Endpoint {
-		t.Fatalf("on without the endpoint is not said: %+v", broken)
-	}
-	env[logs.Endpoint] = true
-	t.Setenv(logs.Endpoint, "http://127.0.0.1:4318")
-	h, stop, err := logs.Export(ctx, list(true), "designer", "9.0.0")
-	if h == nil || err != nil {
-		t.Fatalf("on with the endpoint: %v %v", h, err)
-	}
-	_ = stop(ctx)
-}
-
 // A person at a terminal reads one plain line a record, never JSON.
 func TestAtATerminalARecordIsOnePlainLine(t *testing.T) {
 	logs.AsTerminal(t)
@@ -175,5 +138,29 @@ func TestAtATerminalARecordIsOnePlainLine(t *testing.T) {
 	want := "designer: serving on 127.0.0.1:5174\ndesigner: warning: a feature is on but cannot run; the rest serves; the feature hear needs HEAR_URL\n"
 	if b.String() != want {
 		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
+
+// A rotation that cannot move the files opens the file again as it is, so the log goes on.
+func TestALogFileGoesOnWhenItCannotRotate(t *testing.T) {
+	defer logs.Rotation(50, 1)()
+	path := filepath.Join(t.TempDir(), "x.log")
+	if err := os.MkdirAll(filepath.Join(path+".1", "full"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := logs.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	line := strings.Repeat("x", 40) + "\n"
+	if _, err := f.Write([]byte(line)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte(line)); err == nil {
+		t.Fatal("a rotation that could not move the files said nothing")
+	}
+	if b, _ := os.ReadFile(path); string(b) != line+line {
+		t.Fatalf("the file holds %q, want both records: none is lost", b)
 	}
 }

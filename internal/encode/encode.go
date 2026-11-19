@@ -1,4 +1,5 @@
 // Package encode is the one form mankit writes JSON and YAML in, indented by two spaces: a file the store writes, a config.yaml, and what -o json and -o yaml print (helpout.Encode).
+// Log records are a different form, OpenTelemetry's, one compact JSON object a line, and package logs writes them itself.
 package encode
 
 import (

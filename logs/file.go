@@ -23,6 +23,7 @@ type File struct {
 	path string
 	f    *os.File
 	size int64
+	std  bool // the process's stdout and stderr follow the file across rotations
 }
 
 // Path is <logs folder of id>/<name>, such as the file a detached server of id logs to.
@@ -54,7 +55,18 @@ func (l *File) open() error {
 		return err
 	}
 	l.f, l.size = f, info.Size()
+	if l.std {
+		return toStd(f)
+	}
 	return nil
+}
+
+// TakeStd makes the process's stdout and stderr this file, now and after every rotation, so what a detached server says before it logs, such as a crash, lands in the current file.
+func (l *File) TakeStd() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.std = true
+	return toStd(l.f)
 }
 
 // Name is the file's path.
@@ -63,25 +75,33 @@ func (l *File) Name() string { return l.path }
 // OS is the open file itself, for a process started to write to it directly, such as a detached server's output before it logs.
 func (l *File) OS() *os.File { return l.f }
 
-// Write appends p, rotating first when p would take the file past its size.
+// Write appends p, rotating first when p would take the file past its size; p is written even when the rotation fails, which it says.
 func (l *File) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	var rotated error
 	if l.size > 0 && l.size+int64(len(p)) > rotateAt {
 		if err := l.rotate(); err != nil {
-			return 0, fmt.Errorf("the log %s cannot be rotated: %w", l.path, err)
+			// Written all the same, to the file as it is, so a rotation that fails loses no record.
+			rotated = fmt.Errorf("the log %s cannot be rotated: %w", l.path, err)
 		}
 	}
 	n, err := l.f.Write(p)
 	l.size += int64(n)
-	return n, err
+	return n, errors.Join(err, rotated)
 }
 
-// rotate moves each kept file one along, the oldest gone, and starts the file anew.
+// rotate moves each kept file one along, the oldest gone, and starts the file anew; when a move fails, the file is opened again as it is, so the log goes on.
 func (l *File) rotate() error {
 	if err := l.f.Close(); err != nil {
 		return err
 	}
+	err := l.shift()
+	return errors.Join(err, l.open())
+}
+
+// shift moves each kept file one along and the file to <name>.1, the oldest gone.
+func (l *File) shift() error {
 	if err := os.Remove(fmt.Sprintf("%s.%d", l.path, keep)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -90,10 +110,7 @@ func (l *File) rotate() error {
 			return err
 		}
 	}
-	if err := os.Rename(l.path, l.path+".1"); err != nil {
-		return err
-	}
-	return l.open()
+	return os.Rename(l.path, l.path+".1")
 }
 
 // Close closes the file.

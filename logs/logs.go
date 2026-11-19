@@ -126,11 +126,14 @@ func plain(rec Record) string {
 	return b.String()
 }
 
-// terminal says whether w is a terminal a person reads; a var only so a test can stand in for one.
-var terminal = func(w io.Writer) bool {
-	f, ok := w.(*os.File)
+// Terminal says whether stream is a terminal a person reads: the one place mankit asks, for a log's plain lines, the token link that goes to a person only, and a question asked (ask).
+func Terminal(stream any) bool {
+	f, ok := stream.(*os.File)
 	return ok && term.IsTerminal(int(f.Fd()))
 }
+
+// terminal is Terminal for the handler; a var only so a test can stand in for one.
+var terminal = func(w io.Writer) bool { return Terminal(w) }
 
 // put adds a to attrs as OpenTelemetry keeps attributes: flat, a group's keys joined by dots; a Problem is its own shape, another error its text.
 func put(attrs map[string]any, group string, a slog.Attr) {

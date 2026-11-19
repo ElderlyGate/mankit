@@ -502,6 +502,10 @@ decides by its type and reason as a reader of an answer does.
 - `logs.Telemetry` is the telemetry feature for the app's list (ADR-E5, E9):
   off by default; on, every record is also sent over OTLP to
   `OTEL_EXPORTER_OTLP_ENDPOINT` with the other standard `OTEL_*` variables.
+  Sending lives in `logs/otlp`, the one package that links OpenTelemetry's
+  modules: an app that offers telemetry sets
+  `serve.Site.Telemetry = otlp.For(list, id, version)`, and an app that does
+  not links none of them.
   On without the endpoint sends nothing, and the list says so as
   `feature_needs_values`, which the app's License and features section shows
   and the server logs at start.

@@ -21,7 +21,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"golang.org/x/term"
 
 	"github.com/tugbayatilla/mankit/v4/ask"
 	"github.com/tugbayatilla/mankit/v4/features"
@@ -47,12 +46,6 @@ func (a App) Commands(open func(*cobra.Command) (Site, error), confirm func(*cob
 		return nil, errors.New("serve: Commands needs open, which builds what serve serves, and confirm, which asks before server stop and server token renew")
 	}
 	return []*cobra.Command{a.serveCommand(open), a.serverCommand(confirm)}, nil
-}
-
-// terminal reports whether w is a terminal, the only place the token link is printed.
-func terminal(w io.Writer) bool {
-	f, ok := w.(*os.File)
-	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 // printing are the flags of a command that prints an answer.
@@ -208,7 +201,7 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 		defer drop()
 		log.Info("serving on "+bound, "url", "http://"+bound, "detached", child, "stop", a.command()+" server stop "+bound)
 		// The link carries the token, so it goes only to a person at a terminal, never into a log.
-		if w := cmd.OutOrStdout(); !child && terminal(w) {
+		if w := cmd.OutOrStdout(); !child && logs.Terminal(w) {
 			token, err := a.readToken(dir)
 			if err != nil {
 				ln.Close()
@@ -243,7 +236,7 @@ func (a App) logBroken(log *slog.Logger, list *features.List) error {
 	return nil
 }
 
-// logger is where a server logs (G-STACK-8): its file in the logs folder when detached, else stdout; with the telemetry feature on, every record is also sent over OTLP (ADR-E5). close flushes and closes both.
+// logger is where a server logs (G-STACK-8): its file in the logs folder when detached, else stdout; with the Site's Telemetry, every record is also sent there (ADR-E5). close flushes and closes both.
 func (a App) logger(cmd *cobra.Command, site Site, child bool, logPath string) (*slog.Logger, func(), error) {
 	var w io.Writer = cmd.OutOrStdout()
 	var file *logs.File
@@ -253,14 +246,23 @@ func (a App) logger(cmd *cobra.Command, site Site, child bool, logPath string) (
 			return nil, nil, fmt.Errorf("cannot open the log %s: %w", logPath, err)
 		}
 		file, w = f, f
+		// What the server says before it logs, a crash say, follows the file across its rotations.
+		if err := f.TakeStd(); err != nil {
+			f.Close()
+			return nil, nil, err
+		}
 	}
 	ctx := context.Background()
-	exp, stop, err := logs.Export(ctx, site.Features, a.ID, a.Version)
-	if err != nil {
-		if file != nil {
-			file.Close()
+	var exp slog.Handler
+	stop := func(context.Context) error { return nil }
+	if site.Telemetry != nil {
+		var err error
+		if exp, stop, err = site.Telemetry(ctx); err != nil {
+			if file != nil {
+				file.Close()
+			}
+			return nil, nil, err
 		}
-		return nil, nil, err
 	}
 	var more []slog.Handler
 	if exp != nil {
@@ -324,14 +326,18 @@ func (a App) detach(cmd *cobra.Command, out *printing, dir, addr string) error {
 	if err != nil {
 		return err
 	}
-	token, err := a.readToken(dir)
-	if err != nil {
-		return err
+	// The link carries the token, so it goes only to a person at a terminal; elsewhere the table names the command that prints it.
+	open := fmt.Sprintf("`%s server link %s` prints the link", a.command(), rec.Metadata.Addr)
+	if logs.Terminal(cmd.OutOrStdout()) {
+		token, err := a.readToken(dir)
+		if err != nil {
+			return err
+		}
+		open = pageLink(rec.Metadata.Addr, token)
 	}
-	link := pageLink(rec.Metadata.Addr, token)
 	return out.print(cmd.OutOrStdout(), rec.Spec.Name, ServerKind, rec, func(w io.Writer) {
 		fmt.Fprintf(w, "%s serving on http://%s\n", a.command(), rec.Metadata.Addr)
-		fmt.Fprintf(w, "open:\t%s\npid:\t%d\nlog:\t%s\nstop:\t%s server stop %s\n", link, rec.Metadata.PID, rec.Spec.Log, a.command(), rec.Metadata.Addr)
+		fmt.Fprintf(w, "open:\t%s\npid:\t%d\nlog:\t%s\nstop:\t%s server stop %s\n", open, rec.Metadata.PID, rec.Spec.Log, a.command(), rec.Metadata.Addr)
 	})
 }
 

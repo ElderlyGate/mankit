@@ -379,3 +379,19 @@ func TestADetachedServerLogsToItsFileInTheLogsFolder(t *testing.T) {
 		t.Fatalf("the log's mode: %v, %v", info, err)
 	}
 }
+
+// serve --detach prints the token's link only to a person at a terminal; elsewhere its table names the command that prints it.
+func TestDetachPrintsTheLinkOnlyToATerminal(t *testing.T) {
+	machine(t)
+	out, err := run(t, "serve", "--detach")
+	t.Cleanup(func() { _, _ = run(t, "server", "stop", "--all", "--yes") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "token=") {
+		t.Fatalf("the link went to a stream that is not a terminal:\n%s", out)
+	}
+	if !strings.Contains(out, "e-designer server link ") {
+		t.Fatalf("it does not say which command prints the link:\n%s", out)
+	}
+}
