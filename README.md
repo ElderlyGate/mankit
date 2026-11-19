@@ -703,6 +703,12 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   then the writes, the read-back, the journal removed, the marks last. The
   shapes and their lifetime are contracts `mankit/v1` `store-journal`,
   `store-journal-change` and `store-unfinished`.
+- Putting a change back removes the core's temporary files, named
+  `.<file>.~disk-<random>`, beside each file it puts back and inside each
+  folder it takes away.
+- The change queue's folders are private by user id, so users who share a
+  served folder share it as one uid (as workspace containers do); the store
+  tells them apart by user name and machine.
 - Past the queue's limit (`App.Limit`) a change stops before its next write,
   is put back and fails with `change_too_long`; one already made and read back
   when the limit passes is done, and that it overran is said on the app's log.
@@ -723,10 +729,13 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   through too: every call inside one open folder (`os.Root`), regular files
   only, opened without waiting on a pipe, written whole. No link is followed,
   one leading inside the scope included: a key with a link on its way is
-  refused as `outside`. The app's own scopes and the journals are private: a
-  folder or file there that this user owns but others could read or write is
-  made 0700 or 0600, and said on the app's log; one another user owns, or a
-  link, is refused as `not_owned`. A served file keeps the mode of the file it
+  refused as `outside`. The app's own scopes and the journals are private:
+  when the folder itself is open to others, it is made 0700 and what this user
+  owns inside it loses what others may do, each said on the app's log, and
+  what another user owns inside is said and left as it is; a private folder is
+  not walked. An own folder that is another user's, or is itself a link (as a
+  dotfiles manager such as stow makes), is refused as `not_owned`, as every
+  link is. A served file keeps the mode of the file it
   replaces, a moved file its own, and a new one gets 0644 whatever the umask
   says. Putting a change back in the process that made it gives a removed
   file its mode back. After a crash, a removed file is put back 0644 in a
