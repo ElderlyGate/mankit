@@ -1,7 +1,6 @@
 package prefs
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,9 +8,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/v3/ask"
+	"github.com/tugbayatilla/mankit/v3/helpout"
 )
 
 // confirmKey starts a key of `set config` that sets a type's style.
@@ -169,17 +168,8 @@ func outputFlag(c *cobra.Command, format *string) {
 // printOut writes v as JSON or YAML, or as the table rows draws.
 func printOut(w io.Writer, format string, v any, rows func(io.Writer)) error {
 	switch format {
-	case "json":
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(v)
-	case "yaml":
-		enc := yaml.NewEncoder(w)
-		enc.SetIndent(2)
-		if err := enc.Encode(v); err != nil {
-			return err
-		}
-		return enc.Close()
+	case "json", "yaml":
+		return helpout.Encode(w, format, v)
 	case "table":
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		rows(tw)

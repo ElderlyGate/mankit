@@ -20,11 +20,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
-	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/v3/ask"
 	"github.com/tugbayatilla/mankit/v3/features"
 	"github.com/tugbayatilla/mankit/v3/helpout"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 // The kinds of the answers the commands print with -o json or yaml.
@@ -93,16 +93,12 @@ func (p *printing) printWith(w io.Writer, name, kind string, data any, problems 
 	if err != nil {
 		return err
 	}
+	// Through its JSON, so the YAML has the envelope its contract names.
 	var doc any
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return err
 	}
-	enc := yaml.NewEncoder(w)
-	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
-		return err
-	}
-	return enc.Close()
+	return helpout.Encode(w, "yaml", doc)
 }
 
 // check refuses an unknown -o or a contract the app does not answer before anything happens.
@@ -178,7 +174,7 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 		bound := ln.Addr().String()
 		if child && logPath != "" {
 			// The log was named for the address asked for; port 0 binds another, and the log follows the address bound.
-			if named := filepath.Join(filepath.Dir(logPath), logName(bound)); named != logPath && os.Rename(logPath, named) == nil {
+			if named := filepath.Join(filepath.Dir(logPath), logName(bound)); named != logPath && disk.Rename(logPath, named) == nil {
 				logPath = named
 			}
 		}

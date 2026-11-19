@@ -3,10 +3,10 @@ package home
 
 import (
 	"errors"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 // Org is the name of the org's folders, written only here so a rename changes one line.
@@ -31,6 +31,14 @@ func File(id, name string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, name), nil
+}
+
+// Config is <dir>/<id>/config.yaml, the one file of each app a person edits; an empty dir is File(id, "config.yaml"). It only names the path.
+func Config(id, dir string) (string, error) {
+	if dir == "" {
+		return File(id, "config.yaml")
+	}
+	return filepath.Join(dir, id, "config.yaml"), nil
 }
 
 // Current is the file to read id's name from now: File(id, name), or the old file in the system's config folder, read in place,
@@ -73,7 +81,7 @@ func Migrate(id string, names ...string) error {
 			err = CopyOnce(from, to)
 		}
 		if err == nil {
-			err = touch(mark)
+			err = disk.Replace(mark, nil, 0o644) // the empty mark
 		}
 		errs = append(errs, err)
 	}
@@ -86,110 +94,9 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// touch makes the empty file path and its folders.
-func touch(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o644)
-	if err != nil {
-		return err
-	}
-	return f.Close()
-}
-
 // CopyOnce copies the file or folder from to to when to is missing and from exists, and leaves from as it was; otherwise it does nothing.
 // A folder appears whole or not at all, and a to made meanwhile by someone else is kept, never overwritten.
-func CopyOnce(from, to string) error {
-	if _, err := os.Lstat(to); !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	fi, err := os.Stat(from)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.MkdirTemp(filepath.Dir(to), "."+filepath.Base(to)+".*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-	staged := filepath.Join(tmp, filepath.Base(to))
-	if fi.IsDir() {
-		err = copyTree(from, staged)
-	} else {
-		err = copyFile(from, staged, fi.Mode())
-	}
-	if err != nil {
-		return err
-	}
-	if fi.IsDir() {
-		err = renameNoReplace(staged, to)
-	} else {
-		err = os.Link(staged, to)
-	}
-	if errors.Is(err, fs.ErrExist) {
-		return nil // made meanwhile: the newer one stays
-	}
-	return err
-}
-
-// copyTree copies the folder from to the new folder to: folders, regular files and symlinks, each with its mode.
-func copyTree(from, to string) error {
-	return filepath.WalkDir(from, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(from, path)
-		if err != nil {
-			return err
-		}
-		dst := filepath.Join(to, rel)
-		fi, err := d.Info()
-		if err != nil {
-			return err
-		}
-		switch {
-		case d.IsDir():
-			return os.Mkdir(dst, fi.Mode().Perm())
-		case d.Type()&fs.ModeSymlink != 0:
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			return os.Symlink(link, dst)
-		case fi.Mode().IsRegular():
-			return copyFile(path, dst, fi.Mode())
-		}
-		return nil
-	})
-}
-
-// copyFile copies the regular file from to the new file to with mode.
-func copyFile(from, to string, mode fs.FileMode) error {
-	src, err := os.Open(from)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	dst, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode.Perm())
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(dst, src); err != nil {
-		dst.Close()
-		return err
-	}
-	if err := dst.Close(); err != nil {
-		return err
-	}
-	return os.Chmod(to, mode.Perm())
-}
+func CopyOnce(from, to string) error { return disk.CopyOnce(from, to) }
 
 // base is $env/<Org> when env holds an absolute path, else ~/<fallback>/<Org>.
 func base(env, fallback string) (string, error) {

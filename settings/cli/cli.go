@@ -2,15 +2,14 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"slices"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
+	"github.com/tugbayatilla/mankit/v3/helpout"
 	"github.com/tugbayatilla/mankit/v3/settings"
 )
 
@@ -135,17 +134,8 @@ func setConfig(keys []settings.Key, path func() string, short string) *cobra.Com
 // write prints rows as an aligned table under the file's path, or as JSON or YAML.
 func write(w io.Writer, format, path string, rows []settings.Row) error {
 	switch format {
-	case "json":
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(rows)
-	case "yaml":
-		enc := yaml.NewEncoder(w)
-		enc.SetIndent(2)
-		if err := enc.Encode(rows); err != nil {
-			return err
-		}
-		return enc.Close()
+	case "json", "yaml":
+		return helpout.Encode(w, format, rows)
 	case "table":
 		fmt.Fprintf(w, "file: %s\n", path)
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)

@@ -35,7 +35,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v3/internal/configfile"
+	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 // Command is one entry of the commands file.
@@ -59,7 +60,7 @@ type file struct {
 
 // Path is the app's config.yaml in the org's config folder (home.File), or "" when there is none.
 func Path(app string) string {
-	path, err := configfile.Path(app, "")
+	path, err := home.Config(app, "")
 	if err != nil {
 		return ""
 	}
@@ -88,7 +89,7 @@ func Migrate(path string) (string, error) {
 	cur, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		if err := os.Rename(old, path); err != nil {
+		if err := disk.Rename(old, path); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("moved %s to %s", old, path), nil
@@ -107,33 +108,13 @@ func Migrate(path string) (string, error) {
 	}
 	merged := append(bytes.TrimRight(cur, "\n"), '\n', '\n')
 	merged = append(merged, b...)
-	if err := writeFile(path, merged); err != nil {
+	if err := disk.Replace(path, merged, 0o644); err != nil {
 		return "", err
 	}
-	if err := os.Rename(old, old+".migrated"); err != nil {
+	if err := disk.Rename(old, old+".migrated"); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("added the commands of %s to %s (the old file is %s.migrated)", old, path, oldFile), nil
-}
-
-// writeFile replaces path through a temp file and a rename.
-func writeFile(path string, b []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }
 
 // Spec is what an app accepts: its view names and its placeholders.
@@ -375,14 +356,11 @@ func Init(path string, starter []byte, force bool) (wrote bool, backup string, e
 			return false, "", nil
 		}
 		backup = path + ".bak"
-		if err := os.Rename(path, backup); err != nil {
+		if err := disk.Rename(path, backup); err != nil {
 			return false, "", err
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, backup, err
-	}
-	return true, backup, os.WriteFile(path, withThemeLines(starter), 0o644)
+	return true, backup, disk.Replace(path, withThemeLines(starter), 0o644)
 }
 
 // withThemeLines puts themeLines after the starter's first comment block

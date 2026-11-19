@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 // The child of serve --detach is told what it is by the environment, never by a flag a user could type.
@@ -20,11 +22,11 @@ const (
 
 // spawn starts exe args detached in dir and waits until it serves and wrote its record, so an address in use fails here, with what the child said.
 func spawn(exe string, args []string, dir, recordDir, addr string) (record, error) {
-	if err := os.MkdirAll(recordDir, 0o700); err != nil {
+	if _, err := disk.Private(recordDir); err != nil {
 		return record{}, err
 	}
 	logPath := filepath.Join(recordDir, logName(addr))
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	logFile, err := disk.Log(logPath)
 	if err != nil {
 		return record{}, fmt.Errorf("cannot open %s: %w", logPath, err)
 	}

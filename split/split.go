@@ -4,13 +4,13 @@ package split
 
 import (
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 const (
@@ -109,13 +109,7 @@ func (s Split) save() error {
 		return nil
 	}
 	if s.list == 0 {
-		if err := os.Remove(s.file); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
+		return disk.Remove(s.file)
 	}
-	if err := os.MkdirAll(filepath.Dir(s.file), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(s.file, []byte(strconv.Itoa(s.list)+"\n"), 0o644)
+	return disk.Replace(s.file, []byte(strconv.Itoa(s.list)+"\n"), 0o644)
 }
