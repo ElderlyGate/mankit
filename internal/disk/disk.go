@@ -178,23 +178,79 @@ func WriteWhole(dir, path string, data []byte) error {
 	return write(r, rel, data, 0o600, false)
 }
 
-// Private makes dir and the folders above it that are new only this user's, and refuses with ErrNotOwned a dir that is a link, is another user's, or others can read or write, since what is kept there is acted on as this user.
-func Private(dir string) error {
+// Private makes dir and the folders above it that are new only this user's, syncing each folder a new one was made in, and tightens to 0700 a dir this user owns that others could read or write; it says what it tightened.
+// A dir that is a link, not a folder, or another user's is refused with ErrNotOwned, since what is kept there is acted on as this user.
+func Private(dir string) (tightened []string, err error) {
+	var made []string
+	for p := filepath.Clean(dir); ; p = filepath.Dir(p) {
+		if _, err := os.Lstat(p); err == nil || filepath.Dir(p) == p {
+			break
+		}
+		made = append(made, p)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+		return nil, err
+	}
+	for _, p := range made {
+		if err := syncPath(filepath.Dir(p)); err != nil {
+			return nil, err
+		}
 	}
 	// Checked once made, since another user may have made it first.
-	return OwnPrivate(dir)
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() || !Owned(info) {
+		return nil, &fs.PathError{Op: "use", Path: dir, Err: ErrNotOwned}
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return nil, err
+		}
+		tightened = append(tightened, dir)
+	}
+	return tightened, nil
 }
 
-// OwnPrivate refuses with ErrNotOwned a dir that is a link, is not a folder, is another user's or others can read or write.
-func OwnPrivate(dir string) error {
-	info, err := os.Lstat(dir)
+// Tighten takes from every folder and file inside dir that this user owns what others may do with it, so it is this user's alone, never through a link, and says which; one another user owns is refused with ErrNotOwned.
+func Tighten(dir string) ([]string, error) {
+	var tightened []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || p == dir {
+			return err
+		}
+		if !d.IsDir() && !d.Type().IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !Owned(info) {
+			return &fs.PathError{Op: "use", Path: p, Err: ErrNotOwned}
+		}
+		if info.Mode().Perm()&0o077 == 0 {
+			return nil
+		}
+		if err := os.Chmod(p, info.Mode().Perm()&^0o077); err != nil {
+			return err
+		}
+		tightened = append(tightened, p)
+		return nil
+	})
+	return tightened, err
+}
+
+// syncPath is SyncDir for a folder named by its path.
+func syncPath(dir string) error {
+	d, err := os.Open(dir)
 	if err != nil {
 		return err
 	}
-	if info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() || !Owned(info) || info.Mode().Perm()&0o077 != 0 {
-		return &fs.PathError{Op: "use", Path: dir, Err: ErrNotOwned}
+	defer d.Close()
+	if err := d.Sync(); err != nil && !errors.Is(err, errors.ErrUnsupported) && !errors.Is(err, syscall.EINVAL) {
+		return err
 	}
 	return nil
 }
