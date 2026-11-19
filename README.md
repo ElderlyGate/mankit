@@ -26,7 +26,7 @@ three, instead of being made three times.
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 | `prefs` | What every app adds beside `settings/cli`: `<app> confirm list`, `<app> location list`, `config set confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `server list`, `server stop`, `server link`, `server token renew` (see [Serve](#serve)) |
-| `features` | An app's list of switchable features: each starts on or off and names the values it needs; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
+| `features` | An app's list of switchable features: each starts on or off, names the values it needs and has a tier, free or enterprise; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
 | `store/queue` | Shows the change queue and sets its waits: the tickets in a line, `queue.wait` and `queue.limit`, `<app> queue show`, `set` and `unset`. The turns are the store's own (see [Change queue](#change-queue)) |
 | `problem` | A Problem (contracts problem/v1) and its types, below everything that makes one: the store and serve say what went wrong the same way |
@@ -501,6 +501,12 @@ first closer that closes it. A closer only closes: switching a feature back on
 never opens what another closer closed. A list with a feature that needs values
 needs `WithLookup`, and one with a feature that starts off needs `Store.On`;
 `Attach` refuses a list without them, so a wrong wiring shows at start.
+Each feature has a `Tier`, `features.Free` (the zero value) or
+`features.Enterprise`, answered as `tier` (contracts mankit/v1
+`featureState.tier` says what each means). Only an enterprise feature can be
+locked (ADR-L2): a closer `By: features.License` never closes a free one. A
+tier the list does not know is a wrong wiring too. `events.Feature` is
+enterprise (ADR-E9).
 `WithLookup` and `Attach` come before serving; the store's funcs, the lookup
 and the closers are called on every request and must be safe for concurrent
 use.
