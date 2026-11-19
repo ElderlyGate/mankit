@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ElderlyGate/contracts"
+
 	"github.com/tugbayatilla/mankit/v4/licenses"
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
@@ -153,5 +155,26 @@ func TestAKeyThatIsNoEd25519KeyIsAnErrorNotAPanic(t *testing.T) {
 	release.Prod["prod-2026"] = ed25519.PublicKey("short")
 	if _, err := licenses.Verify(sign(t, k, orgLicense), release); err == nil {
 		t.Fatal("verified with a malformed key")
+	}
+}
+
+// A signed file and its payload meet contracts mankit/v1 license-file and license-payload, the home of what each field means.
+func TestASignedFileMeetsItsSchema(t *testing.T) {
+	k, _, _ := signer(t)
+	product := orgLicense
+	product.Kind, product.Products = licenses.Product, map[string][]string{"designer": {"sync"}}
+	trial := licenses.License{Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
+	for _, l := range []licenses.License{orgLicense, product, trial} {
+		raw := sign(t, k, l)
+		if err := contracts.Validate("mankit/v1/license-file.schema.json", raw); err != nil {
+			t.Fatalf("%s file: %v\n%s", l.Kind, err, raw)
+		}
+		var f struct{ Payload []byte }
+		if err := json.Unmarshal(raw, &f); err != nil {
+			t.Fatal(err)
+		}
+		if err := contracts.Validate("mankit/v1/license-payload.schema.json", f.Payload); err != nil {
+			t.Fatalf("%s payload: %v\n%s", l.Kind, err, f.Payload)
+		}
 	}
 }

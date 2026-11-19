@@ -32,7 +32,7 @@ const (
 	ReasonWrongPlace   = "wrong_place"
 )
 
-// License is what a license file says, all of it signed: whom it is for, its kind, the enterprise feature ids per product id (none for a trial key), its first and last day as UTC dates, and the key id (ADR-L4, L6, L9).
+// License is what a license file says, all of it signed; contracts mankit/v1 license-payload says what each field means, license-file the file around it.
 type License struct {
 	Kind     Kind
 	For      string
@@ -78,7 +78,7 @@ func (t Trust) check() error {
 	return nil
 }
 
-// file is a license file on disk: the payload's bytes exactly as signed, and the signature over them, each base64 in JSON.
+// file is a license file on disk (contracts mankit/v1 license-file).
 type file struct {
 	Payload   []byte `json:"payload"`
 	Signature []byte `json:"signature"`
