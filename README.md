@@ -124,8 +124,12 @@ if err := store.CopyOnce(old, filepath.Join(dir, "github.json")); err != nil {
 Every app answers `<app> help` and `<app> --help` in one layout. The app says
 what it is, how to start it and where its repository is; the commands and
 their one-line help come from cobra, hidden and deprecated ones left out. A
-`Flags:` section lists the root's own flags, when it has any. `<app> help <verb>`
-and `<app> <verb> --help` keep cobra's full help.
+`Flags:` section lists the root's own flags, when it has any. A thing, a
+command with commands of its own (G-STACK-5), answers `<app> <thing> help`,
+`<app> <thing> --help` and `<app> help <thing>` in the same layout: its own
+short line first, then its verbs and its own things, its flags and `More:`.
+`Execute` gives every thing its `help` verb. `<app> help <verb>` and
+`<app> <verb> --help` keep cobra's full help.
 
 ```go
 helpout.Apply(root, helpout.Info{
@@ -170,6 +174,25 @@ if err != nil {
 }
 os.Exit(code)
 ```
+
+### Old forms of renamed commands
+
+A renamed command keeps its old form for one release (G-STACK-5). The app
+marks the full command with its old words, after the app's name:
+
+```go
+helpout.Old(listCmd, "servers")       // server list
+helpout.Old(stopCmd, "servers stop")  // server stop
+```
+
+`Execute` makes each old form a hidden command: it is never listed in help, it
+runs its full form with the rest of the line, and it says `<app>: servers stop
+is now server stop` on stderr, so stdout is the same as the full form's. An old
+form that is a command of its own is the app's mistake, and `Execute` refuses
+to run. `helpout.OldForms(root)` lists them. `helptest.Check(t, newRoot)`
+checks an app's old forms: each names a command, none is listed in help, and
+each gives the same stdout as its full form (run with `--help`, so nothing is
+done). Old forms, `helpout.Old` and `helptest` go at mankit's next major.
 
 ## Ask before a change
 
