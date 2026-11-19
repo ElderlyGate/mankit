@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -351,12 +352,14 @@ func list(t *testing.T, h Harness) {
 
 func listIn(t *testing.T, h Harness) {
 	s := h.New(t)()
-	seed(t, s, map[string]string{"shop/a.yml": "a", "shop/f/b.yml": "b", "shop/gone.yml": "g", "away/c.yml": "c", "other.yml": "o"})
+	seed(t, s, map[string]string{"shop/a.yml": "a", "shop/f/b.yml": "b", "shop/gone.yml": "g", "shop/again.yml": "1", "away/c.yml": "c", "other.yml": "o", "else/d.yml": "d"})
 	var inside, whole, file, none []store.Key
 	err := s.Change(ctx, "", "list in a change", func(tx store.Tx) error {
 		steps := []error{
 			tx.Put(key(t, "shop/a-new.yml"), []byte("n"), store.Absent()),
 			tx.Remove(key(t, "shop/gone.yml"), store.Anything()),
+			tx.Remove(key(t, "shop/again.yml"), store.Anything()),
+			tx.Put(key(t, "shop/again.yml"), []byte("2"), store.Absent()),
 			tx.Move(key(t, "shop/f"), key(t, "shop/g"), store.Anything()),
 			tx.Move(key(t, "away"), key(t, "shop/away"), store.Anything()),
 			tx.Move(key(t, "shop/away/c.yml"), key(t, "shop/c.yml"), store.Anything()),
@@ -379,15 +382,18 @@ func listIn(t *testing.T, h Harness) {
 		}
 		_, err = store.ListIn(tx, store.Key("../x"))
 		wantReason(t, err, store.ReasonOutside)
+		probes := []string{"shop/a.yml", "shop/a-new.yml", "shop/gone.yml", "shop/again.yml", "shop/f/b.yml", "shop/g/b.yml", "away/c.yml", "shop/away/c.yml", "shop/c.yml", "other.yml", "else/d.yml"}
+		agree(t, tx, "", probes...)
+		agree(t, tx, "shop", probes...)
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprint(inside) != "[shop/a-new.yml shop/a.yml shop/c.yml shop/g/b.yml]" {
+	if fmt.Sprint(inside) != "[shop/a-new.yml shop/a.yml shop/again.yml shop/c.yml shop/g/b.yml]" {
 		t.Fatalf("ListIn(shop) = %v", inside)
 	}
-	if fmt.Sprint(whole) != "[other.yml shop/a-new.yml shop/a.yml shop/c.yml shop/g/b.yml]" {
+	if fmt.Sprint(whole) != "[else/d.yml other.yml shop/a-new.yml shop/a.yml shop/again.yml shop/c.yml shop/g/b.yml]" {
 		t.Fatalf("ListIn() = %v", whole)
 	}
 	if fmt.Sprint(file) != "[shop/a-new.yml]" || none == nil || len(none) != 0 {
@@ -397,8 +403,60 @@ func listIn(t *testing.T, h Harness) {
 	if got, err := s.List(""); err != nil || fmt.Sprint(got) != fmt.Sprint(whole) {
 		t.Fatalf("List() after = %v, %v; the change listed %v", got, err, whole)
 	}
+	// A change of one thing lists another as it is, with its own writes kept to its thing.
+	err = s.Change(ctx, "shop", "list another thing", func(tx store.Tx) error {
+		if err := tx.Put(key(t, "shop/z.yml"), []byte("z"), store.Absent()); err != nil {
+			return err
+		}
+		got, err := store.ListIn(tx, key(t, "else"))
+		if err != nil {
+			return err
+		}
+		if fmt.Sprint(got) != "[else/d.yml]" {
+			t.Errorf("ListIn(else) in a change of shop = %v", got)
+		}
+		agree(t, tx, "", "else/d.yml", "shop/z.yml", "shop/a.yml", "other.yml")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.ListIn(tx{}, ""); err == nil {
 		t.Fatal("ListIn of a Tx no change handed out gave no error")
+	}
+}
+
+// agree checks that ListIn and Get tell one story inside a change: ListIn(prefix) lists exactly the probes inside prefix that Get finds, and every key it lists Gets as there.
+func agree(t *testing.T, tx store.Tx, prefix string, probes ...string) {
+	t.Helper()
+	var at store.Key
+	if prefix != "" {
+		at = key(t, prefix)
+	}
+	listed, err := store.ListIn(tx, at)
+	if err != nil {
+		t.Errorf("ListIn(%s): %v", prefix, err)
+		return
+	}
+	in := map[store.Key]bool{}
+	for _, k := range listed {
+		in[k] = true
+		if _, there, err := tx.Get(k); err != nil || !there {
+			t.Errorf("%s is listed but Get gives there=%v, %v", k, there, err)
+		}
+	}
+	for _, p := range probes {
+		if prefix != "" && p != prefix && !strings.HasPrefix(p, prefix+"/") {
+			continue
+		}
+		k := key(t, p)
+		_, there, err := tx.Get(k)
+		switch {
+		case err != nil:
+			t.Errorf("Get(%s): %v", k, err)
+		case there != in[k]:
+			t.Errorf("Get(%s) gives there=%v, but ListIn(%s) lists it: %v", k, there, prefix, in[k])
+		}
 	}
 }
 

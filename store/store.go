@@ -465,6 +465,7 @@ func ListIn(in Tx, prefix Key) ([]Key, error) {
 }
 
 // list replays the staged writes, first to last, over what is there under prefix and under every key a write moves from, then keeps what ends inside prefix.
+// view is its twin for one key: what one lists, the other finds there; storetest's agree holds them to it, so a write kind added to one goes into both.
 func (x *tx) list(prefix Key) ([]Key, error) {
 	have := map[Key]bool{}
 	add := func(at Key) error {
@@ -525,6 +526,7 @@ func (x *tx) Move(from, to Key, want Want) error {
 }
 
 // view is key as the staged writes leave it, read from the last one back to the disk: a file's body, or a folder.
+// list is its twin for a folder: what one finds there, the other lists; storetest's agree holds them to it, so a write kind added to one goes into both.
 func (x *tx) view(key Key) (body []byte, there, folder bool, err error) {
 	k := key
 	for i := len(x.ops) - 1; i >= 0; i-- {
