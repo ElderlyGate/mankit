@@ -16,6 +16,7 @@ import (
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/store"
 	storecli "github.com/tugbayatilla/mankit/v4/store/cli"
+	"github.com/tugbayatilla/mankit/v4/store/internal/asking"
 )
 
 // The tests of <app> store unfinished remove, in ADR-S19's six parts.
@@ -23,7 +24,7 @@ import (
 // yes stands in a typed name for the question, keeping what was asked.
 func yes(t *testing.T) *ask.Action {
 	asked := new(ask.Action)
-	store.AskWith(t, func(_ *cobra.Command, a ask.Action) error {
+	asking.With(t, func(_ *cobra.Command, a ask.Action) error {
 		*asked = a
 		return nil
 	})
@@ -54,7 +55,7 @@ func TestUnfinishedClearRemovesOnlyTheMarksItShowed(t *testing.T) {
 	line := lines(filepath.Join(dir, "served"))("shop")
 	markOf(t, line, "alice", "elsewhere", false, "shop/a.yml")
 	later := filepath.Join(line, ".queue", ".unfinished-17000000000000000002.json")
-	store.AskWith(t, func(*cobra.Command, ask.Action) error {
+	asking.With(t, func(*cobra.Command, ask.Action) error {
 		raw, err := os.ReadFile(filepath.Join(line, ".queue", ".unfinished-17000000000000000001.json"))
 		if err != nil {
 			t.Fatal(err)
@@ -122,7 +123,7 @@ func TestUnfinishedClearOfAMarkGoneMeanwhileIsNotFound(t *testing.T) {
 	served(t, dir)
 	line := lines(filepath.Join(dir, "served"))("shop")
 	markOf(t, line, "alice", "elsewhere", false, "shop/a.yml")
-	store.AskWith(t, func(*cobra.Command, ask.Action) error {
+	asking.With(t, func(*cobra.Command, ask.Action) error {
 		return os.Remove(filepath.Join(line, ".queue", ".unfinished-17000000000000000001.json"))
 	})
 	_, code, err := unfinishedRun(t, dir, "remove", "shop")

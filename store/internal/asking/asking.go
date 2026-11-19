@@ -12,3 +12,10 @@ var Name = func(c *cobra.Command, a ask.Action) error {
 	_, err := ask.Change(c, a, ask.Name)
 	return err
 }
+
+// With stands in fn for Name until the test ends, as a person typing the name would answer.
+func With(t interface{ Cleanup(func()) }, fn func(*cobra.Command, ask.Action) error) {
+	was := Name
+	Name = fn
+	t.Cleanup(func() { Name = was })
+}

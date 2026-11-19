@@ -7,10 +7,11 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
-// The servers folder is the app's own: one that is a link is refused, and nothing is written where it leads.
+// The servers folder is in the app's own data folder, written through the store: one that is a link is refused, and nothing is written where it leads.
 func TestAServersFolderThatIsALinkIsRefused(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no owner or link checks")
@@ -24,11 +25,11 @@ func TestAServersFolderThatIsALinkIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := record{APIVersion: recordAPIVersion(), Kind: recordKind, Metadata: recordMetadata{App: "designer", Addr: "127.0.0.1:7799", PID: 1}}
-	if err := r.save(dir); !errors.Is(err, disk.ErrNotOwned) {
-		t.Errorf("save: err = %v, want ErrNotOwned", err)
+	if err := r.save(dir); !outside(err) {
+		t.Errorf("save: err = %v, want the store's outside", err)
 	}
-	if _, err := (App{ID: "designer"}).renewToken(dir); !errors.Is(err, disk.ErrNotOwned) {
-		t.Errorf("renew: err = %v, want ErrNotOwned", err)
+	if _, err := (App{ID: "designer"}).renewToken(dir); !outside(err) {
+		t.Errorf("renew: err = %v, want the store's outside", err)
 	}
 	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
 		t.Errorf("written through the link: %v", entries)
@@ -51,10 +52,16 @@ func TestRenewingALinkedTokenIsRefused(t *testing.T) {
 	if err := os.Symlink(other, filepath.Join(dir, tokenName)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (App{ID: "designer"}).renewToken(dir); !errors.Is(err, disk.ErrLink) {
-		t.Errorf("err = %v, want ErrLink", err)
+	if _, err := (App{ID: "designer"}).renewToken(dir); !outside(err) {
+		t.Errorf("err = %v, want the store's outside", err)
 	}
 	if b, _ := os.ReadFile(other); string(b) != "keep\n" {
 		t.Errorf("the link's target was written: %q", b)
 	}
+}
+
+// outside says whether err is the store's refusal of a link or a key that leaves the scope.
+func outside(err error) bool {
+	var p *problem.Problem
+	return errors.As(err, &p) && p.Type == problem.TypeRefused && p.Reason == store.ReasonOutside
 }

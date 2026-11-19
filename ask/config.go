@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 // Section is the key of an app's config.yaml that holds a style per type: confirm: {delete: name, move: never}.
@@ -56,44 +57,47 @@ func Set(path string, t Type, s Style) error {
 			return err
 		}
 	}
-	doc, err := read(path)
-	if err != nil {
-		return err
+	if path == "" {
+		return errors.New("no config folder on this system")
 	}
-	root := doc.Content[0]
-	confirm := lookup(root, Section)
-	switch {
-	case confirm == nil && s == "":
-		return nil
-	case confirm == nil:
-		confirm = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		root.Content = append(root.Content, scalar(Section), confirm)
-	case confirm.Tag == "!!null":
-		*confirm = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	case confirm.Kind != yaml.MappingNode:
-		return fmt.Errorf("%s: %s is not a map of type: style", path, Section)
-	}
-	at := keyAt(confirm, string(t))
-	switch {
-	case s == "" && at >= 0:
-		confirm.Content = slices.Delete(confirm.Content, at, at+2)
-	case s == "":
-	case at >= 0:
-		confirm.Content[at+1] = scalar(string(s))
-	default:
-		confirm.Content = append(confirm.Content, scalar(string(t)), scalar(string(s)))
-	}
-	if len(confirm.Content) == 0 {
-		i := slices.Index(root.Content, confirm)
-		root.Content = slices.Delete(root.Content, i-1, i+1)
-	}
-	var b []byte
-	if len(root.Content) > 0 {
-		if b, err = disk.YAML(doc); err != nil {
-			return err
+	// Read, changed and written in the file's turn, so a change made meanwhile is never lost (ADR-S22).
+	return store.EditFile(path, func(old []byte, _ bool) ([]byte, error) {
+		doc, err := parse(path, old)
+		if err != nil {
+			return nil, err
 		}
-	}
-	return disk.Replace(path, b, 0o644)
+		root := doc.Content[0]
+		confirm := lookup(root, Section)
+		switch {
+		case confirm == nil && s == "":
+			return old, nil
+		case confirm == nil:
+			confirm = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			root.Content = append(root.Content, scalar(Section), confirm)
+		case confirm.Tag == "!!null":
+			*confirm = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		case confirm.Kind != yaml.MappingNode:
+			return nil, fmt.Errorf("%s: %s is not a map of type: style", path, Section)
+		}
+		at := keyAt(confirm, string(t))
+		switch {
+		case s == "" && at >= 0:
+			confirm.Content = slices.Delete(confirm.Content, at, at+2)
+		case s == "":
+		case at >= 0:
+			confirm.Content[at+1] = scalar(string(s))
+		default:
+			confirm.Content = append(confirm.Content, scalar(string(t)), scalar(string(s)))
+		}
+		if len(confirm.Content) == 0 {
+			i := slices.Index(root.Content, confirm)
+			root.Content = slices.Delete(root.Content, i-1, i+1)
+		}
+		if len(root.Content) == 0 {
+			return []byte{}, nil
+		}
+		return disk.YAML(doc)
+	})
 }
 
 // read parses path into a document whose first node is a mapping; a missing or empty file is an empty one.
@@ -105,6 +109,11 @@ func read(path string) (*yaml.Node, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+	return parse(path, b)
+}
+
+// parse is the config.yaml at path as b holds it: keys at the top, an empty file an empty map.
+func parse(path string, b []byte) (*yaml.Node, error) {
 	doc := &yaml.Node{}
 	if err := yaml.Unmarshal(b, doc); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)

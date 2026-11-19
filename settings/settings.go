@@ -14,7 +14,7 @@ import (
 
 	"github.com/tugbayatilla/mankit/v4/ask"
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/store"
 	"github.com/tugbayatilla/mankit/v4/theme"
 )
 
@@ -125,24 +125,20 @@ func Set(path string, keys []Key, key, value string) error {
 	if t, ok := strings.CutPrefix(key, ask.Section+"."); ok {
 		return ask.Set(path, ask.Type(t), ask.Style(value))
 	}
-	b, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	out, err := patch(b, key, value)
-	if err == nil {
-		err = verify(b, out, key, value)
-	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-	if b != nil && string(out) == string(b) {
-		return nil
-	}
-	if b == nil && len(out) == 0 {
-		return nil // removing a key from a missing file
-	}
-	return disk.Replace(path, out, 0o644)
+	// Read, changed and written in the file's turn, so a change made meanwhile is never lost (ADR-S22).
+	return store.EditFile(path, func(b []byte, there bool) ([]byte, error) {
+		out, err := patch(b, key, value)
+		if err == nil {
+			err = verify(b, out, key, value)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if !there && len(out) == 0 {
+			return nil, nil // removing a key from a missing file
+		}
+		return out, nil
+	})
 }
 
 // Next is the value after current in k's allowed values, wrapping around; free text keeps current.

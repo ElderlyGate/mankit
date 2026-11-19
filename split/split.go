@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 const (
@@ -108,8 +108,11 @@ func (s Split) save() error {
 	if s.file == "" {
 		return nil
 	}
-	if s.list == 0 {
-		return disk.Remove(s.file)
-	}
-	return disk.Replace(s.file, []byte(strconv.Itoa(s.list)+"\n"), 0o644)
+	// Written whole in its folder's turn, as every write goes through the store (ADR-S22); width 0 keeps no file.
+	return store.EditFile(s.file, func([]byte, bool) ([]byte, error) {
+		if s.list == 0 {
+			return nil, nil
+		}
+		return []byte(strconv.Itoa(s.list) + "\n"), nil
+	})
 }

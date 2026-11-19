@@ -229,6 +229,11 @@ func own(app App, where func(string) (string, error)) (*Scope, error) {
 	if err != nil {
 		return nil, problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("%s's own folder cannot be found: %v", app.ID, err))
 	}
+	return ownAt(app, dir)
+}
+
+// ownAt is dir opened as an own folder of app: private to this user, every change in the one turn of its .queue.
+func ownAt(app App, dir string) (*Scope, error) {
 	// This user's own folder that others could read is made private, and said; another user's, or a link, is refused.
 	tightened, err := disk.Private(dir)
 	var skipped []string

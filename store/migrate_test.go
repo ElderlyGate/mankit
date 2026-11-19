@@ -1,11 +1,14 @@
 package store_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/store"
 )
 
@@ -134,9 +137,6 @@ func TestCopyOnceCopiesAFileAndKeepsTheOld(t *testing.T) {
 func TestCopyOnceCopiesAFolder(t *testing.T) {
 	dir := t.TempDir()
 	tree(t, dir, map[string]string{"old/github.json": "{}", "old/cache/a": "1"})
-	if err := os.Symlink("github.json", filepath.Join(dir, "old", "link")); err != nil {
-		t.Fatal(err)
-	}
 	to := filepath.Join(dir, "new", "control-room")
 	if err := store.CopyOnce(filepath.Join(dir, "old"), to); err != nil {
 		t.Fatal(err)
@@ -144,14 +144,29 @@ func TestCopyOnceCopiesAFolder(t *testing.T) {
 	if read(t, filepath.Join(to, "github.json")) != "{}" || read(t, filepath.Join(to, "cache", "a")) != "1" {
 		t.Fatal("the folder was not copied whole")
 	}
-	if link, err := os.Readlink(filepath.Join(to, "link")); err != nil || link != "github.json" {
-		t.Errorf("link = %q, %v", link, err)
-	}
 	if read(t, filepath.Join(dir, "old", "cache", "a")) != "1" {
 		t.Error("the old folder changed")
 	}
-	if entries, _ := os.ReadDir(filepath.Join(dir, "new")); len(entries) != 1 {
-		t.Errorf("left %d entries beside the copy, want none", len(entries)-1)
+	// Beside the copy is only the store's own .queue, where the copy took its turn.
+	if entries, _ := os.ReadDir(filepath.Join(dir, "new")); len(entries) != 2 {
+		t.Errorf("left %d entries beside the copy and .queue, want none", len(entries)-2)
+	}
+}
+
+// The store writes no link (ADR-S22), so a folder holding one is not copied at all, and says which.
+func TestCopyOnceRefusesAFolderHoldingALink(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old/github.json": "{}"})
+	if err := os.Symlink("github.json", filepath.Join(dir, "old", "link")); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(dir, "new", "control-room")
+	var p *problem.Problem
+	if err := store.CopyOnce(filepath.Join(dir, "old"), to); !errors.As(err, &p) || p.Reason != store.ReasonOutside || !strings.Contains(p.Detail, "link") {
+		t.Fatalf("a folder with a link = %v, want refused outside", err)
+	}
+	if _, err := os.Lstat(to); !os.IsNotExist(err) {
+		t.Fatal("part of the folder was copied")
 	}
 }
 
