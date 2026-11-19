@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/features"
@@ -176,20 +177,20 @@ func (c *Checker) path(org bool) (string, error) {
 	return home.File(c.c.Folder, name)
 }
 
-// readFile reads a regular file of at most most bytes, never waiting on a pipe or following a link.
+// readFile reads a regular file of at most most bytes, through a link as fleet's secret store puts them (ADR-L8), never waiting on a pipe.
 func readFile(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s is not a regular file", path)
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
 	raw, err := io.ReadAll(io.LimitReader(f, most+1))
 	if err == nil && len(raw) > most {
 		err = fmt.Errorf("%s is larger than a license", path)

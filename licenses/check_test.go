@@ -167,3 +167,27 @@ func TestAddWritesNothingItCannotTake(t *testing.T) {
 		t.Fatal("a refused license was written")
 	}
 }
+
+// Fleet puts license files in from its secret store as links (ADR-L8): a link to a file is read, a link to anything else refused.
+func TestALinkToALicenseIsReadAndToAFolderRefused(t *testing.T) {
+	dir := org(t)
+	k, release, _ := signer(t)
+	secrets := t.TempDir()
+	put(t, filepath.Join(secrets, "org"), sign(t, k, orgLicense))
+	if err := os.MkdirAll(filepath.Join(dir, "designer"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(secrets, "org"), filepath.Join(dir, "license")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secrets, filepath.Join(dir, "designer", "license")); err != nil {
+		t.Fatal(err)
+	}
+	f, err := checker(t, release, "2026-11-19").Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Taken) != 1 || f.Taken[0].Kind != licenses.Org || len(f.Refused) != 1 || f.Refused[0].Reason != licenses.ReasonUnreadable {
+		t.Fatalf("found = %+v", f)
+	}
+}
