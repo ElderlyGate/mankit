@@ -147,6 +147,9 @@ func TestCopyOnceCopiesAFolder(t *testing.T) {
 	if read(t, filepath.Join(dir, "old", "cache", "a")) != "1" {
 		t.Error("the old folder changed")
 	}
+	if _, err := os.Stat(filepath.Join(to, ".queue")); !os.IsNotExist(err) {
+		t.Error("the copy holds the store's .queue")
+	}
 	// The copy took the turn of its own folder, so nothing is beside it.
 	if entries, _ := os.ReadDir(filepath.Join(dir, "new")); len(entries) != 1 {
 		t.Errorf("left %d entries beside the copy, want none", len(entries)-1)

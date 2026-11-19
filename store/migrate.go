@@ -99,7 +99,7 @@ func CopyOnce(from, to string) error {
 		return err
 	}
 	defer s.Close()
-	return s.Change(context.Background(), "", "copy "+from, func(tx Tx) error {
+	err = s.Change(context.Background(), "", "copy "+from, func(tx Tx) error {
 		// Made meanwhile: the newer one stays.
 		var at Key
 		if prefix != "" {
@@ -119,9 +119,14 @@ func CopyOnce(from, to string) error {
 		}
 		return nil
 	})
+	if err != nil || prefix != "" {
+		return err
+	}
+	// A folder copied took its turn inside itself; once made, its .queue goes, so the copy holds what from held and nothing more. A copy cut short keeps it, for the next run to put back.
+	return os.RemoveAll(filepath.Join(to, ".queue"))
 }
 
-// copied says whether to holds something already: a file, or a folder with anything in it but the store's own .queue, which a copy cut short leaves.
+// copied says whether to holds something already: a file, or a folder with anything in it but the store's own .queue, which only a copy cut short leaves, for the next run to put back.
 func copied(to string) bool {
 	info, err := os.Lstat(to)
 	if err != nil {
