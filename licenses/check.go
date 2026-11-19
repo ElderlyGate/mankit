@@ -57,7 +57,11 @@ type Taken struct {
 	File     string
 	DaysLeft int  // 0 once it has ended
 	Ended    bool // its features are locked again (ADR-L3)
+	Early    bool // its first day has not come, so it opens nothing yet
 }
+
+// Running reports whether the license opens its features today: its first day has come and its last has not passed.
+func (t Taken) Running() bool { return !t.Ended && !t.Early }
 
 // Refused is a license file the app read but did not take, and why (G-CODE-6): never treated as no license.
 type Refused struct {
@@ -165,7 +169,7 @@ func (c *Checker) take(raw []byte, org bool) (License, error) {
 
 func (c *Checker) taken(l License, path string) Taken {
 	left := max(daysBetween(c.c.Now(), l.Until)+1, 0)
-	return Taken{License: l, File: path, DaysLeft: left, Ended: left == 0}
+	return Taken{License: l, File: path, DaysLeft: left, Ended: left == 0, Early: daysBetween(l.Issued, c.c.Now()) < 0}
 }
 
 // path is the org's license file or the app's own (ADR-L8).
@@ -219,7 +223,7 @@ func (f Found) From(ft features.Feature) (From, time.Time) {
 	var until, trialUntil time.Time
 	for _, t := range f.Taken {
 		switch {
-		case t.Ended:
+		case !t.Running():
 		case t.Kind == Trial:
 			trial, trialUntil = true, t.Until
 		case t.Names(f.product, ft.ID):

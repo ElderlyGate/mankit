@@ -85,7 +85,7 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	for _, t := range f.Taken {
 		row := ShownFile{Kind: t.Kind, For: t.For, Until: t.Until.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
 		// A paid license's window waits for the threshold (ADR-S23); only a running trial key's shows.
-		if t.Kind == Trial && !t.Ended {
+		if t.Kind == Trial && t.Running() {
 			row.Window = &Window{Left: t.DaysLeft, Of: t.Days()}
 		}
 		out.Licenses = append(out.Licenses, row)
@@ -115,11 +115,11 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	return out, nil
 }
 
-// state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key, else an ended one, else none.
+// state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key, else an ended one, else none; one not begun counts as none.
 func (f Found) state() string {
 	has := func(trial, ended bool) bool {
 		for _, t := range f.Taken {
-			if (t.Kind == Trial) == trial && t.Ended == ended {
+			if (t.Kind == Trial) == trial && (ended && t.Ended || !ended && t.Running()) {
 				return true
 			}
 		}

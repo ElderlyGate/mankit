@@ -160,6 +160,10 @@ func TestShowATrialKeyWithItsWindow(t *testing.T) {
 	if s.State != licenses.StateTrial || *s.Licenses[0].Window != (licenses.Window{Left: 10, Of: 14}) || from(s) != "edit=none events=trial multi-design=trial sync=trial" {
 		t.Fatalf("show = %+v", s)
 	}
+	w.today = "2026-11-18"
+	if s := w.show(); s.State != licenses.StateNone || s.Licenses[0].Window != nil || s.Counts.Locked != 3 {
+		t.Fatalf("before the trial = %+v", s)
+	}
 	w.today = "2026-12-03"
 	if s := w.show(); s.State != licenses.StateTrialEnded || s.Licenses[0].Window != nil || !s.Licenses[0].Ended || s.Counts.Locked != 3 {
 		t.Fatalf("after the trial = %+v", s)

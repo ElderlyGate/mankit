@@ -168,6 +168,16 @@ func TestAddWritesNothingItCannotTake(t *testing.T) {
 	}
 }
 
+// A license before its first day opens nothing yet.
+func TestALicenseBeforeItsFirstDayOpensNothing(t *testing.T) {
+	dir := org(t)
+	k, release, _ := signer(t)
+	put(t, filepath.Join(dir, "license"), sign(t, k, orgLicense))
+	if got := on(t, list(checker(t, release, "2026-11-05"))); !slices.Equal(got, []string{"edit"}) {
+		t.Fatalf("on before its first day = %v", got)
+	}
+}
+
 // Fleet puts license files in from its secret store as links (ADR-L8): a link to a file is read, a link to anything else refused.
 func TestALinkToALicenseIsReadAndToAFolderRefused(t *testing.T) {
 	dir := org(t)
