@@ -104,7 +104,7 @@ type switches struct {
 
 // license is a closer that is not the owner's switch, as a license would be: it closes events while unlicensed is set.
 func (s *switches) license() features.Closer {
-	return features.Closer{By: "license", Closed: func() ([]string, error) {
+	return features.Closer{By: features.License, Closed: func() ([]string, error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.unlicensed {
