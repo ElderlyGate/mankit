@@ -153,11 +153,11 @@ func (c *Checker) take(raw []byte, org bool) (License, error) {
 	}
 	switch {
 	case org && l.Kind != Org:
-		return License{}, refused(ReasonWrongType, fmt.Sprintf("it is a %s license, which an app keeps as its own, not as the org's", l.Kind))
+		return License{}, refused(ReasonWrongPlace, fmt.Sprintf("it is a %s license, which an app keeps as its own, not as the org's", l.Kind))
 	case !org && l.Kind == Org:
-		return License{}, refused(ReasonWrongType, "it is an org license, which is kept as the org's (license add --org)")
+		return License{}, refused(ReasonWrongPlace, "it is an org license, which is kept as the org's (license add --org)")
 	case l.Kind == Product && l.Products[c.c.ID] == nil:
-		return License{}, refused(ReasonWrongType, fmt.Sprintf("it is a product license for another product, not %s", c.c.ID))
+		return License{}, refused(ReasonWrongPlace, fmt.Sprintf("it is a product license for another product, not %s", c.c.ID))
 	}
 	return l, nil
 }

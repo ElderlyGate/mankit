@@ -203,7 +203,7 @@ func TestAddRefusesWhatItCannotTakeNamingTheFile(t *testing.T) {
 	if err := os.WriteFile(file, w.sign(licenses.Org, map[string][]string{"designer": {"sync"}}, "2026-11-06", "2027-11-06"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for words, want := range map[string]string{file: licenses.ReasonWrongType, file + ".gone": licenses.ReasonUnreadable} {
+	for words, want := range map[string]string{file: licenses.ReasonWrongPlace, file + ".gone": licenses.ReasonUnreadable} {
 		_, err := w.run("add", words, "--yes")
 		var p *problem.Problem
 		if !errors.As(err, &p) || p.Reason != want || len(p.At) != 1 || p.At[0].File != words {

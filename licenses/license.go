@@ -29,7 +29,7 @@ const (
 	ReasonUntrustedKey = "untrusted_key"
 	ReasonOtherBuild   = "other_build"
 	ReasonUnreadable   = "unreadable"
-	ReasonWrongType    = "wrong_type"
+	ReasonWrongPlace   = "wrong_place"
 )
 
 // License is what a license file says, all of it signed: whom it is for, its kind, the enterprise feature ids per product id (none for a trial key), its first and last day as UTC dates, and the key id (ADR-L4, L6, L9).

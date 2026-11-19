@@ -128,7 +128,7 @@ func TestALicenseInThePlaceOfAnotherKindIsRefused(t *testing.T) {
 		l   licenses.License
 		org bool
 	}{"an org license as the app's": {orgLicense, false}, "a product license as the org's": {product, true}, "another product's": {other, false}} {
-		if _, err := c.Check(sign(t, k, tc.l), tc.org); reason(err) != licenses.ReasonWrongType {
+		if _, err := c.Check(sign(t, k, tc.l), tc.org); reason(err) != licenses.ReasonWrongPlace {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
