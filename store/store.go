@@ -224,9 +224,11 @@ func own(app App, where func(string) (string, error)) (*Scope, error) {
 	}
 	// This user's own folder that others could read is made private, and said; another user's, or a link, is refused.
 	tightened, err := disk.Private(dir)
-	if err == nil {
+	var skipped []string
+	// What is inside is looked at only when the folder itself was open, so a private folder costs no walk on every open.
+	if err == nil && len(tightened) > 0 {
 		var inside []string
-		inside, err = disk.Tighten(dir)
+		inside, skipped, err = disk.Tighten(dir)
 		tightened = append(tightened, inside...)
 	}
 	if err != nil {
@@ -234,6 +236,9 @@ func own(app App, where func(string) (string, error)) (*Scope, error) {
 	}
 	for _, p := range tightened {
 		fmt.Fprintf(logOf(app), "store: %s was open to other users; it is now this user's alone\n", p)
+	}
+	for _, p := range skipped {
+		fmt.Fprintf(logOf(app), "store: %s is another user's, so it was left as it is\n", p)
 	}
 	return open(app, dir, true, func(Key) string { return dir })
 }
@@ -319,13 +324,15 @@ func (s *Scope) Change(ctx context.Context, thing Key, what string, fn func(Tx) 
 			}
 			return s.a.commit(t, tx.ops)
 		}()
+		// Asked before the turns are given up, which forgets them.
+		overran := t.over()
 		err = t.give(err)
 		if again {
 			folder = true
 			continue
 		}
 		// A change that was made and read back is done, even past the limit; the queue's change_too_long is for a write that had to stop.
-		if err == nil && t.over() {
+		if err == nil && overran {
 			fmt.Fprintf(logOf(s.app), "store: %s held its turn in %s past the queue's limit, and was made\n", what, s.root)
 		}
 		return err
@@ -435,11 +442,14 @@ func (x *tx) view(key Key) (body []byte, there, folder bool, err error) {
 		o := x.ops[i]
 		switch o.kind {
 		case opPut:
-			if k == o.key {
+			switch {
+			case k == o.key:
 				return o.body, true, false, nil
-			}
-			if o.key.within(k) {
+			case o.key.within(k):
 				return nil, true, true, nil
+			case k.within(o.key):
+				// Under a file the change wrote, nothing can be.
+				return nil, false, false, nil
 			}
 		case opRemove:
 			if k.within(o.key) {
@@ -508,6 +518,11 @@ func (x *tx) meets(o op) error {
 			return fail(serve.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s is there already, so %s is not moved onto it", o.key, o.from))
 		}
 	}
+	if o.kind != opRemove {
+		if err := x.noFileAbove(o.key); err != nil {
+			return err
+		}
+	}
 	body, there, folder, err := x.view(at)
 	if err != nil {
 		return err
@@ -519,6 +534,20 @@ func (x *tx) meets(o op) error {
 		return fail(serve.TypeRefused, ReasonChanged, string(at), fmt.Sprintf("%s is not there, so it is not moved", at))
 	}
 	return unmet(at, o.want, there, folder, body)
+}
+
+// noFileAbove refuses as changed a key whose folder the change so far has as a file.
+func (x *tx) noFileAbove(k Key) error {
+	for p := path.Dir(string(k)); p != "."; p = path.Dir(p) {
+		_, there, folder, err := x.view(Key(p))
+		if err != nil {
+			return err
+		}
+		if there && !folder {
+			return fail(serve.TypeRefused, ReasonChanged, p, fmt.Sprintf("%s is a file, so nothing is written inside it", p))
+		}
+	}
+	return nil
 }
 
 // unmet refuses as changed a thing that is not what want wants.

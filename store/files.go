@@ -661,7 +661,7 @@ func (f *files) undoOne(l line) (bool, error) {
 		from := ferr == nil
 		switch {
 		case there && !from:
-			if err := f.r.MkdirAll(path.Dir(slash(l.From)), f.dirMode()); err != nil {
+			if err := f.makeDirs(path.Dir(slash(l.From))); err != nil {
 				return false, err
 			}
 			return true, f.r.Rename(name, slash(l.From))
@@ -701,10 +701,30 @@ func (f *files) undoOne(l line) (bool, error) {
 	case before == nil:
 		return true, f.r.Remove(name)
 	}
-	if err := f.r.MkdirAll(path.Dir(name), f.dirMode()); err != nil {
+	if err := f.makeDirs(path.Dir(name)); err != nil {
 		return false, err
 	}
 	return true, disk.WriteContent(f.r, name, before, f.fileMode(l))
+}
+
+// makeDirs makes the folder dir and those above it that are gone, syncing the folder each was made in.
+func (f *files) makeDirs(dir string) error {
+	var made []string
+	for p := dir; p != "."; p = path.Dir(p) {
+		if _, err := f.r.Lstat(p); err == nil {
+			break
+		}
+		made = append(made, p)
+	}
+	if err := f.r.MkdirAll(dir, f.dirMode()); err != nil {
+		return err
+	}
+	for _, p := range made {
+		if err := disk.SyncDir(f.r, path.Dir(p)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func deref(b *[]byte) []byte {
@@ -1104,13 +1124,16 @@ func (f *files) leftJournals(thing Key) ([]Unfinished, error) {
 		if !strings.HasSuffix(e.Name(), journalExt) {
 			continue
 		}
+		// A journal that cannot be read may be any scope's, so it is said and passed over, never taken for none and never failing every scope's list.
 		raw, _, err := disk.Read(r, e.Name())
 		if err != nil {
-			return nil, fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s cannot be read: %v", filepath.Join(dir, e.Name()), err))
+			fmt.Fprintf(f.log(), "store: the journal %s cannot be read, so it is not listed: %v\n", filepath.Join(dir, e.Name()), err)
+			continue
 		}
 		head, lines, err := parseJournal(raw)
 		if err != nil {
-			return nil, fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s %v", filepath.Join(dir, e.Name()), err))
+			fmt.Fprintf(f.log(), "store: the journal %s %v, so it is not listed\n", filepath.Join(dir, e.Name()), err)
+			continue
 		}
 		if !sameFolder(head.Spec.Scope, f.s.root) {
 			continue
