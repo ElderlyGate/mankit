@@ -729,8 +729,9 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   link, is refused as `not_owned`. A served file keeps the mode of the file it
   replaces, a moved file its own, and a new one gets 0644 whatever the umask
   says. Putting a change back in the process that made it gives a removed
-  file its mode back; after a crash, the journal holds no mode, so a removed
-  file returns 0644 (0600 in the own scopes).
+  file its mode back. After a crash, a removed file is put back 0644 in a
+  served folder and 0600 in the own scopes, as the journal holds no mode; the
+  mode comes with the next store contract version.
 - `Revision` moves whenever a thing changes; a reader polls it, or a server's
   live events watch it (ADR-E3).
 - The adapter is picked in one place, through the app's feature list
