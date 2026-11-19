@@ -196,16 +196,24 @@ func Private(dir string) (tightened []string, err error) {
 			return nil, err
 		}
 	}
-	// Checked once made, since another user may have made it first.
-	info, err := os.Lstat(dir)
+	// Checked once made, through one handle opened never through a link, since another user may have made it first.
+	f, err := os.OpenFile(dir, os.O_RDONLY|noFollow|directory, 0)
+	if err != nil {
+		if info, lerr := os.Lstat(dir); lerr == nil && (info.Mode()&fs.ModeSymlink != 0 || !info.IsDir()) {
+			return nil, &fs.PathError{Op: "use", Path: dir, Err: ErrNotOwned}
+		}
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
-	if info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() || !Owned(info) {
+	if !info.IsDir() || !Owned(info) {
 		return nil, &fs.PathError{Op: "use", Path: dir, Err: ErrNotOwned}
 	}
 	if info.Mode().Perm()&0o077 != 0 {
-		if err := os.Chmod(dir, 0o700); err != nil {
+		if err := f.Chmod(0o700); err != nil {
 			return nil, err
 		}
 		tightened = append(tightened, dir)
@@ -213,33 +221,48 @@ func Private(dir string) (tightened []string, err error) {
 	return tightened, nil
 }
 
-// Tighten takes from every folder and file inside dir that this user owns what others may do with it, so it is this user's alone, never through a link, and says which; one another user owns is refused with ErrNotOwned.
-func Tighten(dir string) ([]string, error) {
-	var tightened []string
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+// Tighten takes from every folder and file inside dir that this user owns what others may do with it, so it is this user's alone, and says which; each is changed through a handle opened never through a link. One another user owns is left as it is and said in skipped, with what is inside it.
+func Tighten(dir string) (tightened, skipped []string, err error) {
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || p == dir {
 			return err
 		}
 		if !d.IsDir() && !d.Type().IsRegular() {
 			return nil
 		}
-		info, err := d.Info()
+		flag := os.O_RDONLY | noFollow | nonBlocking
+		if d.IsDir() {
+			flag |= directory
+		}
+		f, err := os.OpenFile(p, flag, 0)
 		if err != nil {
 			return err
 		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		if info.IsDir() != d.IsDir() || !info.IsDir() && !info.Mode().IsRegular() {
+			return nil
+		}
 		if !Owned(info) {
-			return &fs.PathError{Op: "use", Path: p, Err: ErrNotOwned}
+			skipped = append(skipped, p)
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if info.Mode().Perm()&0o077 == 0 {
 			return nil
 		}
-		if err := os.Chmod(p, info.Mode().Perm()&^0o077); err != nil {
+		if err := f.Chmod(info.Mode().Perm() &^ 0o077); err != nil {
 			return err
 		}
 		tightened = append(tightened, p)
 		return nil
 	})
-	return tightened, err
+	return tightened, skipped, err
 }
 
 // syncPath is SyncDir for a folder named by its path.

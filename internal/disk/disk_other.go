@@ -8,6 +8,7 @@ import "io/fs"
 const (
 	nonBlocking = 0
 	noFollow    = 0
+	directory   = 0
 )
 
 // Owned is true where the system keeps no owner the core can ask.

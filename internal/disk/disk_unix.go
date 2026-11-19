@@ -12,6 +12,7 @@ import (
 const (
 	nonBlocking = syscall.O_NONBLOCK
 	noFollow    = syscall.O_NOFOLLOW
+	directory   = syscall.O_DIRECTORY
 )
 
 // Owned says whether this user owns the file.
