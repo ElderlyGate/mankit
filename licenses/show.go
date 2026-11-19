@@ -43,10 +43,9 @@ type ShownFile struct {
 	Window   *Window `json:"window,omitempty" yaml:"window,omitempty"`
 }
 
-// Window is the countdown the License group's bar shows.
+// Window is the countdown the License group's bar shows; its days left are the license's DaysLeft.
 type Window struct {
-	Left int `json:"left" yaml:"left"`
-	Of   int `json:"of" yaml:"of"`
+	Of int `json:"of" yaml:"of"`
 }
 
 // RefusedRow is one license file refused.
@@ -86,7 +85,7 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 		row := ShownFile{Kind: t.Kind, For: t.For, Until: t.Until.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
 		// A paid license's window waits for the threshold (ADR-S23); only a running trial key's shows.
 		if t.Kind == Trial && t.Running() {
-			row.Window = &Window{Left: t.DaysLeft, Of: t.Days()}
+			row.Window = &Window{Of: t.Days()}
 		}
 		out.Licenses = append(out.Licenses, row)
 	}

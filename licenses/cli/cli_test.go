@@ -159,7 +159,7 @@ func TestShowATrialKeyWithItsWindow(t *testing.T) {
 	w := newWorld(t, "2026-11-23")
 	w.put("designer/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
 	s := w.show()
-	if s.State != licenses.StateTrial || *s.Licenses[0].Window != (licenses.Window{Left: 10, Of: 14}) || from(s) != "edit=none events=trial multi-design=trial sync=trial" {
+	if s.State != licenses.StateTrial || *s.Licenses[0].Window != (licenses.Window{Of: 14}) || s.Licenses[0].DaysLeft != 10 || from(s) != "edit=none events=trial multi-design=trial sync=trial" {
 		t.Fatalf("show = %+v", s)
 	}
 	w.today = "2026-11-18"
