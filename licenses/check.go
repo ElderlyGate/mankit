@@ -142,7 +142,7 @@ func (c *Checker) scope(org bool) (*store.Scope, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return store.Served(app, dir, func(store.Key) string { return filepath.Join(dir, ".queue") })
+	return store.Served(app, dir, func(store.Key) string { return dir })
 }
 
 // take verifies raw and refuses a license that does not belong where it is: an org license outside the org's place, a product license or trial key in it, or another product's license.
