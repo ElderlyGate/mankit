@@ -27,7 +27,7 @@ type (
 		Commands []HelpCommand `json:"commands"`
 		Flags    []HelpFlag    `json:"flags"`
 		More     string        `json:"more"`
-		Old      []OldForm     `json:"old"`
+		Old      []OldForm     `json:"old"` // always there, empty when there is none: once the old forms go at the next major it stays an empty list, as mankit/v1 requires it
 	}
 	HelpCommand struct {
 		Name     string        `json:"name"`
@@ -35,6 +35,12 @@ type (
 		Usage    string        `json:"usage"`
 		Commands []HelpCommand `json:"commands"`
 		Flags    []HelpFlag    `json:"flags"`
+	}
+	// OldForm is one old form and the full form it runs, each as the words after the app's name; Args come first after the full form's words.
+	OldForm struct {
+		Words string   `json:"words"`
+		Now   string   `json:"now"`
+		Args  []string `json:"args,omitempty"`
 	}
 	HelpFlag struct {
 		Name      string `json:"name"`
@@ -84,6 +90,7 @@ func answerHelp(root *cobra.Command, info Info) {
 				return err
 			}
 			data.Commands = []HelpCommand{command(root, topic)}
+			data.Old = oldUnder(data.Old, words(root, topic))
 		}
 		return out.Print(c.OutOrStdout(), "", HelpKind, data, func(io.Writer) {})
 	}

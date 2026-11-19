@@ -224,3 +224,13 @@ func write(w io.Writer, root, c *cobra.Command, info Info) {
 		fmt.Fprintf(w, "\nMore: %s\n", info.More)
 	}
 }
+
+// child is c's command named name, nil when it has none.
+func child(c *cobra.Command, name string) *cobra.Command {
+	for _, sub := range c.Commands() {
+		if sub.Name() == name {
+			return sub
+		}
+	}
+	return nil
+}
