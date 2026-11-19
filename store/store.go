@@ -124,6 +124,7 @@ func (k Key) thing() Key {
 func (k Key) within(at Key) bool { return k == at || strings.HasPrefix(string(k), string(at)+"/") }
 
 // rebase is k, at or inside from, named under to instead: where a move of from to to takes it. The one rule a change's view, its list and the read-back after it follow for a move.
+// The caller checks k.within(from) first: rebase only cuts from's length off k, so a k outside from comes out as a wrong key, never an error.
 func (k Key) rebase(from, to Key) Key { return to + k[len(from):] }
 
 // overlaps says whether one of a and b is at or inside the other, so a change to one reaches the other.

@@ -48,6 +48,9 @@ var (
 	errCrashed = errors.New("store: stopped dead after a write, as a test asked")
 )
 
+// beforeReadBack, when set, runs once a change's writes are made and before they are read back, so a test can change the disk there. Tests only.
+var beforeReadBack func()
+
 func (f *files) get(key Key) (Item, bool, error) {
 	body, err := f.current(key)
 	if err != nil || body == nil {
@@ -442,6 +445,9 @@ func (f *files) commit(t *turns, ops []op) error {
 		if err := step(); err != nil {
 			return err
 		}
+		if beforeReadBack != nil {
+			beforeReadBack()
+		}
 		return f.readBack(first)
 	}
 	id := newID()
@@ -546,6 +552,9 @@ func (f *files) commit(t *turns, ops []op) error {
 	// Each folder written in is synced once, before the journal that could put it back goes.
 	if err := f.syncAll(dirs); err != nil {
 		return undo(diskFail(err, "", "a folder the change wrote in"))
+	}
+	if beforeReadBack != nil {
+		beforeReadBack()
 	}
 	if err := f.readBack(done); err != nil {
 		return undo(err)
