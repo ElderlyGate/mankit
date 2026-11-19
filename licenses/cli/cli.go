@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -99,7 +100,8 @@ func replacing(f licenses.Found, path string) string {
 
 // failAt is err pointing at the file it is about.
 func failAt(err error, file string) error {
-	if p, ok := err.(*problem.Problem); ok {
+	var p *problem.Problem
+	if errors.As(err, &p) {
 		return problem.FailAt(p.Type, p.Reason, file, file+": "+p.Detail)
 	}
 	return err
