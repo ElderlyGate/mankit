@@ -25,6 +25,7 @@ import (
 	"github.com/tugbayatilla/mankit/v3/ask"
 	"github.com/tugbayatilla/mankit/v3/features"
 	"github.com/tugbayatilla/mankit/v3/helpout"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 // The kinds of the answers the commands print with -o json or yaml.
@@ -178,7 +179,7 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 		bound := ln.Addr().String()
 		if child && logPath != "" {
 			// The log was named for the address asked for; port 0 binds another, and the log follows the address bound.
-			if named := filepath.Join(filepath.Dir(logPath), logName(bound)); named != logPath && os.Rename(logPath, named) == nil {
+			if named := filepath.Join(filepath.Dir(logPath), logName(bound)); named != logPath && disk.Rename(logPath, named) == nil {
 				logPath = named
 			}
 		}

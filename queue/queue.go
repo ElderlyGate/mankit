@@ -500,16 +500,16 @@ func (q Queue) join(ctx context.Context, change string) (*ticket, error) {
 		}
 		t.alive = alive
 		q.process().hold(t.path, true)
-		data, err := json.MarshalIndent(Ticket{
+		data, err := disk.JSON(Ticket{
 			APIVersion: APIVersion(),
 			Kind:       Kind,
 			Metadata:   Metadata{ID: t.id, App: q.App, PID: os.Getpid(), Host: host},
 			Spec:       Spec{Change: change, JoinedAt: time.Now().UTC(), Version: q.Version},
-		}, "", "  ")
+		})
 		if err != nil {
 			return err
 		}
-		if err := writeWhole(q.dir(), t.path, append(data, '\n')); err != nil {
+		if err := writeWhole(q.dir(), t.path, data); err != nil {
 			return unusable("cannot write a ticket in %s: %v", q.dir(), err)
 		}
 		return nil
@@ -546,7 +546,7 @@ func (t *ticket) touch() {
 		case <-t.stop:
 			return
 		case now := <-tick.C:
-			_ = os.Chtimes(t.path, now, now)
+			_ = disk.Touch(t.path, now)
 		}
 	}
 }
@@ -622,7 +622,7 @@ func (t *ticket) try() (bool, int, error) {
 
 // tryLock takes the exclusive lock of the lock file at path without waiting, nil when another holds it; the system gives it back when its process ends.
 func tryLock(path string) (*flock.Flock, error) {
-	f := flock.New(path, flock.SetPermissions(0o600))
+	f := disk.Lock(path)
 	got, err := f.TryLock()
 	if err != nil || !got {
 		_ = f.Close()
@@ -640,7 +640,7 @@ func (t *ticket) leave() {
 	t.done.Wait()
 	if t.turn != nil {
 		// Cleared while the turn is still held, so no one reads this ticket's id as the next holder's.
-		if err := os.Remove(filepath.Join(t.q.dir(), turnName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := disk.Remove(filepath.Join(t.q.dir(), turnName)); err != nil {
 			fmt.Fprintf(t.q.log(), "queue: cannot clear %s: %v\n", filepath.Join(t.q.dir(), turnName), err)
 		}
 		_ = t.turn.Close()
@@ -661,10 +661,7 @@ func (t *ticket) leave() {
 
 // remove takes the ticket out of the line, then gives up its lock file.
 func (t *ticket) remove() error {
-	err := os.Remove(t.path)
-	if errors.Is(err, os.ErrNotExist) {
-		err = nil
-	}
+	err := disk.Remove(t.path)
 	t.release()
 	return err
 }
@@ -672,7 +669,7 @@ func (t *ticket) remove() error {
 // release closes the ticket's lock file and removes it, once the ticket itself is gone.
 func (t *ticket) release() {
 	_ = t.alive.Close()
-	_ = os.Remove(lockOf(t.path))
+	_ = disk.Remove(lockOf(t.path))
 	t.q.process().hold(t.path, false)
 }
 
@@ -680,11 +677,8 @@ func (t *ticket) release() {
 func (q Queue) prepare(ctx context.Context) error {
 	dir := q.dir()
 	for _, d := range []string{dir, filepath.Join(dir, badName)} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return unusable("cannot make %s: %v", d, err)
-		}
-		if err := os.Chmod(d, 0o700); err != nil {
-			return unusable("cannot keep %s to this user: %v", d, err)
+		if _, err := disk.Private(d); err != nil {
+			return unusable("cannot make %s this user's own: %v", d, err)
 		}
 	}
 	return q.locked(ctx, func() error {
@@ -814,13 +808,13 @@ func (q Queue) ownerGone(path string) (bool, error) {
 	if err != nil || free == nil {
 		return false, nil
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := disk.Remove(path); err != nil {
 		_ = free.Close()
 		return false, unusable("cannot remove %s, whose process has ended: %v", path, err)
 	}
 	// Closed before it is removed, since Windows removes no file that is open.
 	_ = free.Close()
-	_ = os.Remove(lockOf(path))
+	_ = disk.Remove(lockOf(path))
 	fmt.Fprintf(q.log(), "queue: %s: its process has ended; removed\n", path)
 	return true, nil
 }
@@ -837,7 +831,7 @@ func (q Queue) dropOrphanLocks(names []string) {
 			continue
 		}
 		_ = free.Close()
-		_ = os.Remove(filepath.Join(q.dir(), name))
+		_ = disk.Remove(filepath.Join(q.dir(), name))
 	}
 }
 
@@ -884,7 +878,7 @@ func (q Queue) moveBad(path, why string) error {
 		}
 		to = filepath.Join(bad, fmt.Sprintf("%s.%d", filepath.Base(path), n))
 	}
-	err := os.Rename(path, to)
+	err := disk.Rename(path, to)
 	if errors.Is(err, os.ErrNotExist) {
 		// Gone since the folder was read, taken by a person or a process that does not hold the lock: nothing left to set aside.
 		return nil

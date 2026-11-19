@@ -1,7 +1,6 @@
 package ask
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v3/internal/configfile"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 // Section is the key of an app's config.yaml that holds a style per type: confirm: {delete: name, move: never}.
@@ -88,18 +87,13 @@ func Set(path string, t Type, s Style) error {
 		i := slices.Index(root.Content, confirm)
 		root.Content = slices.Delete(root.Content, i-1, i+1)
 	}
-	var b bytes.Buffer
+	var b []byte
 	if len(root.Content) > 0 {
-		enc := yaml.NewEncoder(&b)
-		enc.SetIndent(2)
-		if err := enc.Encode(doc); err != nil {
-			return err
-		}
-		if err := enc.Close(); err != nil {
+		if b, err = disk.YAML(doc); err != nil {
 			return err
 		}
 	}
-	return configfile.WriteFile(path, b.Bytes())
+	return disk.Replace(path, b, 0o644)
 }
 
 // read parses path into a document whose first node is a mapping; a missing or empty file is an empty one.

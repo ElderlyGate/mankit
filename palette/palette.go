@@ -6,7 +6,6 @@ package palette
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 	"github.com/tugbayatilla/mankit/v3/settings"
 	"github.com/tugbayatilla/mankit/v3/textinput"
 )
@@ -248,8 +248,5 @@ func (f Favorites) Toggle(id string, order []string) error {
 			b.WriteString(o + "\n")
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(f.File), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(f.File, []byte(b.String()), 0o644)
+	return disk.Replace(f.File, []byte(b.String()), 0o644)
 }

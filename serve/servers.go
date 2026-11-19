@@ -16,9 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/flock"
-
 	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 )
 
 // A record is a claim a detached server leaves, never proof: a process can die without removing it, and a pid is reused.
@@ -97,46 +96,20 @@ func fileName(addr string) string {
 
 func logName(addr string) string { return strings.TrimSuffix(fileName(addr), ".json") + ".log" }
 
-// writeWhole writes data to path through a temporary file beside it (G-CODE-5).
-func writeWhole(dir, path string, data []byte) error {
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	// On disk before the rename, so a crash never leaves the name on an empty file.
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
-
 func (r record) save(dir string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if _, err := disk.Private(dir); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(r, "", "  ")
+	data, err := disk.JSON(r)
 	if err != nil {
 		return err
 	}
-	return writeWhole(dir, filepath.Join(dir, fileName(r.Metadata.Addr)), append(data, '\n'))
+	return disk.WriteFile(filepath.Join(dir, fileName(r.Metadata.Addr)), data, 0o600)
 }
 
 // removeRecord drops the record for addr; one already gone is not an error, as two commands tidying one dead server are both right.
 func removeRecord(dir, addr string) error {
-	err := os.Remove(filepath.Join(dir, fileName(addr)))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
+	return disk.Remove(filepath.Join(dir, fileName(addr)))
 }
 
 // readRecords is every record in dir, unprobed; a file it cannot read or understand is an error naming it (G-CODE-6).
@@ -182,7 +155,7 @@ func (a App) live(dir string) ([]status, error) {
 	for _, r := range all {
 		p := a.probe(r.Metadata.Addr, probeWait)
 		if p.refused {
-			_ = os.Remove(r.file)
+			_ = disk.Remove(r.file)
 			continue
 		}
 		if p.version != "" {
@@ -281,30 +254,15 @@ func (a App) ensureToken(dir string) (string, error) {
 	if t, err := a.readToken(dir); !errors.Is(err, errNoToken) {
 		return t, err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if _, err := disk.Private(dir); err != nil {
 		return "", err
 	}
 	token, err := newToken()
 	if err != nil {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(dir, ".token-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(token + "\n"); err != nil {
-		tmp.Close()
-		return "", err
-	}
-	if err := tmp.Close(); err != nil {
-		return "", err
-	}
-	// A link never replaces: two servers starting at once both keep the one that landed first.
-	if err := os.Link(tmp.Name(), filepath.Join(dir, tokenName)); err != nil && !errors.Is(err, os.ErrExist) {
+	// Written once, never replaced: two servers starting at once both keep the one that landed first.
+	if err := disk.WriteOnce(filepath.Join(dir, tokenName), []byte(token+"\n"), 0o600); err != nil {
 		return "", err
 	}
 	return a.readToken(dir)
@@ -320,14 +278,11 @@ func newToken() (string, error) {
 
 // renewToken replaces the token whole with a new one and reads it back; every running server refuses the old one from its next request.
 func (a App) renewToken(dir string) (string, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if _, err := disk.Private(dir); err != nil {
 		return "", err
 	}
 	// One renew at a time, so the token each prints is the one in the file when it prints it.
-	lock := flock.New(filepath.Join(dir, ".token.lock"), flock.SetPermissions(0o600))
+	lock := disk.Lock(filepath.Join(dir, ".token.lock"))
 	if err := lock.Lock(); err != nil {
 		return "", err
 	}
@@ -337,7 +292,7 @@ func (a App) renewToken(dir string) (string, error) {
 		return "", err
 	}
 	// The temporary file is the user's alone (0600), so the rename never leaves a token others could read.
-	if err := writeWhole(dir, filepath.Join(dir, tokenName), []byte(token+"\n")); err != nil {
+	if err := disk.WriteFile(filepath.Join(dir, tokenName), []byte(token+"\n"), 0o600); err != nil {
 		return "", err
 	}
 	got, err := a.readToken(dir)

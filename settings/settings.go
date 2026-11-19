@@ -13,7 +13,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/internal/configfile"
+	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 	"github.com/tugbayatilla/mankit/v3/theme"
 )
 
@@ -39,7 +40,7 @@ type Row struct {
 
 // Path is <dir>/<app>/config.yaml (dir "" is the user config dir), or "" without a config dir.
 func Path(app, dir string) string {
-	path, err := configfile.Path(app, dir)
+	path, err := home.Config(app, dir)
 	if err != nil {
 		return ""
 	}
@@ -141,7 +142,7 @@ func Set(path string, keys []Key, key, value string) error {
 	if b == nil && len(out) == 0 {
 		return nil // removing a key from a missing file
 	}
-	return configfile.WriteFile(path, out)
+	return disk.Replace(path, out, 0o644)
 }
 
 // Next is the value after current in k's allowed values, wrapping around; free text keeps current.
