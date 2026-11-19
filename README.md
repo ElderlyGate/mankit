@@ -131,6 +131,21 @@ short line first, then its verbs and its own things, its flags and `More:`.
 `Execute` gives every thing its `help` verb. `<app> help <verb>` and
 `<app> <verb> --help` keep cobra's full help.
 
+`<app> help -o json` (or `-o yaml`) prints the same commands and flags as
+data, with the hidden old forms marked old: contracts mankit/v1 `Help`.
+`<app> help <thing> -o json` holds only that thing. It is the app's answer, in
+the app's envelope, so the app hands helpout its printer:
+
+```go
+helpout.Apply(root, helpout.Info{
+	What:   "a live visual board",
+	Answer: func(c *cobra.Command) helpout.Answerer { return app.Printer(c) },
+})
+```
+
+An app that sets no `Answer` refuses `help -o json` with a plain error, never
+text.
+
 ```go
 helpout.Apply(root, helpout.Info{
 	What:  "a git dashboard for the terminal",

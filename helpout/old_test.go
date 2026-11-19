@@ -9,8 +9,11 @@ import (
 )
 
 // things is a root with the thing server, whose verbs list and stop print what they were given, and server token renew; servers and servers stop are their old forms, and queue wait stands for config get queue.wait.
-func things() *cobra.Command {
-	root := sample(true)
+func things() *cobra.Command { return thingsLaidOut(true) }
+
+// thingsLaidOut is things, with the layout applied when layout is true.
+func thingsLaidOut(layout bool) *cobra.Command {
+	root := sample(false)
 	echo := func(c *cobra.Command, args []string) {
 		all, _ := c.Flags().GetBool("all")
 		c.Printf("%s %v all=%v\n", c.CommandPath(), args, all)
@@ -26,6 +29,9 @@ func things() *cobra.Command {
 	get := Old(&cobra.Command{Use: "get <key>", Short: "Show a setting", Run: echo}, "get config")
 	config.AddCommand(OldArgs(get, "queue wait", "queue.wait"))
 	root.AddCommand(server, config)
+	if layout {
+		Apply(root, info)
+	}
 	return root
 }
 

@@ -1,12 +1,15 @@
 package serve_test
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"net"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
 	"github.com/tugbayatilla/mankit/v4/helpout"
@@ -165,4 +168,24 @@ func TestTheOldServersFormsRunTheirFullForms(t *testing.T) {
 		helpout.Apply(r, helpout.Info{What: "a test app"})
 		return r
 	})
+}
+
+// help -o json, printed through the app's Printer, is contracts mankit/v1's Help in the app's envelope.
+func TestHelpAsJSONIsTheHelpAnswer(t *testing.T) {
+	r := root(nil)
+	helpout.Apply(r, helpout.Info{What: "a test app", Start: []string{"e-designer serve"}, More: "https://github.com/ElderlyGate/e-designer",
+		Answer: func(c *cobra.Command) helpout.Answerer { return app.Printer(c) }})
+	var out, errOut bytes.Buffer
+	r.SetOut(&out)
+	r.SetErr(&errOut)
+	r.SetArgs([]string{"help", "-o", "json"})
+	if code, err := helpout.Execute(context.Background(), r); code != 0 || err != nil {
+		t.Fatalf("code %d, err %v, stderr %s", code, err, errOut.String())
+	}
+	if err := contracts.Validate("mankit/v1/help.schema.json", out.Bytes()); err != nil {
+		t.Fatalf("not a Help answer: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), `"words": "servers stop"`) || !strings.Contains(out.String(), `"now": "server stop"`) {
+		t.Errorf("the old forms are not marked:\n%s", out.String())
+	}
 }

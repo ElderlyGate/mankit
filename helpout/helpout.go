@@ -20,10 +20,13 @@ type Info struct {
 	What  string   // one line: what the app is
 	Start []string // how to start it and where to run it
 	More  string   // the repository URL
+	// Answer, when set, gives c the app's -o and --contract flags and prints c's answer as the app's other commands do, so help -o json is the app's envelope: an app passes func(c *cobra.Command) helpout.Answerer { return app.Printer(c) }.
+	Answer func(c *cobra.Command) Answerer
 }
 
-// Apply makes the help and usage of root and of every thing under it, a command with commands of its own, the H-1 layout; a verb's own help stays cobra's.
+// Apply makes the help and usage of root and of every thing under it, a command with commands of its own, the H-1 layout, and gives help -o json and yaml; a verb's own help stays cobra's.
 func Apply(root *cobra.Command, info Info) {
+	answerHelp(root, info)
 	verbHelp, verbUsage := root.HelpFunc(), root.UsageFunc()
 	root.SetHelpFunc(func(c *cobra.Command, args []string) {
 		if !laidOut(root, c) {
