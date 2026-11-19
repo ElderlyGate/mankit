@@ -3,7 +3,7 @@ module github.com/tugbayatilla/mankit/v4
 go 1.27.3
 
 require (
-	github.com/ElderlyGate/contracts v0.30.1-0.20261119164154-4b497fe2a84c
+	github.com/ElderlyGate/contracts v0.30.1-0.20261119170911-05fbb9afc416
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1
 	github.com/charmbracelet/bubbles v1.0.0
