@@ -1,13 +1,14 @@
 package helpout
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
 
-// things is a root with the thing server, whose verbs list and stop print what they were given, and server token renew; servers and servers stop are their old forms.
+// things is a root with the thing server, whose verbs list and stop print what they were given, and server token renew; servers and servers stop are their old forms, and queue wait stands for config get queue.wait.
 func things() *cobra.Command {
 	root := sample(true)
 	echo := func(c *cobra.Command, args []string) {
@@ -22,7 +23,8 @@ func things() *cobra.Command {
 	token.AddCommand(&cobra.Command{Use: "renew", Short: "Renew the token", Run: echo})
 	server.AddCommand(Old(list, "servers"), Old(stop, "servers stop"), token)
 	config := &cobra.Command{Use: "config", Short: "The settings"}
-	config.AddCommand(Old(&cobra.Command{Use: "get <key>", Short: "Show a setting", Run: echo}, "get config"))
+	get := Old(&cobra.Command{Use: "get <key>", Short: "Show a setting", Run: echo}, "get config")
+	config.AddCommand(OldArgs(get, "queue wait", "queue.wait"))
 	root.AddCommand(server, config)
 	return root
 }
@@ -36,6 +38,7 @@ func TestAnOldFormRunsItsFullFormAndSaysTheNewNameOnStderr(t *testing.T) {
 		{[]string{"servers", "stop", "127.0.0.1:7480"}, []string{"server", "stop", "127.0.0.1:7480"}, "demo: servers stop is now server stop\n"},
 		{[]string{"get", "config", "theme"}, []string{"config", "get", "theme"}, "demo: get config is now config get\n"},
 		{[]string{"--debug", "servers"}, []string{"server", "list", "--debug"}, "demo: servers is now server list\n"},
+		{[]string{"queue", "wait"}, []string{"config", "get", "queue.wait"}, "demo: queue wait is now config get queue.wait\n"},
 	} {
 		oldOut, oldErr, oldCode, err := execute(things(), c.old...)
 		fullOut, fullErr, fullCode, ferr := execute(things(), c.full...)
@@ -56,14 +59,9 @@ func TestAnOldFormIsNeverListed(t *testing.T) {
 		}
 	}
 	got := OldForms(things())
-	want := []OldForm{{"get config", "config get"}, {"servers", "server list"}, {"servers stop", "server stop"}}
-	if len(got) != len(want) {
-		t.Fatalf("OldForms = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("OldForms[%d] = %v, want %v", i, got[i], want[i])
-		}
+	want := []OldForm{{"get config", "config get", nil}, {"queue wait", "config get", []string{"queue.wait"}}, {"servers", "server list", nil}, {"servers stop", "server stop", nil}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("OldForms = %v, want %v", got, want)
 	}
 }
 

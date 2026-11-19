@@ -23,11 +23,20 @@ func Old(cmd *cobra.Command, words ...string) *cobra.Command {
 	return cmd
 }
 
-// OldForm is one old form and the full form it runs, each as the words after the app's name.
-type OldForm struct {
-	Words string `json:"words"`
-	Now   string `json:"now"`
+// OldArgs marks words as an old form of cmd that stands for cmd with args first, such as "config queue wait" for queue set wait. It gives back cmd.
+func OldArgs(cmd *cobra.Command, words string, args ...string) *cobra.Command {
+	return Old(cmd, words+"\t"+strings.Join(args, " "))
 }
+
+// OldForm is one old form and the full form it runs, each as the words after the app's name; Args come first after the full form's words.
+type OldForm struct {
+	Words string   `json:"words"`
+	Now   string   `json:"now"`
+	Args  []string `json:"args,omitempty"`
+}
+
+// Full is the full form the old one runs, with its args.
+func (o OldForm) Full() string { return strings.Join(append([]string{o.Now}, o.Args...), " ") }
 
 // OldForms are every old form under root, in the order the commands are.
 func OldForms(root *cobra.Command) []OldForm {
@@ -35,7 +44,12 @@ func OldForms(root *cobra.Command) []OldForm {
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		for _, w := range oldOf(c) {
-			out = append(out, OldForm{Words: w, Now: words(root, c)})
+			old, args, _ := strings.Cut(w, "\t")
+			o := OldForm{Words: old, Now: words(root, c)}
+			if args != "" {
+				o.Args = strings.Fields(args)
+			}
+			out = append(out, o)
 		}
 		for _, sub := range c.Commands() {
 			walk(sub)
@@ -86,7 +100,7 @@ func addOld(root *cobra.Command) error {
 				o := o
 				next.DisableFlagParsing, next.Args = true, cobra.ArbitraryArgs
 				next.RunE = func(_ *cobra.Command, args []string) error {
-					return &rerun{old: o.Words, now: o.Now, args: append(strings.Fields(o.Now), args...)}
+					return &rerun{old: o.Words, now: o.Full(), args: append(strings.Fields(o.Full()), args...)}
 				}
 			}
 			parent = next

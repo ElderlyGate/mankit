@@ -34,8 +34,8 @@ func Check(t T, newRoot func() *cobra.Command) {
 		if oldOut != fullOut || oldCode != fullCode {
 			t.Errorf("%q --help gave exit %d and\n%s\nbut %q --help gave exit %d and\n%s", o.Words, oldCode, oldOut, o.Now, fullCode, fullOut)
 		}
-		if !strings.Contains(oldErr, o.Words+" is now "+o.Now) {
-			t.Errorf("%q does not say its new name %q on stderr: %q", o.Words, o.Now, oldErr)
+		if !strings.Contains(oldErr, o.Words+" is now "+o.Full()) {
+			t.Errorf("%q does not say its new name %q on stderr: %q", o.Words, o.Full(), oldErr)
 		}
 	}
 	listed(t, newRoot, root, nil)

@@ -185,6 +185,8 @@ helpout.Old(listCmd, "servers")       // server list
 helpout.Old(stopCmd, "servers stop")  // server stop
 ```
 
+An old form that stood for a verb with an argument names it:
+`helpout.OldArgs(setCmd, "config queue wait", "wait")` runs `queue set wait`.
 `Execute` makes each old form a hidden command: it is never listed in help, it
 runs its full form with the rest of the line, and it says `<app>: servers stop
 is now server stop` on stderr, so stdout is the same as the full form's. An old
