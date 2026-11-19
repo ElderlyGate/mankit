@@ -47,7 +47,7 @@ func day(s string) time.Time {
 	return d
 }
 
-var orgLicense = licenses.License{Kind: licenses.Org, For: "Acme Ltd", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-06"), Until: day("2027-11-06"), KeyID: "prod-2026"}
+var orgLicense = licenses.License{ID: "acme-2026", Kind: licenses.Org, For: "Acme Ltd", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-06"), Until: day("2027-11-06"), KeyID: "prod-2026"}
 
 func sign(t *testing.T, k keys, l licenses.License) []byte {
 	t.Helper()
@@ -77,17 +77,40 @@ func TestASignedLicenseVerifiesAsSigned(t *testing.T) {
 	}
 }
 
+// edit is the license file raw with change made to it as JSON, as someone with a text editor would.
+func edit(t *testing.T, raw []byte, change func(f map[string]any)) []byte {
+	t.Helper()
+	var f map[string]any
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	change(f)
+	out, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 // The signature covers the payload's bytes as stored: a change to one byte of what it holds is refused.
 func TestAChangedLicenseIsRefusedForItsSignature(t *testing.T) {
 	k, release, _ := signer(t)
-	var f map[string][]byte
-	if err := json.Unmarshal(sign(t, k, orgLicense), &f); err != nil {
-		t.Fatal(err)
-	}
-	f["payload"] = bytes.Replace(f["payload"], []byte("2027-11-06"), []byte("2099-11-06"), 1)
-	raw, _ := json.Marshal(f)
+	raw := edit(t, sign(t, k, orgLicense), func(f map[string]any) {
+		spec := f["spec"].(map[string]any)
+		body, _ := base64.StdEncoding.DecodeString(spec["payload"].(string))
+		spec["payload"] = base64.StdEncoding.EncodeToString(bytes.Replace(body, []byte("2027-11-06"), []byte("2099-11-06"), 1))
+	})
 	if _, err := licenses.Verify(raw, release); reason(err) != licenses.ReasonSignature {
 		t.Fatalf("err = %v, want refused for its signature", err)
+	}
+}
+
+// The file's id names it only while it is the signed one (ADR-S15).
+func TestAFileWhoseIdIsNotTheSignedOneIsRefused(t *testing.T) {
+	k, release, _ := signer(t)
+	raw := edit(t, sign(t, k, orgLicense), func(f map[string]any) { f["metadata"] = map[string]any{"id": "other"} })
+	if _, err := licenses.Verify(raw, release); reason(err) != licenses.ReasonIDMismatch {
+		t.Fatalf("err = %v, want refused for its id", err)
 	}
 }
 
@@ -129,7 +152,7 @@ func TestWhatIsNoLicenseFileIsUnreadable(t *testing.T) {
 // A license no app takes is never signed: a trial that names features, a product license naming two products, an org license naming none.
 func TestALicenseNoAppTakesIsNotSigned(t *testing.T) {
 	k, _, _ := signer(t)
-	trial := licenses.License{Kind: licenses.Trial, For: "ada@acme.example", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
+	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
 	two := orgLicense
 	two.Kind, two.Products = licenses.Product, map[string][]string{"designer": {"events"}, "kanban": {"sync"}}
 	none := orgLicense
@@ -144,7 +167,7 @@ func TestALicenseNoAppTakesIsNotSigned(t *testing.T) {
 }
 
 func TestATrialKeysLengthIsItsDays(t *testing.T) {
-	trial := licenses.License{Kind: licenses.Trial, Issued: day("2026-11-19"), Until: day("2026-12-02")}
+	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, Issued: day("2026-11-19"), Until: day("2026-12-02")}
 	if got := trial.Days(); got != 14 {
 		t.Fatalf("days = %d, want 14", got)
 	}
@@ -163,18 +186,18 @@ func TestASignedFileMeetsItsSchema(t *testing.T) {
 	k, _, _ := signer(t)
 	product := orgLicense
 	product.Kind, product.Products = licenses.Product, map[string][]string{"designer": {"sync"}}
-	trial := licenses.License{Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
+	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
 	for _, l := range []licenses.License{orgLicense, product, trial} {
 		raw := sign(t, k, l)
 		if err := contracts.Validate("mankit/v1/license-file.schema.json", raw); err != nil {
 			t.Fatalf("%s file: %v\n%s", l.Kind, err, raw)
 		}
-		var f struct{ Payload []byte }
+		var f struct{ Spec struct{ Payload []byte } }
 		if err := json.Unmarshal(raw, &f); err != nil {
 			t.Fatal(err)
 		}
-		if err := contracts.Validate("mankit/v1/license-payload.schema.json", f.Payload); err != nil {
-			t.Fatalf("%s payload: %v\n%s", l.Kind, err, f.Payload)
+		if err := contracts.Validate("mankit/v1/license-payload.schema.json", f.Spec.Payload); err != nil {
+			t.Fatalf("%s payload: %v\n%s", l.Kind, err, f.Spec.Payload)
 		}
 	}
 }

@@ -91,7 +91,7 @@ func TestALicenseOpensWhatItNamesUntilItsLastDay(t *testing.T) {
 func TestATrialKeyOpensEveryEnterpriseFeature(t *testing.T) {
 	dir := org(t)
 	k, release, _ := signer(t)
-	trial := licenses.License{Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
+	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
 	put(t, filepath.Join(dir, "designer", "license"), sign(t, k, trial))
 	if got := on(t, list(checker(t, release, "2026-11-19"))); !slices.Equal(got, []string{"edit", "events", "sync"}) {
 		t.Fatalf("on = %v", got)

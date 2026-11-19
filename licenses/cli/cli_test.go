@@ -59,7 +59,7 @@ func newWorld(t *testing.T, today string) *world {
 func day(s string) time.Time { d, _ := time.Parse("2006-01-02", s); return d }
 
 func (w *world) sign(kind licenses.Kind, products map[string][]string, issued, until string) []byte {
-	raw, err := licenses.Sign(licenses.License{Kind: kind, For: "Acme Ltd", Products: products, Issued: day(issued), Until: day(until), KeyID: "prod-2026"}, w.keys)
+	raw, err := licenses.Sign(licenses.License{ID: "acme-2026", Kind: kind, For: "Acme Ltd", Products: products, Issued: day(issued), Until: day(until), KeyID: "prod-2026"}, w.keys)
 	if err != nil {
 		w.t.Fatal(err)
 	}

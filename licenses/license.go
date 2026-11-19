@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
@@ -30,10 +31,12 @@ const (
 	ReasonOtherBuild   = "other_build"
 	ReasonUnreadable   = "unreadable"
 	ReasonWrongPlace   = "wrong_place"
+	ReasonIDMismatch   = "id_mismatch"
 )
 
 // License is what a license file says, all of it signed; contracts mankit/v1 license-payload says what each field means, license-file the file around it.
 type License struct {
+	ID       string
 	Kind     Kind
 	For      string
 	Products map[string][]string
@@ -80,12 +83,26 @@ func (t Trust) check() error {
 
 // file is a license file on disk (contracts mankit/v1 license-file).
 type file struct {
-	Payload   []byte `json:"payload"`
-	Signature []byte `json:"signature"`
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Metadata   struct {
+		ID string `json:"id"`
+	} `json:"metadata"`
+	Spec struct {
+		Payload   []byte `json:"payload"`
+		Signature []byte `json:"signature"`
+	} `json:"spec"`
 }
+
+// The license file's form and kind (ADR-S15, contracts apiversion/v1 forms.yaml).
+const (
+	APIVersion = "elderlygate/mankit/license/v1"
+	FileKind   = "License"
+)
 
 // payload is what is signed.
 type payload struct {
+	ID       string              `json:"id"`
 	Kind     Kind                `json:"kind"`
 	For      string              `json:"for"`
 	Products map[string][]string `json:"products,omitempty"`
@@ -101,7 +118,7 @@ func Sign(l License, s Signer) ([]byte, error) {
 	if err := l.check(); err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(payload{Kind: l.Kind, For: l.For, Products: l.Products, Issued: l.Issued.UTC().Format(day), Until: l.Until.UTC().Format(day), KeyID: l.KeyID})
+	body, err := json.Marshal(payload{ID: l.ID, Kind: l.Kind, For: l.For, Products: l.Products, Issued: l.Issued.UTC().Format(day), Until: l.Until.UTC().Format(day), KeyID: l.KeyID})
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +129,9 @@ func Sign(l License, s Signer) ([]byte, error) {
 	if len(sig) != ed25519.SignatureSize {
 		return nil, fmt.Errorf("licenses: the key %s gave no Ed25519 signature", l.KeyID)
 	}
-	out, err := json.MarshalIndent(file{Payload: body, Signature: sig}, "", "  ")
+	f := file{APIVersion: APIVersion, Kind: FileKind}
+	f.Metadata.ID, f.Spec.Payload, f.Spec.Signature = l.ID, body, sig
+	out, err := json.MarshalIndent(f, "", "  ")
 	return append(out, '\n'), err
 }
 
@@ -122,26 +141,29 @@ func Verify(raw []byte, t Trust) (License, error) {
 		return License{}, err
 	}
 	var f file
-	if err := strict(raw, &f); err != nil || len(f.Payload) == 0 || len(f.Signature) == 0 {
+	if err := strict(raw, &f); err != nil || f.APIVersion != APIVersion || f.Kind != FileKind || len(f.Spec.Payload) == 0 || len(f.Spec.Signature) == 0 {
 		return License{}, refused(ReasonUnreadable, "it is not a license file")
 	}
 	var p payload
-	if err := strict(f.Payload, &p); err != nil {
+	if err := strict(f.Spec.Payload, &p); err != nil {
 		return License{}, refused(ReasonUnreadable, "its license cannot be read")
 	}
 	key, err := t.key(p.KeyID)
 	if err != nil {
 		return License{}, err
 	}
-	if !ed25519.Verify(key, f.Payload, f.Signature) {
+	if !ed25519.Verify(key, f.Spec.Payload, f.Spec.Signature) {
 		return License{}, refused(ReasonSignature, fmt.Sprintf("its signature does not match what it holds (key %s)", p.KeyID))
+	}
+	if f.Metadata.ID != p.ID {
+		return License{}, refused(ReasonIDMismatch, fmt.Sprintf("its id %q is not the signed id %q", f.Metadata.ID, p.ID))
 	}
 	issued, ierr := time.Parse(day, p.Issued)
 	until, uerr := time.Parse(day, p.Until)
 	if ierr != nil || uerr != nil {
 		return License{}, refused(ReasonUnreadable, "its days are not dates")
 	}
-	l := License{Kind: p.Kind, For: p.For, Products: p.Products, Issued: issued, Until: until, KeyID: p.KeyID}
+	l := License{ID: p.ID, Kind: p.Kind, For: p.For, Products: p.Products, Issued: issued, Until: until, KeyID: p.KeyID}
 	if err := l.check(); err != nil {
 		return License{}, refused(ReasonUnreadable, err.Error())
 	}
@@ -163,11 +185,13 @@ func (t Trust) key(id string) (ed25519.PublicKey, error) {
 	return nil, refused(ReasonUntrustedKey, fmt.Sprintf("it is signed with the key %q, which this build does not trust", id))
 }
 
-// check refuses a license no app takes: an unknown kind, nobody named, no key, a last day before its first, a trial that names features, or a license that names none.
+// check refuses a license no app takes: no id or one with a space, an unknown kind, nobody named, no key, a last day before its first, a trial that names features, or a license that names none.
 func (l License) check() error {
 	switch {
 	case l.Kind != Org && l.Kind != Product && l.Kind != Trial:
 		return fmt.Errorf("licenses: the kind %q is not %s, %s or %s", l.Kind, Org, Product, Trial)
+	case l.ID == "" || strings.ContainsFunc(l.ID, unicode.IsSpace):
+		return fmt.Errorf("licenses: its id %q is empty or holds a space", l.ID)
 	case strings.TrimSpace(l.For) == "":
 		return fmt.Errorf("licenses: it names nobody it is for")
 	case l.KeyID == "":
