@@ -28,13 +28,6 @@ func OldArgs(cmd *cobra.Command, words string, args ...string) *cobra.Command {
 	return Old(cmd, words+"\t"+strings.Join(args, " "))
 }
 
-// OldForm is one old form and the full form it runs, each as the words after the app's name; Args come first after the full form's words.
-type OldForm struct {
-	Words string   `json:"words"`
-	Now   string   `json:"now"`
-	Args  []string `json:"args,omitempty"`
-}
-
 // Full is the full form the old one runs, with its args.
 func (o OldForm) Full() string { return strings.Join(append([]string{o.Now}, o.Args...), " ") }
 
@@ -114,11 +107,13 @@ const oldNodeKey = "helpout.oldnode"
 
 func isOld(c *cobra.Command) bool { return c.Annotations[oldNodeKey] != "" }
 
-func child(c *cobra.Command, name string) *cobra.Command {
-	for _, sub := range c.Commands() {
-		if sub.Name() == name {
-			return sub
+// oldUnder are the old forms whose full form is at or under the command at path.
+func oldUnder(all []OldForm, path string) []OldForm {
+	out := []OldForm{}
+	for _, o := range all {
+		if o.Now == path || strings.HasPrefix(o.Now, path+" ") {
+			out = append(out, o)
 		}
 	}
-	return nil
+	return out
 }

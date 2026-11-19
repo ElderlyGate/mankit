@@ -80,6 +80,9 @@ func TestHelpAsJSONOfAThingIsThatThing(t *testing.T) {
 	if code != 0 || err != nil || json.Unmarshal([]byte(out), &got) != nil || len(got.Data.Commands) != 1 || got.Data.Commands[0].Name != "server" {
 		t.Errorf("code %d, err %v:\n%s", code, err, out)
 	}
+	if len(got.Data.Old) != 2 || got.Data.Old[0].Words != "servers" || got.Data.Old[1].Words != "servers stop" {
+		t.Errorf("old under server: %+v, want servers and servers stop only", got.Data.Old)
+	}
 }
 
 func TestHelpAsJSONWithNoAnswerIsRefusedAndHelpStaysTheLayout(t *testing.T) {
