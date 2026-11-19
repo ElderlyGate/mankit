@@ -490,6 +490,10 @@ decides by its type and reason as a reader of an answer does.
 - A foreground `serve` logs to stdout, every other command to stderr (the
   store's and the queue's notices are records there unless `store.App.Log`
   says otherwise), and a detached server to its file.
+- A person at a terminal reads each record as one plain line,
+  `designer: serving on 127.0.0.1:5174`, warnings and errors marked and a
+  Problem's detail after it; JSON lines go to anything else: a pipe, a file,
+  a container's log.
 - `logs.Open(path)` is a log file, this user's alone, rotated at 10 MB with
   the five before it kept as `<name>.1` (the newest) to `<name>.5` (G-STACK-8).
   Logs are the one thing an app writes outside the store (ADR-S22).

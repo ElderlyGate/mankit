@@ -9,9 +9,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
@@ -27,8 +30,9 @@ type Record struct {
 }
 
 // New is a logger writing records to w for the app id at version, at Info and above; more handlers, such as the telemetry feature's, get every record too.
+// A person at a terminal reads each record as one plain line, "<id>: <body>", with a Problem's detail after it; anything else, a pipe, a file or a container's log, gets the JSON lines.
 func New(w io.Writer, id, version string, more ...slog.Handler) *slog.Logger {
-	var h slog.Handler = &handler{out: &out{w: w}, level: slog.LevelInfo,
+	var h slog.Handler = &handler{out: &out{w: w}, level: slog.LevelInfo, human: terminal(w),
 		resource: map[string]string{"service.name": id, "service.version": version}}
 	if len(more) > 0 {
 		h = fan(append([]slog.Handler{h}, more...))
@@ -44,6 +48,7 @@ type out struct {
 
 type handler struct {
 	out      *out
+	human    bool // one plain line a record, for a person at a terminal
 	level    slog.Leveler
 	resource map[string]string
 	attrs    []slog.Attr
@@ -71,8 +76,11 @@ func (h *handler) Handle(_ context.Context, r slog.Record) error {
 	if len(attrs) > 0 {
 		rec.Attributes = attrs
 	}
-	line, err := json.Marshal(rec)
-	if err != nil {
+	var line []byte
+	var err error
+	if h.human {
+		line = []byte(plain(rec))
+	} else if line, err = json.Marshal(rec); err != nil {
 		return err
 	}
 	h.out.mu.Lock()
@@ -97,6 +105,31 @@ func (h *handler) WithGroup(name string) slog.Handler {
 	c := *h
 	c.group = strings.TrimPrefix(h.group+"."+name, ".")
 	return &c
+}
+
+// plain is rec as a person reads it: "<service>: <body>", warnings and errors marked, then the detail of each Problem it carries.
+func plain(rec Record) string {
+	var b strings.Builder
+	b.WriteString(rec.Resource["service.name"] + ": ")
+	switch rec.SeverityText {
+	case "WARN":
+		b.WriteString("warning: ")
+	case "ERROR":
+		b.WriteString("error: ")
+	}
+	b.WriteString(rec.Body)
+	for _, v := range rec.Attributes {
+		if p, ok := v.(problem.Problem); ok {
+			b.WriteString("; " + p.Detail)
+		}
+	}
+	return b.String()
+}
+
+// terminal says whether w is a terminal a person reads; a var only so a test can stand in for one.
+var terminal = func(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 // put adds a to attrs as OpenTelemetry keeps attributes: flat, a group's keys joined by dots; a Problem is its own shape, another error its text.

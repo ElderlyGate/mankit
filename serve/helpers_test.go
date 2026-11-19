@@ -322,14 +322,14 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// servingAt is the address a server's "serving" record names in out, its log lines, or "" before it says so.
+// servingAt is the address a server's "serving on" record names in out, its log lines, or "" before it says so.
 func servingAt(out string) string {
 	for _, line := range strings.Split(out, "\n") {
 		var r struct {
 			Body       string
 			Attributes map[string]any
 		}
-		if json.Unmarshal([]byte(line), &r) == nil && r.Body == "serving" {
+		if json.Unmarshal([]byte(line), &r) == nil && strings.HasPrefix(r.Body, "serving on ") {
 			u, _ := r.Attributes["url"].(string)
 			return strings.TrimPrefix(u, "http://")
 		}

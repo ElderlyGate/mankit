@@ -206,7 +206,7 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 		var forget sync.Once
 		drop := func() { forget.Do(func() { _ = a.removeRecord(dir, bound) }) }
 		defer drop()
-		log.Info("serving", "url", "http://"+bound, "detached", child, "stop", a.command()+" server stop "+bound)
+		log.Info("serving on "+bound, "url", "http://"+bound, "detached", child, "stop", a.command()+" server stop "+bound)
 		// The link carries the token, so it goes only to a person at a terminal, never into a log.
 		if w := cmd.OutOrStdout(); !child && terminal(w) {
 			token, err := a.readToken(dir)
@@ -216,7 +216,7 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 			}
 			fmt.Fprintf(w, "open: %s\npress ctrl-c to stop\n", pageLink(bound, token))
 		} else if !child {
-			log.Info("the page opens from its link", "link", a.command()+" server link "+bound)
+			log.Info("`"+a.command()+" server link "+bound+"` prints the link that opens the page", "link", a.command()+" server link "+bound)
 		}
 		return run(cmd.Context(), &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}, ln, drop)
 	}

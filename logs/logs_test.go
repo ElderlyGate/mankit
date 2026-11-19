@@ -164,3 +164,16 @@ func TestTelemetrySendsOnlyWhenOnWithItsEndpoint(t *testing.T) {
 	}
 	_ = stop(ctx)
 }
+
+// A person at a terminal reads one plain line a record, never JSON.
+func TestAtATerminalARecordIsOnePlainLine(t *testing.T) {
+	logs.AsTerminal(t)
+	var b bytes.Buffer
+	l := logs.New(&b, "designer", "9.0.0")
+	l.Info("serving on 127.0.0.1:5174", "url", "http://127.0.0.1:5174")
+	l.Warn("a feature is on but cannot run; the rest serves", "problem", problem.Fail(problem.TypeFailed, "feature_needs_values", "the feature hear needs HEAR_URL"))
+	want := "designer: serving on 127.0.0.1:5174\ndesigner: warning: a feature is on but cannot run; the rest serves; the feature hear needs HEAR_URL\n"
+	if b.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
