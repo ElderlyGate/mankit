@@ -44,8 +44,12 @@ func Open(path string) (*File, error) {
 	return l, l.open()
 }
 
+// openFile opens a log file; a var only so a test can make it fail.
+var openFile = os.OpenFile
+
+// open opens the file at its path; when it cannot, l.f stays nil and the next Write tries again.
 func (l *File) open() error {
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	f, err := openFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -66,6 +70,9 @@ func (l *File) TakeStd() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.std = true
+	if l.f == nil {
+		return l.open()
+	}
 	return toStd(l.f)
 }
 
@@ -80,10 +87,16 @@ func (l *File) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var rotated error
-	if l.size > 0 && l.size+int64(len(p)) > rotateAt {
+	if l.f != nil && l.size > 0 && l.size+int64(len(p)) > rotateAt {
 		if err := l.rotate(); err != nil {
 			// Written all the same, to the file as it is, so a rotation that fails loses no record.
 			rotated = fmt.Errorf("the log %s cannot be rotated: %w", l.path, err)
+		}
+	}
+	// A file a rotation could not open again is opened now, so a write never goes to a closed file.
+	if l.f == nil {
+		if err := l.open(); err != nil {
+			return 0, errors.Join(fmt.Errorf("the log %s cannot be opened: %w", l.path, err), rotated)
 		}
 	}
 	n, err := l.f.Write(p)
@@ -91,13 +104,15 @@ func (l *File) Write(p []byte) (int, error) {
 	return n, errors.Join(err, rotated)
 }
 
-// rotate moves each kept file one along, the oldest gone, and starts the file anew; when a move fails, the file is opened again as it is, so the log goes on.
+// rotate moves each kept file one along, the oldest gone, and starts the file anew; when a step fails, the file is opened again as it is, so the log goes on, and when that fails too, l.f is nil for Write to open.
 func (l *File) rotate() error {
-	if err := l.f.Close(); err != nil {
-		return err
+	closed := l.f.Close()
+	l.f = nil
+	var shifted error
+	if closed == nil {
+		shifted = l.shift()
 	}
-	err := l.shift()
-	return errors.Join(err, l.open())
+	return errors.Join(closed, shifted, l.open())
 }
 
 // shift moves each kept file one along and the file to <name>.1, the oldest gone.
@@ -117,5 +132,10 @@ func (l *File) shift() error {
 func (l *File) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.f.Close()
+	if l.f == nil {
+		return nil
+	}
+	err := l.f.Close()
+	l.f = nil
+	return err
 }
