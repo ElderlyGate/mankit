@@ -99,26 +99,26 @@ func fileName(addr string) string {
 
 func logName(addr string) string { return strings.TrimSuffix(fileName(addr), ".json") + ".log" }
 
-func (r record) save(dir string) error {
+func (a App) save(dir string, r record) error {
 	data, err := disk.JSON(r)
 	if err != nil {
 		return err
 	}
-	return serversChange(dir, "record "+r.Metadata.Addr, func(tx store.Tx) error {
+	return a.serversChange(dir, "record "+r.Metadata.Addr, func(tx store.Tx) error {
 		return tx.Put(serversKey(dir, fileName(r.Metadata.Addr)), data, store.Anything())
 	})
 }
 
 // removeRecord drops the record for addr; one already gone is not an error, as two commands tidying one dead server are both right.
-func removeRecord(dir, addr string) error {
-	return serversChange(dir, "forget "+addr, func(tx store.Tx) error {
+func (a App) removeRecord(dir, addr string) error {
+	return a.serversChange(dir, "forget "+addr, func(tx store.Tx) error {
 		return tx.Remove(serversKey(dir, fileName(addr)), store.Anything())
 	})
 }
 
 // serversChange runs fn in one change of the app's data folder, the folder dir is in, opened as an own folder of the store, so a record and the token go through the store like every write (ADR-S22).
-func serversChange(dir, what string, fn func(store.Tx) error) error {
-	s, err := store.Own(filepath.Dir(dir))
+func (a App) serversChange(dir, what string, fn func(store.Tx) error) error {
+	s, err := store.Own(store.App{ID: a.folder(), Command: a.command(), Version: a.Version}, filepath.Dir(dir))
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (a App) live(dir string) ([]status, error) {
 	for _, r := range all {
 		p := a.probe(r.Metadata.Addr, probeWait)
 		if p.refused {
-			_ = removeRecord(dir, r.Metadata.Addr)
+			_ = a.removeRecord(dir, r.Metadata.Addr)
 			continue
 		}
 		if p.version != "" {
@@ -276,7 +276,7 @@ func (a App) ensureToken(dir string) (string, error) {
 		return "", err
 	}
 	// Written once, never replaced: two servers starting at once both keep the one that landed first, as the other's is refused as changed.
-	err = serversChange(dir, "make the token", func(tx store.Tx) error {
+	err = a.serversChange(dir, "make the token", func(tx store.Tx) error {
 		return tx.Put(serversKey(dir, tokenName), []byte(token+"\n"), store.Absent())
 	})
 	var p *problem.Problem
@@ -301,7 +301,7 @@ func (a App) renewToken(dir string) (string, error) {
 		return "", err
 	}
 	// One renew at a time, each in the data folder's turn, so the token each prints is the one in the file when it prints it.
-	err = serversChange(dir, "renew the token", func(tx store.Tx) error {
+	err = a.serversChange(dir, "renew the token", func(tx store.Tx) error {
 		return tx.Put(serversKey(dir, tokenName), []byte(token+"\n"), store.Anything())
 	})
 	if err != nil {

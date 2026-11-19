@@ -48,6 +48,7 @@ func Load(path string) (map[Type]Style, error) {
 func Remember(path string, t Type) error { return Set(path, t, Never) }
 
 // Set writes style s for t into path's confirm: section, keeping every other key; an empty s removes t, so its default holds.
+// It goes through the store (store.EditFile): inside a change that holds the folder's turn, such as remembering an answer in an app's change of its config folder, it joins that change.
 func Set(path string, t Type, s Style) error {
 	if !ValidType(string(t)) {
 		return fmt.Errorf("%q is not a type of change", t)

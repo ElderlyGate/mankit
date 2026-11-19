@@ -328,7 +328,10 @@ func (s *Scope) Change(ctx context.Context, thing Key, what string, fn func(Tx) 
 				}
 			}
 			tx := &tx{s: s, t: t, thing: thing}
-			if err := fn(tx); err != nil {
+			done := holding(tx)
+			err := fn(tx)
+			done()
+			if err != nil {
 				return err
 			}
 			if len(tx.ops) == 0 {
@@ -415,6 +418,7 @@ type op struct {
 	from Key // what is moved
 	body []byte
 	want Want
+	exec bool // a file put that may be run, such as a script
 }
 
 // keys are what the op writes.
@@ -508,6 +512,15 @@ func (x *tx) list(prefix Key) ([]Key, error) {
 		return slices.Compare(strings.Split(string(a), "/"), strings.Split(string(b), "/"))
 	})
 	return out, nil
+}
+
+// PutExec is Put of a file that may be run, such as a script: it is written with the run bit wherever it may be read.
+func PutExec(in Tx, key Key, body []byte, want Want) error {
+	x, ok := in.(*tx)
+	if !ok {
+		return fmt.Errorf("store: PutExec takes the Tx a change hands its fn, not a %T", in)
+	}
+	return x.stage(op{kind: opPut, key: key, body: append([]byte{}, body...), want: want, exec: true})
 }
 
 func (x *tx) Put(key Key, body []byte, want Want) error {

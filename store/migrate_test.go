@@ -147,9 +147,9 @@ func TestCopyOnceCopiesAFolder(t *testing.T) {
 	if read(t, filepath.Join(dir, "old", "cache", "a")) != "1" {
 		t.Error("the old folder changed")
 	}
-	// Beside the copy is only the store's own .queue, where the copy took its turn.
-	if entries, _ := os.ReadDir(filepath.Join(dir, "new")); len(entries) != 2 {
-		t.Errorf("left %d entries beside the copy and .queue, want none", len(entries)-2)
+	// The copy took the turn of its own folder, so nothing is beside it.
+	if entries, _ := os.ReadDir(filepath.Join(dir, "new")); len(entries) != 1 {
+		t.Errorf("left %d entries beside the copy, want none", len(entries)-1)
 	}
 }
 
@@ -216,5 +216,57 @@ func TestCurrentReadsTheOldFileInPlaceUntilMigrateCopiedIt(t *testing.T) {
 	}
 	if got, _ := home.Current("gitman", "config.yaml"); got != path {
 		t.Fatalf("a deleted new file brings back the old one: %q", got)
+	}
+}
+
+// A copied file that may be run stays so (a sample's script, say).
+func TestCopyOnceKeepsTheRunBit(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old/run.sh": "#!/bin/sh\n", "old/data.yml": "a: 1\n"})
+	if err := os.Chmod(filepath.Join(dir, "old", "run.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(dir, "new", "sample")
+	if err := store.CopyOnce(filepath.Join(dir, "old"), to); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(filepath.Join(to, "run.sh")); info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("run.sh is %v, want it to run", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(filepath.Join(to, "data.yml")); info.Mode().Perm()&0o111 != 0 {
+		t.Errorf("data.yml is %v, want no run bit", info.Mode().Perm())
+	}
+	one := filepath.Join(dir, "one", "run.sh")
+	if err := store.CopyOnce(filepath.Join(dir, "old", "run.sh"), one); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(one); info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("a single file copied is %v, want it to run", info.Mode().Perm())
+	}
+}
+
+// A copy touches nothing beside its target: the folder it goes into and what is there keep their modes.
+func TestCopyOnceLeavesTheFolderAroundItAsItIs(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old/a.json": "{}", "data/other/keep.txt": "k"})
+	parent := filepath.Join(dir, "data")
+	for _, p := range []string{parent, filepath.Join(parent, "other")} {
+		if err := os.Chmod(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(parent, "other", "keep.txt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CopyOnce(filepath.Join(dir, "old"), filepath.Join(parent, "control-room")); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]os.FileMode{parent: 0o755, filepath.Join(parent, "other"): 0o755, filepath.Join(parent, "other", "keep.txt"): 0o644} {
+		if info, _ := os.Stat(p); info.Mode().Perm() != want {
+			t.Errorf("%s is %v, want %v as it was", p, info.Mode().Perm(), want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(parent, ".queue")); !os.IsNotExist(err) {
+		t.Error("a .queue was made beside the copy")
 	}
 }

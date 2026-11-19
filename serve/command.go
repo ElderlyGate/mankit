@@ -186,13 +186,13 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 			Metadata: recordMetadata{App: a.ID, Addr: bound, PID: os.Getpid()},
 			Spec:     recordSpec{Name: site.Name, Version: a.Version, StartedAt: time.Now().UTC(), Log: logPath, Detached: child},
 		}
-		if err := rec.save(dir); err != nil {
+		if err := a.save(dir, rec); err != nil {
 			ln.Close()
 			return err
 		}
 		// The record goes before the listener closes, so once its address refuses, the server writes nothing more: a server stop that saw it stop finds the record gone.
 		var forget sync.Once
-		drop := func() { forget.Do(func() { _ = removeRecord(dir, bound) }) }
+		drop := func() { forget.Do(func() { _ = a.removeRecord(dir, bound) }) }
 		defer drop()
 		w := cmd.OutOrStdout()
 		fmt.Fprintf(w, "%s serving on http://%s\n", a.command(), bound)

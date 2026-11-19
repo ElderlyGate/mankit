@@ -25,7 +25,7 @@ func TestAServersFolderThatIsALinkIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := record{APIVersion: recordAPIVersion(), Kind: recordKind, Metadata: recordMetadata{App: "designer", Addr: "127.0.0.1:7799", PID: 1}}
-	if err := r.save(dir); !outside(err) {
+	if err := (App{ID: "designer"}).save(dir, r); !outside(err) {
 		t.Errorf("save: err = %v, want the store's outside", err)
 	}
 	if _, err := (App{ID: "designer"}).renewToken(dir); !outside(err) {

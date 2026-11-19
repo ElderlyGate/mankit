@@ -125,7 +125,7 @@ func Migrate(path string) (string, error) {
 
 // ownChange runs fn in one change of dir opened as an own folder (store.Own).
 func ownChange(dir, what string, fn func(store.Tx) error) error {
-	s, err := store.Own(dir)
+	s, err := store.Own(store.App{ID: filepath.Base(dir)}, dir)
 	if err != nil {
 		return err
 	}
