@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/internal/encode"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/store"
 )
@@ -100,7 +100,7 @@ func fileName(addr string) string {
 func logName(addr string) string { return strings.TrimSuffix(fileName(addr), ".json") + ".log" }
 
 func (r record) save(dir string) error {
-	data, err := disk.JSON(r)
+	data, err := encode.JSON(r)
 	if err != nil {
 		return err
 	}

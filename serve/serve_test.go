@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/serve"
 )
@@ -58,9 +59,7 @@ func TestServeInTheForegroundLeavesARecordUntilItStops(t *testing.T) {
 	var addr string
 	for addr == "" && ctx.Err() == nil {
 		time.Sleep(20 * time.Millisecond)
-		if line, ok := strings.CutPrefix(out.String(), "e-designer serving on http://"); ok {
-			addr, _, _ = strings.Cut(line, "\n")
-		}
+		addr = servingAt(out.String())
 	}
 	if strings.Contains(out.String(), token) || strings.Contains(out.String(), "?token=") {
 		t.Fatalf("the link went to a stream that is not a terminal: %q", out.String())
@@ -106,15 +105,24 @@ func TestServeLogsEachBrokenFeatureAtStartAndServes(t *testing.T) {
 	r.SetArgs([]string{"serve"})
 	done := make(chan error, 1)
 	go func() { done <- r.ExecuteContext(ctx) }()
-	for !strings.Contains(out.String(), "serving on") && ctx.Err() == nil {
+	for servingAt(out.String()) == "" && ctx.Err() == nil {
 		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if want := "e-designer: the feature hear needs values that are not set: HEAR_URL (where changes go); the rest serves\n"; !strings.HasPrefix(out.String(), want) {
-		t.Fatalf("output %q, want it to start with %q", out.String(), want)
+	first, _, _ := strings.Cut(out.String(), "\n")
+	var rec struct {
+		SeverityText string
+		Attributes   struct{ Problem problem.Problem }
+	}
+	if err := json.Unmarshal([]byte(first), &rec); err != nil || rec.SeverityText != "WARN" || rec.Attributes.Problem.Reason != features.ReasonNeedsValues ||
+		!strings.Contains(rec.Attributes.Problem.Detail, "HEAR_URL (where changes go)") {
+		t.Fatalf("the first record %q, want a WARN with the feature_needs_values Problem", first)
+	}
+	if err := contracts.Validate("problem/v1/problem.schema.json", mustJSON(t, rec.Attributes.Problem)); err != nil {
+		t.Fatalf("the logged Problem is not problem/v1: %v", err)
 	}
 }
 
@@ -141,9 +149,7 @@ func TestServeEndsALongAnswerWhenItStops(t *testing.T) {
 	var addr string
 	for addr == "" && ctx.Err() == nil {
 		time.Sleep(20 * time.Millisecond)
-		if line, ok := strings.CutPrefix(out.String(), "e-designer serving on http://"); ok {
-			addr, _, _ = strings.Cut(line, "\n")
-		}
+		addr = servingAt(out.String())
 	}
 	link, err := url.Parse(answer(t, "", "server", "link", addr).Data.(map[string]any)["url"].(string))
 	if err != nil {
@@ -336,5 +342,40 @@ func TestServeHelpNamesItsFlags(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("serve --help has no %s:\n%s", want, out)
 		}
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// A detached server logs to its file in the app's logs folder (G-STACK-8), records in OpenTelemetry's log shape, and its record names the file.
+func TestADetachedServerLogsToItsFileInTheLogsFolder(t *testing.T) {
+	machine(t)
+	rec := detached(t)
+	path, _ := rec["spec"].(map[string]any)["log"].(string)
+	folder, err := home.ProductLogs("designer")
+	if err != nil || filepath.Dir(path) != folder {
+		t.Fatalf("the record's log %q is not in the logs folder %q (%v)", path, folder, err)
+	}
+	var raw []byte
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if raw, _ = os.ReadFile(path); servingAt(string(raw)) != "" {
+			break
+		}
+	}
+	if got := servingAt(string(raw)); got != addrOf(rec) {
+		t.Fatalf("the log says serving at %q, want %q:\n%s", got, addrOf(rec), raw)
+	}
+	if strings.Contains(string(raw), "token=") {
+		t.Fatalf("the log holds the link:\n%s", raw)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("the log's mode: %v, %v", info, err)
 	}
 }

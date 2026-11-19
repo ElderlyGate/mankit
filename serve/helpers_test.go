@@ -166,6 +166,9 @@ func machine(t *testing.T) string {
 	t.Helper()
 	data := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", data)
+	// The logs folder too, under ~/Library/Logs on macOS (G-STACK-8).
+	t.Setenv("XDG_STATE_HOME", filepath.Join(data, "state"))
+	t.Setenv("HOME", filepath.Join(data, "home"))
 	t.Setenv("SERVE_TEST_CHILD", "1")
 	return filepath.Join(data, home.Org, "designer", "servers")
 }
@@ -317,4 +320,19 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
+}
+
+// servingAt is the address a server's "serving" record names in out, its log lines, or "" before it says so.
+func servingAt(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		var r struct {
+			Body       string
+			Attributes map[string]any
+		}
+		if json.Unmarshal([]byte(line), &r) == nil && r.Body == "serving" {
+			u, _ := r.Attributes["url"].(string)
+			return strings.TrimPrefix(u, "http://")
+		}
+	}
+	return ""
 }

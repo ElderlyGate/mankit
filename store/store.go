@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"maps"
 	"os"
 	"path"
@@ -20,8 +21,9 @@ import (
 
 	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/logs"
 	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
 	"github.com/tugbayatilla/mankit/v4/store/internal/queue"
 )
 
@@ -197,7 +199,7 @@ type App struct {
 	Features *features.List // nil has no feature: files
 	Wait     time.Duration  // how long a change waits for its turn; zero is queue.DefaultWait
 	Limit    time.Duration  // how long a change may hold its turn; zero is queue.DefaultLimit
-	Log      io.Writer      // where the queue says a ticket set aside; nil is stderr
+	Log      io.Writer      // where the store and its queue say what they did, such as a ticket set aside; nil is stderr, as log records (G-STACK-8)
 }
 
 // Scope is one folder an app keeps things in, opened once: the folder it serves, or its own config or data folder (G-STACK-8).
@@ -351,11 +353,12 @@ func (s *Scope) Change(ctx context.Context, thing Key, what string, fn func(Tx) 
 	}
 }
 
+// logOf is where the store says what it did: App.Log, else stderr as log records (G-STACK-8), as every command but a server logs.
 func logOf(app App) io.Writer {
 	if app.Log != nil {
 		return app.Log
 	}
-	return os.Stderr
+	return logs.Writer(logs.New(os.Stderr, app.ID, app.Version), slog.LevelWarn)
 }
 
 // Unfinished is every change cut short whose mark is in thing's turn, or the folder's own when thing is empty: whose it is and what it holds back; and this user's journals of the scope whose marks are gone (Left).
@@ -695,5 +698,5 @@ func hostname() string {
 
 // queueFor is the change queue of one line, as this app waits in it.
 func (s *Scope) queueFor(line string) queue.Queue {
-	return queue.Queue{Folder: line, App: s.app.ID, Version: s.app.Version, Wait: s.app.Wait, Limit: s.app.Limit, Log: s.app.Log}
+	return queue.Queue{Folder: line, App: s.app.ID, Version: s.app.Version, Wait: s.app.Wait, Limit: s.app.Limit, Log: logOf(s.app)}
 }

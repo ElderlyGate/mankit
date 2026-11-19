@@ -1,9 +1,10 @@
-// Package home is where the org's apps keep their files: one config folder and one data folder for the org, and a folder per product in each.
+// Package home is where the org's apps keep their files: one config folder, one data folder and one logs folder for the org, and a folder per product in each.
 package home
 
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Org is the name of the org's folders, written only here so a rename changes one line.
@@ -14,6 +15,21 @@ func Dir() (string, error) { return base("XDG_CONFIG_HOME", ".config") }
 
 // Data is the data folder: $XDG_DATA_HOME/<Org>, else ~/.local/share/<Org>, the same on Linux and macOS.
 func Data() (string, error) { return base("XDG_DATA_HOME", filepath.Join(".local", "share")) }
+
+// Logs is the logs folder (G-STACK-8): $XDG_STATE_HOME/<Org>, else ~/.local/state/<Org> on Linux, and ~/Library/Logs/<Org> on macOS.
+func Logs() (string, error) {
+	if runtime.GOOS == "darwin" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(h, "Library", "Logs", Org), nil
+	}
+	return base("XDG_STATE_HOME", filepath.Join(".local", "state"))
+}
+
+// ProductLogs is <Logs>/<id>, the logs folder of the product with that ID.
+func ProductLogs(id string) (string, error) { return under(Logs, id) }
 
 // Product is <Dir>/<id>, the config folder of the product with that ID.
 func Product(id string) (string, error) { return under(Dir, id) }

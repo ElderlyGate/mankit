@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -25,7 +26,7 @@ import (
 	"github.com/tugbayatilla/mankit/v4/ask"
 	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/logs"
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
@@ -162,13 +163,6 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 		if err != nil {
 			return err
 		}
-		handler, err := a.Handler(site, hosts)
-		if err != nil {
-			return err
-		}
-		if err := a.logBroken(cmd.ErrOrStderr(), site.Features); err != nil {
-			return err
-		}
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			return fmt.Errorf("cannot listen on %s: %w", addr, err)
@@ -176,9 +170,27 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 		bound := ln.Addr().String()
 		if child && logPath != "" {
 			// The log was named for the address asked for; port 0 binds another, and the log follows the address bound.
-			if named := filepath.Join(filepath.Dir(logPath), logName(bound)); named != logPath && disk.Rename(logPath, named) == nil {
+			if named := filepath.Join(filepath.Dir(logPath), logName(bound)); named != logPath && os.Rename(logPath, named) == nil {
 				logPath = named
 			}
+		}
+		log, closeLog, err := a.logger(cmd, site, child, logPath)
+		if err != nil {
+			ln.Close()
+			return err
+		}
+		defer closeLog()
+		if site.Log == nil {
+			site.Log = logs.Writer(log, slog.LevelError)
+		}
+		handler, err := a.Handler(site, hosts)
+		if err != nil {
+			ln.Close()
+			return err
+		}
+		if err := a.logBroken(log, site.Features); err != nil {
+			ln.Close()
+			return err
 		}
 		// Every server leaves a record, in the foreground too (ADR-S12); a crash leaves it behind, which is why nothing believes one without asking its address.
 		rec := record{
@@ -194,21 +206,17 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 		var forget sync.Once
 		drop := func() { forget.Do(func() { _ = removeRecord(dir, bound) }) }
 		defer drop()
-		w := cmd.OutOrStdout()
-		fmt.Fprintf(w, "%s serving on http://%s\n", a.command(), bound)
-		switch {
-		case child:
-			fmt.Fprintf(w, "detached; `%s server stop %s` stops it\n", a.command(), bound)
-		case terminal(w):
+		log.Info("serving", "url", "http://"+bound, "detached", child, "stop", a.command()+" server stop "+bound)
+		// The link carries the token, so it goes only to a person at a terminal, never into a log.
+		if w := cmd.OutOrStdout(); !child && terminal(w) {
 			token, err := a.readToken(dir)
 			if err != nil {
 				ln.Close()
 				return err
 			}
 			fmt.Fprintf(w, "open: %s\npress ctrl-c to stop\n", pageLink(bound, token))
-		default:
-			// A running server's output may be its log, so the link goes there only when it is a terminal.
-			fmt.Fprintf(w, "`%s server link %s` prints the link that opens it\n", a.command(), bound)
+		} else if !child {
+			log.Info("the page opens from its link", "link", a.command()+" server link "+bound)
 		}
 		return run(cmd.Context(), &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}, ln, drop)
 	}
@@ -219,8 +227,8 @@ lists the detached servers and ` + "`server stop`" + ` stops one.`,
 	return c
 }
 
-// logBroken says at start, one line each, which features are on but miss values, so the owner sees why they answer feature_needs_values.
-func (a App) logBroken(w io.Writer, list *features.List) error {
+// logBroken says at start, one record each, which features are on but miss values, so the owner sees why they answer feature_needs_values.
+func (a App) logBroken(log *slog.Logger, list *features.List) error {
 	if list == nil {
 		return nil
 	}
@@ -229,9 +237,41 @@ func (a App) logBroken(w io.Writer, list *features.List) error {
 		return err
 	}
 	for _, s := range broken {
-		fmt.Fprintf(w, "%s: %v; the rest serves\n", a.command(), &features.NeedsValues{ID: s.ID, Missing: s.Missing})
+		missing := &features.NeedsValues{ID: s.ID, Missing: s.Missing}
+		log.Warn("a feature is on but cannot run; the rest serves", "problem", problem.Fail(problem.TypeFailed, features.ReasonNeedsValues, missing.Error()))
 	}
 	return nil
+}
+
+// logger is where a server logs (G-STACK-8): its file in the logs folder when detached, else stdout; with the telemetry feature on, every record is also sent over OTLP (ADR-E5). close flushes and closes both.
+func (a App) logger(cmd *cobra.Command, site Site, child bool, logPath string) (*slog.Logger, func(), error) {
+	var w io.Writer = cmd.OutOrStdout()
+	var file *logs.File
+	if child && logPath != "" {
+		f, err := logs.Open(logPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cannot open the log %s: %w", logPath, err)
+		}
+		file, w = f, f
+	}
+	ctx := context.Background()
+	exp, stop, err := logs.Export(ctx, site.Features, a.ID, a.Version)
+	if err != nil {
+		if file != nil {
+			file.Close()
+		}
+		return nil, nil, err
+	}
+	var more []slog.Handler
+	if exp != nil {
+		more = append(more, exp)
+	}
+	return logs.New(w, a.ID, a.Version, more...), func() {
+		_ = stop(ctx)
+		if file != nil {
+			file.Close()
+		}
+	}, nil
 }
 
 // run serves on ln until ctx ends or a signal comes, then runs before and shuts down gracefully so no write is cut off.
@@ -276,7 +316,11 @@ func (a App) detach(cmd *cobra.Command, out *printing, dir, addr string) error {
 	if err != nil {
 		return err
 	}
-	rec, err := spawn(exe, childArgs(cmd), wd, dir, addr)
+	logPath, err := logs.Path(a.folder(), logName(addr))
+	if err != nil {
+		return err
+	}
+	rec, err := spawn(exe, childArgs(cmd), wd, dir, logPath)
 	if err != nil {
 		return err
 	}
