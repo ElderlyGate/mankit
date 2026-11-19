@@ -80,17 +80,18 @@ type mark struct {
 }
 
 // Unfinished is a change cut short that waits to be put back: whose it is, where its journal is, and the keys it holds back.
+// Its JSON is contracts mankit/v1 storeUnfinishedChange, which <app> store unfinished answers with.
 type Unfinished struct {
-	ID      string
-	User    string
-	Host    string
-	Journal string
-	Folder  bool
-	Keys    []Key
+	ID      string `json:"id"`
+	User    string `json:"user"`
+	Host    string `json:"host"`
+	Journal string `json:"journal"`
+	Folder  bool   `json:"folder,omitempty"`
+	Keys    []Key  `json:"keys"`
 	// File is the journal on this machine when it is this user's and still there, for a person to look at before clearing.
-	File string
+	File string `json:"file,omitempty"`
 	// Left is a journal of this user's whose marks are gone, cleared or lost: it puts nothing back by itself and is kept, as the only copy of what was there.
-	Left bool
+	Left bool `json:"left,omitempty"`
 }
 
 func (m mark) unfinished() Unfinished {

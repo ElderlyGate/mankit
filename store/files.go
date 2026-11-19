@@ -889,7 +889,7 @@ func (f *files) blocked(t *turns, key Key) error {
 
 // refuse is unfinished_change, naming who must run again, where, and the command that clears the mark (contracts store-unfinished).
 func (f *files) refuse(m mark, what string) error {
-	app, thing := f.s.app.ID, m.Spec.Keys[0].thing()
+	app, thing := f.s.app.command(), m.Spec.Keys[0].thing()
 	p := fail(serve.TypeRefused, ReasonUnfinished, string(m.Spec.Keys[0]), fmt.Sprintf(
 		"%s is not changed: a change %s made on %s was cut short and waits to be put back; %s's next run of %s on %s puts it back, and once sure it was put back or given up, `%s store unfinished clear %s` clears it",
 		what, m.Spec.User, m.Spec.Host, m.Spec.User, app, m.Spec.Host, app, thing))
@@ -1155,17 +1155,18 @@ func (f *files) leftJournals(thing Key) ([]Unfinished, error) {
 	return out, nil
 }
 
-func (f *files) clear(ctx context.Context, thing Key) ([]Unfinished, error) {
+func (f *files) clear(ctx context.Context, thing Key, ids []string) ([]Unfinished, error) {
 	marks, err := marksIn(f.s.queueFor(f.s.line(thing)).Dir())
 	if err != nil {
 		return nil, err
 	}
 	out := []Unfinished{}
 	for _, m := range marks {
-		if thing != "" && !slices.ContainsFunc(m.Spec.Keys, func(k Key) bool { return k.thing() == thing }) {
+		if thing != "" && !slices.ContainsFunc(m.Spec.Keys, func(k Key) bool { return k.thing() == thing }) || ids != nil && !slices.Contains(ids, m.Metadata.ID) {
 			continue
 		}
 		t := f.s.turns(ctx, "clear a change cut short")
+		dropped := false
 		err := func() error {
 			if err := t.take(""); err != nil {
 				return err
@@ -1175,12 +1176,19 @@ func (f *files) clear(ctx context.Context, thing Key) ([]Unfinished, error) {
 					return err
 				}
 			}
+			// Read before the turns were taken: a mark its user's run put back, or another person cleared, meanwhile is gone and not counted.
+			if !f.markThere(m) {
+				return nil
+			}
+			dropped = true
 			return f.dropMarks(m)
 		}()
 		if err := t.give(err); err != nil {
 			return out, err
 		}
-		out = append(out, f.withFile(m.unfinished()))
+		if dropped {
+			out = append(out, f.withFile(m.unfinished()))
+		}
 	}
 	return out, nil
 }

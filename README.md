@@ -723,7 +723,27 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   `unfinished_change`, naming the user, the machine and `<app> store unfinished
   clear <thing>`; `Unfinished` lists the marks, with this user's journal file,
   and this user's journals whose marks are gone (`Left`), and `Clear` removes
-  marks, for that command, which asks first.
+  marks, for that command, which asks first (`Clear` is deprecated for `ClearShown`, which removes only the marks a person was shown).
+- `store.UnfinishedCommand(app, open)` is that command, which each app with a
+  store scope mounts under its own `store`, as it does `config queue` under
+  `config`, and `store.UnfinishedRoutes(open)` serves it: the app adds them to
+  its `Site.Routes`. `store unfinished list [<thing>]` and `GET
+  /api/store/unfinished[?thing=]` show every user's marks in the scope `open`
+  opens (the folder's own turn, every thing's, and those the folder's marks and
+  this user's journals name; a mark only in the turn of a thing that is gone
+  shows with `list <thing>`, as the refusal names the thing), with this
+  user's journal file, and this user's left journals (contracts mankit/v1
+  `StoreUnfinishedList`). `store unfinished clear <thing>` shows each change
+  holding the thing (user, machine, mark, journal, keys and, for this user's
+  journal, what each write was to do, or that the journal cannot be read) and
+  asks for the thing's name, a change to the system itself whatever the app's
+  config says for `delete` (G-STACK-6): refused without `--yes` when there is
+  no terminal. `DELETE /api/store/unfinished/<thing>?id=<mark>…` is serve's
+  change door for the same, asked first in the same way. Both remove only the
+  marks shown that still hold the thing once their turns are taken
+  (`Scope.ClearShown`): nothing is put back, the journal stays
+  (`StoreUnfinishedCleared`), and none left to remove is `not_found`. The
+  refusal and the command name the app's CLI as `App.Command`, else its ID.
 - A machine is known by its host name, so a product's container needs a fixed
   `--hostname` (such as `<product>-<project>`): a container made anew under
   another name would never find its own journals to put back.

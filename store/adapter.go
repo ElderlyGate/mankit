@@ -21,7 +21,8 @@ type adapter interface {
 	// commit makes ops all or nothing inside the turns held, and reads them back.
 	commit(t *turns, ops []op) error
 	unfinished(thing Key) ([]Unfinished, error)
-	clear(ctx context.Context, thing Key) ([]Unfinished, error)
+	// clear removes the marks in thing's turn still there once their turns are taken, only those of ids unless ids is nil.
+	clear(ctx context.Context, thing Key, ids []string) ([]Unfinished, error)
 	close() error
 }
 
