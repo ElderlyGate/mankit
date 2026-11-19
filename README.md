@@ -695,7 +695,8 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   There is no separate lock.
 - `fn` stages `Put`, `Remove` and `Move`; nothing is written unless it returns
   nil. `Tx.Get` reads the change as it stands: what was there, with what `fn`
-  has staged on top. Each write's `Want` is checked as it is staged, against
+  has staged on top; `store.ListIn(tx, prefix)` lists it the same way, in the
+  order `List` gives. Each write's `Want` is checked as it is staged, against
   that, and again at commit against the disk, for a writer outside the store;
   either refuses with `changed`. `fn` must not call `Change` on the same scope:
   it would wait for ever for the turn its own change holds.

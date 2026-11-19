@@ -41,6 +41,7 @@ func Run(t *testing.T, h Harness) {
 		{"changes from many processes at once are all kept", race},
 		{"the revision moves with a change and not with a read", revision},
 		{"list names every thing inside a prefix", list},
+		{"a list inside a change sees its own writes", listIn},
 		{"a change stopped dead after any write is put back by the next", crashes},
 	}
 	for _, tc := range tests {
@@ -347,6 +348,62 @@ func list(t *testing.T, h Harness) {
 		t.Fatalf("List(other.yml) = %v, %v", got, err)
 	}
 }
+
+func listIn(t *testing.T, h Harness) {
+	s := h.New(t)()
+	seed(t, s, map[string]string{"shop/a.yml": "a", "shop/f/b.yml": "b", "shop/gone.yml": "g", "away/c.yml": "c", "other.yml": "o"})
+	var inside, whole, file, none []store.Key
+	err := s.Change(ctx, "", "list in a change", func(tx store.Tx) error {
+		steps := []error{
+			tx.Put(key(t, "shop/a-new.yml"), []byte("n"), store.Absent()),
+			tx.Remove(key(t, "shop/gone.yml"), store.Anything()),
+			tx.Move(key(t, "shop/f"), key(t, "shop/g"), store.Anything()),
+			tx.Move(key(t, "away"), key(t, "shop/away"), store.Anything()),
+			tx.Move(key(t, "shop/away/c.yml"), key(t, "shop/c.yml"), store.Anything()),
+		}
+		if err := errors.Join(steps...); err != nil {
+			return err
+		}
+		var err error
+		if inside, err = store.ListIn(tx, key(t, "shop")); err != nil {
+			return err
+		}
+		if whole, err = store.ListIn(tx, ""); err != nil {
+			return err
+		}
+		if file, err = store.ListIn(tx, key(t, "shop/a-new.yml")); err != nil {
+			return err
+		}
+		if none, err = store.ListIn(tx, key(t, "away")); err != nil {
+			return err
+		}
+		_, err = store.ListIn(tx, store.Key("../x"))
+		wantReason(t, err, store.ReasonOutside)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(inside) != "[shop/a-new.yml shop/a.yml shop/c.yml shop/g/b.yml]" {
+		t.Fatalf("ListIn(shop) = %v", inside)
+	}
+	if fmt.Sprint(whole) != "[other.yml shop/a-new.yml shop/a.yml shop/c.yml shop/g/b.yml]" {
+		t.Fatalf("ListIn() = %v", whole)
+	}
+	if fmt.Sprint(file) != "[shop/a-new.yml]" || none == nil || len(none) != 0 {
+		t.Fatalf("ListIn(shop/a-new.yml) = %v, ListIn(away) = %v", file, none)
+	}
+	// Once made, the scope lists what the change listed.
+	if got, err := s.List(""); err != nil || fmt.Sprint(got) != fmt.Sprint(whole) {
+		t.Fatalf("List() after = %v, %v; the change listed %v", got, err, whole)
+	}
+	if _, err := store.ListIn(tx{}, ""); err == nil {
+		t.Fatal("ListIn of a Tx no change handed out gave no error")
+	}
+}
+
+// tx is a Tx no change handed out.
+type tx struct{ store.Tx }
 
 // crashCase is one change the crash test stops after each of its writes in turn.
 type crashCase struct {
