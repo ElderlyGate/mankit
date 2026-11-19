@@ -45,6 +45,7 @@ type world struct {
 	keys  keys
 	trust licenses.Trust
 	today string
+	asked string // what the last question said
 }
 
 func newWorld(t *testing.T, today string) *world {
@@ -86,6 +87,7 @@ func (w *world) run(words ...string) (string, error) {
 	list := features.New(all, store, c.Closer(all))
 	app := serve.App{ID: "designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 	asked := func(cc *cobra.Command, a ask.Action) error {
+		w.asked = a.What
 		if f := cc.Flags().Lookup("yes"); f == nil || f.Value.String() != "true" {
 			return ask.ErrRefused
 		}
@@ -213,5 +215,21 @@ func TestAddRefusesWhatItCannotTakeNamingTheFile(t *testing.T) {
 		if !errors.As(err, &p) || p.Reason != want || len(p.At) != 1 || p.At[0].File != words {
 			t.Fatalf("%s: err = %v, want %s at the file", words, err, want)
 		}
+	}
+}
+
+// Adding a trial key where the product license is says it replaces that license before it asks (G-STACK-13).
+func TestAddNamesTheLicenseItReplaces(t *testing.T) {
+	w := newWorld(t, "2026-11-19")
+	w.put("designer/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", "2027-03-01"))
+	file := filepath.Join(t.TempDir(), "trial.license")
+	if err := os.WriteFile(file, w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.run("add", file, "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(w.asked, "replacing the product license for Acme Ltd until 2027-03-01") {
+		t.Fatalf("asked %q", w.asked)
 	}
 }
