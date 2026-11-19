@@ -140,12 +140,22 @@ func Verify(raw []byte, t Trust) (License, error) {
 	if err := t.check(); err != nil {
 		return License{}, err
 	}
+	// The spec and the payload take fields a newer nw-license adds, as one org license serves several app versions (ADR-S15, CT-RULE-4).
 	var f file
-	if err := strict(raw, &f); err != nil || f.APIVersion != APIVersion || f.Kind != FileKind || len(f.Spec.Payload) == 0 || len(f.Spec.Signature) == 0 {
+	var head struct {
+		APIVersion string `json:"apiVersion"`
+		Kind       string `json:"kind"`
+		Metadata   struct {
+			ID string `json:"id"`
+		} `json:"metadata"`
+		Spec json.RawMessage `json:"spec"`
+	}
+	if err := decode(raw, &head, true); err != nil || head.APIVersion != APIVersion || head.Kind != FileKind || decode(head.Spec, &f.Spec, false) != nil || len(f.Spec.Payload) == 0 || len(f.Spec.Signature) == 0 {
 		return License{}, refused(ReasonUnreadable, "it is not a license file")
 	}
+	f.Metadata.ID = head.Metadata.ID
 	var p payload
-	if err := strict(f.Spec.Payload, &p); err != nil {
+	if err := decode(f.Spec.Payload, &p, false); err != nil {
 		return License{}, refused(ReasonUnreadable, "its license cannot be read")
 	}
 	key, err := t.key(p.KeyID)
@@ -213,10 +223,12 @@ func (l License) check() error {
 	return nil
 }
 
-// strict decodes raw into v, refusing a field v does not have and anything after it.
-func strict(raw []byte, v any) error {
+// decode decodes raw into v, refusing anything after it, and a field v does not have when closed.
+func decode(raw []byte, v any, closed bool) error {
 	d := json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
+	if closed {
+		d.DisallowUnknownFields()
+	}
 	if err := d.Decode(v); err != nil {
 		return err
 	}
