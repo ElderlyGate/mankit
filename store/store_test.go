@@ -213,17 +213,48 @@ func TestTheOwnScopesArePrivateAndServedFilesKeepTheirMode(t *testing.T) {
 	}
 }
 
-func TestAnOwnFolderOthersCanReadIsNotUsed(t *testing.T) {
+func TestThisUsersOwnFolderOpenToOthersIsMadePrivateAndSaidSo(t *testing.T) {
 	dir := fresh(t)
 	data := filepath.Join(dir, "data", "elderlygate", app.ID)
-	if err := os.MkdirAll(data, 0o755); err != nil {
+	write(t, filepath.Join(data, "config.yaml"), "a: 1\n")
+	write(t, filepath.Join(data, "runs", "one.json"), "{}")
+	for p, mode := range map[string]fs.FileMode{data: 0o755, filepath.Join(data, "runs"): 0o755, filepath.Join(data, "config.yaml"): 0o644, filepath.Join(data, "runs", "one.json"): 0o664} {
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var said bytes.Buffer
+	a := app
+	a.Log = &said
+	s, err := store.Data(a)
+	if err != nil {
+		t.Fatalf("Data over this user's own folder open to others = %v, want it made private", err)
+	}
+	s.Close()
+	for p, want := range map[string]fs.FileMode{data: 0o700, filepath.Join(data, "runs"): 0o700, filepath.Join(data, "config.yaml"): 0o600, filepath.Join(data, "runs", "one.json"): 0o600} {
+		if info, err := os.Stat(p); err != nil || info.Mode().Perm() != want {
+			t.Errorf("%s: %v %v, want %v", p, info.Mode().Perm(), err, want)
+		}
+		if !strings.Contains(said.String(), p+" was open to other users") {
+			t.Errorf("not said for %s: %q", p, said.String())
+		}
+	}
+}
+
+func TestAnOwnFolderThatIsALinkIsNotUsed(t *testing.T) {
+	dir := fresh(t)
+	elsewhere := filepath.Join(dir, "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(data, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "data", "elderlygate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(dir, "data", "elderlygate", app.ID)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Data(app); reason(err) != store.ReasonNotOwned {
-		t.Fatalf("Data over a folder others read = %v, want not_owned", err)
+		t.Fatalf("Data over a link = %v, want not_owned", err)
 	}
 }
 
@@ -457,6 +488,288 @@ func TestAProcessKilledHalfWayIsPutBack(t *testing.T) {
 	}
 	if item, _, _ := s.Get(key(t, "shop/a.yml")); string(item.Body) != "a" {
 		t.Fatalf("shop/a.yml holds %q", item.Body)
+	}
+}
+
+func TestAFolderHoldingANameNoKeyCanHoldIsNotRemoved(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	if err := put(t, s, "shop/a.yml", "a"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "served", "shop", "f", "x\\y.yml"), "odd")
+	err := s.Change(ctx, "shop", "two", func(tx store.Tx) error {
+		if err := tx.Put(key(t, "shop/a.yml"), []byte("changed"), store.Anything()); err != nil {
+			return err
+		}
+		return tx.Remove(key(t, "shop/f"), store.Anything())
+	})
+	if reason(err) != store.ReasonOutside {
+		t.Fatalf("removing a folder holding x\\y.yml = %v, want outside", err)
+	}
+	if item, _, _ := s.Get(key(t, "shop/a.yml")); string(item.Body) != "a" {
+		t.Fatalf("shop/a.yml holds %q after the refused change", item.Body)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "served", "shop", "f", "x\\y.yml")); err != nil {
+		t.Fatalf("the odd file went: %v", err)
+	}
+}
+
+func TestTemporaryFilesACrashLeftDoNotStopPuttingBack(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	if err := put(t, s, "shop/a.yml", "a"); err != nil {
+		t.Fatal(err)
+	}
+	// Stopped after the marks, the journal and shop/a.yml, before shop/b.yml and shop/c/d.yml.
+	cutShort(t, s, 3)
+	shop := filepath.Join(dir, "served", "shop")
+	write(t, filepath.Join(shop, ".a.yml.~disk-0123456789ab"), "half")
+	if err := os.MkdirAll(filepath.Join(shop, "c"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(shop, "c", ".d.yml.~disk-0123456789ab"), "half")
+	if err := put(t, s, "shop/e.yml", "e"); err != nil {
+		t.Fatalf("putting back beside temporary files: %v", err)
+	}
+	keys, _ := s.List("")
+	if fmt.Sprint(keys) != "[shop/a.yml shop/e.yml]" {
+		t.Fatalf("after putting back: %v", keys)
+	}
+	if left, _ := filepath.Glob(filepath.Join(shop, ".*~disk-*")); len(left) != 0 {
+		t.Fatalf("temporary files left: %v", left)
+	}
+}
+
+func TestAThingMovedAwayWhileAChangeWaitedIsAddedInTheFolderTurn(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	if err := put(t, s, "shop/a.yml", "a"); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(dir, "served")
+	holding, release := make(chan struct{}), make(chan struct{})
+	first := make(chan error, 1)
+	go func() {
+		first <- s.Change(ctx, "", "remove shop", func(tx store.Tx) error {
+			// Staged first, so this change holds shop's turn before the other waits for it.
+			err := tx.Remove(key(t, "shop"), store.Anything())
+			close(holding)
+			<-release
+			// Another user's change to the folder, cut short while this one ran: only a change in the folder's turn meets it.
+			markOf(t, lines(root)(""), "alice", "elsewhere", true, "other")
+			return err
+		})
+	}()
+	<-holding
+	second := make(chan error, 1)
+	go func() { second <- put2(s, "shop", "shop/b.yml") }()
+	time.Sleep(300 * time.Millisecond)
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; reason(err) != store.ReasonUnfinished {
+		t.Fatalf("the waiting change = %v, want it to take the folder's turn and meet the mark there", err)
+	}
+}
+
+// put2 writes key in thing's own turn.
+func put2(s *store.Scope, thing, k string) error {
+	return s.Change(ctx, store.Key(thing), "put", func(tx store.Tx) error { return tx.Put(store.Key(k), []byte("x"), store.Anything()) })
+}
+
+func TestAJournalNamingTheScopeThroughALinkIsPutBack(t *testing.T) {
+	dir := fresh(t)
+	real := served(t, dir)
+	if err := put(t, real, "shop/a.yml", "a"); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(filepath.Join(dir, "served"), link); err != nil {
+		t.Fatal(err)
+	}
+	viaLink, err := store.Served(app, link, lines(filepath.Join(dir, "served")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viaLink.Close()
+	cutShort(t, viaLink, 4)
+	if err := put(t, real, "shop/e.yml", "e"); err != nil {
+		t.Fatal(err)
+	}
+	if keys, _ := real.List(""); fmt.Sprint(keys) != "[shop/a.yml shop/e.yml]" {
+		t.Fatalf("after putting back: %v", keys)
+	}
+}
+
+func TestAMovedFileKeepsItsModeAndPuttingBackGivesItBack(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	shop := filepath.Join(dir, "served", "shop")
+	write(t, filepath.Join(shop, "kept.yml"), "k")
+	if err := os.Chmod(filepath.Join(shop, "kept.yml"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Change(ctx, "shop", "move", func(tx store.Tx) error {
+		return tx.Move(key(t, "shop/kept.yml"), key(t, "shop/moved/kept.yml"), store.Anything())
+	}); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(shop, "moved", "kept.yml")
+	if info, err := os.Stat(moved); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("the moved file: %v %v, want 0640", info.Mode().Perm(), err)
+	}
+	err := s.Change(ctx, "shop", "remove, then a write another writer blocks", func(tx store.Tx) error {
+		if err := tx.Remove(key(t, "shop/moved/kept.yml"), store.Anything()); err != nil {
+			return err
+		}
+		if err := tx.Put(key(t, "shop/b.yml"), []byte("b"), store.Absent()); err != nil {
+			return err
+		}
+		// Written outside the store after the Want was met, so the write fails at commit, after the remove.
+		return os.MkdirAll(filepath.Join(shop, "b.yml"), 0o755)
+	})
+	if reason(err) != store.ReasonChanged {
+		t.Fatalf("the blocked change = %v, want changed", err)
+	}
+	if info, err := os.Stat(moved); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("the file put back: %v %v, want 0640", info, err)
+	}
+}
+
+func TestTxGetSeesTheChangesOwnWritesAndWantsAreCheckedAsTheyAreStaged(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	if err := put(t, s, "shop/a.yml", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := put(t, s, "shop/f/b.yml", "b"); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Change(ctx, "shop", "staged", func(tx store.Tx) error {
+		if err := tx.Put(key(t, "shop/a.yml"), []byte("a2"), store.Holds(store.SumOf([]byte("a")))); err != nil {
+			return err
+		}
+		item, there, err := tx.Get(key(t, "shop/a.yml"))
+		if err != nil || !there || string(item.Body) != "a2" {
+			t.Fatalf("Get after Put = %q %v %v, want a2", item.Body, there, err)
+		}
+		if err := tx.Put(key(t, "shop/a.yml"), []byte("a3"), store.Holds(store.SumOf([]byte("a")))); reason(err) != store.ReasonChanged {
+			t.Fatalf("a Want the staged write no longer meets = %v, want changed at once", err)
+		}
+		if err := tx.Put(key(t, "shop/a.yml"), []byte("a3"), store.Holds(item.Sum)); err != nil {
+			return err
+		}
+		if err := tx.Move(key(t, "shop/f"), key(t, "shop/g"), store.Anything()); err != nil {
+			return err
+		}
+		if item, there, _ := tx.Get(key(t, "shop/g/b.yml")); !there || string(item.Body) != "b" {
+			t.Fatalf("Get under a folder's new name = %q %v", item.Body, there)
+		}
+		if _, there, _ := tx.Get(key(t, "shop/f/b.yml")); there {
+			t.Fatal("Get under a folder's old name still finds it")
+		}
+		if err := tx.Move(key(t, "shop/a.yml"), key(t, "shop/g/b.yml"), store.Anything()); reason(err) != store.ReasonChanged {
+			t.Fatalf("a move onto a name the change took = %v, want changed", err)
+		}
+		if err := tx.Remove(key(t, "shop/g"), store.Anything()); err != nil {
+			return err
+		}
+		if _, there, _ := tx.Get(key(t, "shop/g/b.yml")); there {
+			t.Fatal("Get inside a removed folder still finds it")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys, _ := s.List(""); fmt.Sprint(keys) != "[shop/a.yml]" {
+		t.Fatalf("after the change: %v", keys)
+	}
+	if item, _, _ := s.Get(key(t, "shop/a.yml")); string(item.Body) != "a3" {
+		t.Fatalf("shop/a.yml holds %q", item.Body)
+	}
+}
+
+func TestAStuckChangeOfAnotherThingDoesNotStopThisOne(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	if err := put(t, s, "shop/a.yml", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := put(t, s, "other/a.yml", "a"); err != nil {
+		t.Fatal(err)
+	}
+	journal, _ := cutShort(t, s, 5)
+	raw, _ := os.ReadFile(journal)
+	lines := bytes.Split(raw, []byte("\n"))
+	lines[1] = []byte("{broken")
+	if err := os.WriteFile(journal, bytes.Join(lines, []byte("\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := put2(s, "other", "other/b.yml"); err != nil {
+		t.Fatalf("a change of another thing = %v, want it to go on", err)
+	}
+	if err := put2(s, "shop", "shop/x.yml"); reason(err) != store.ReasonUnfinished {
+		t.Fatalf("a change of the stuck thing = %v, want unfinished_change", err)
+	}
+}
+
+func TestAJournalOfAnotherMarkIsNotPutBack(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	journal, _ := cutShort(t, s, 4)
+	raw, _ := os.ReadFile(journal)
+	head, rest, _ := bytes.Cut(raw, []byte("\n"))
+	var h map[string]any
+	_ = json.Unmarshal(head, &h)
+	h["spec"].(map[string]any)["mark"] = "17000000000000000009"
+	head, _ = json.Marshal(h)
+	if err := os.WriteFile(journal, append(append(head, '\n'), rest...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := put(t, s, "shop/a.yml", "x"); reason(err) != store.ReasonUnfinished || !strings.Contains(err.Error(), "not the journal the mark") {
+		t.Fatalf("a journal whose mark is another = %v", err)
+	}
+}
+
+func TestAQueueFolderThatCannotBeReadIsNeverTakenForNoMarks(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	if err := put(t, s, "shop/a.yml", "a"); err != nil {
+		t.Fatal(err)
+	}
+	q := filepath.Join(lines(filepath.Join(dir, "served"))("shop"), ".queue")
+	if err := os.Chmod(q, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(q, 0o700)
+	if err := put2(s, "shop", "shop/b.yml"); err == nil {
+		t.Fatal("a change went through beside a queue folder that cannot be read")
+	}
+}
+
+func TestAJournalLeftAfterItsMarksAreClearedIsShown(t *testing.T) {
+	dir := fresh(t)
+	s := served(t, dir)
+	journal, _ := cutShort(t, s, 5)
+	raw, _ := os.ReadFile(journal)
+	lines := bytes.Split(raw, []byte("\n"))
+	lines[1] = []byte("{broken")
+	_ = os.WriteFile(journal, bytes.Join(lines, []byte("\n")), 0o600)
+	cleared, err := s.Clear(ctx, "shop")
+	if err != nil || len(cleared) != 1 || cleared[0].File != journal {
+		t.Fatalf("Clear = %+v, %v, want the journal named", cleared, err)
+	}
+	// A journal that cannot be read is still said, never taken for none.
+	if _, err := s.Unfinished("shop"); reason(err) != store.ReasonUnfinished {
+		t.Fatalf("Unfinished beside a broken journal = %v", err)
+	}
+	_ = os.WriteFile(journal, raw, 0o600)
+	left, err := s.Unfinished("shop")
+	if err != nil || len(left) != 1 || !left[0].Left || left[0].File != journal {
+		t.Fatalf("Unfinished after Clear = %+v, %v, want the journal left", left, err)
 	}
 }
 
