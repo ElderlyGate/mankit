@@ -111,6 +111,7 @@ func Load(path string, keys []Key) ([]Row, error) {
 }
 
 // Set writes value to key in path, changing only that key's line; "" removes the key.
+// It goes through the store (store.EditFile): inside a change that holds the folder's turn, such as remembering an answer in an app's change of its config folder, it joins that change.
 func Set(path string, keys []Key, key, value string) error {
 	if path == "" {
 		return errors.New("no config folder on this system")
