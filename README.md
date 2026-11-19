@@ -722,6 +722,18 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   clear <thing>`; `Unfinished` lists the marks, with this user's journal file,
   and this user's journals whose marks are gone (`Left`), and `Clear` removes
   marks, for that command, which asks first.
+- `store.UnfinishedCommand(app, open, confirm)` is that command, which each app
+  with a store scope mounts under its own `store`, as it does `config queue`
+  under `config`. `store unfinished list [<thing>]` shows every user's marks
+  in the scope `open` opens (the folder's own turn and every thing's), with this
+  user's journal file, and this user's left journals (`-o json` answers
+  contracts mankit/v1 `StoreUnfinishedList`). `store unfinished clear <thing>`
+  shows each change holding the thing (user, machine, mark, journal, keys and,
+  for this user's journal, what each write was to do), asks as a change of type
+  `delete` (G-STACK-13), refused without `--yes` when there is no terminal, then
+  removes the marks: nothing is put back and the journal stays (`-o json`:
+  `StoreUnfinishedCleared`). A thing no mark holds is `not_found`. It has no
+  HTTP door: the marks and journals are this machine's.
 - A machine is known by its host name, so a product's container needs a fixed
   `--hostname` (such as `<product>-<project>`): a container made anew under
   another name would never find its own journals to put back.
