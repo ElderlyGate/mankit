@@ -21,6 +21,7 @@ import (
 	"github.com/gofrs/flock"
 
 	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v3/internal/disk"
 	"github.com/tugbayatilla/mankit/v3/serve"
 	"github.com/tugbayatilla/mankit/v3/settings"
 )
@@ -321,6 +322,9 @@ func (files) list(ctx context.Context, q Queue) (Listing, error) {
 }
 
 func (q Queue) dir() string { return filepath.Join(q.Folder, folderName) }
+
+// Dir is the queue's own folder, <Folder>/.queue, where the store keeps the marks of a change cut short beside the tickets.
+func (q Queue) Dir() string { return q.dir() }
 
 func (q Queue) wait() time.Duration {
 	if q.Wait > 0 {
@@ -892,19 +896,5 @@ func (q Queue) moveBad(path, why string) error {
 	return nil
 }
 
-// writeWhole writes data to path through a temporary file beside it (G-CODE-5); its name starts with a dot, so no sweep takes it for a ticket.
-func writeWhole(dir, path string, data []byte) error {
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
+// writeWhole writes data to path through the safety core's temporary file beside it (G-CODE-5); its name starts with a dot, so no sweep takes it for a ticket.
+func writeWhole(dir, path string, data []byte) error { return disk.WriteWhole(dir, path, data) }
