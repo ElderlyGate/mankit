@@ -241,6 +241,61 @@ func TestThisUsersOwnFolderOpenToOthersIsMadePrivateAndSaidSo(t *testing.T) {
 	}
 }
 
+func TestAPrivateOwnFolderIsNotWalkedAndALinkInsideIsNeverFollowed(t *testing.T) {
+	dir := fresh(t)
+	data := filepath.Join(dir, "data", "elderlygate", app.ID)
+	write(t, filepath.Join(data, "kept.yml"), "k")
+	outside := filepath.Join(dir, "outside.yml")
+	write(t, outside, "o")
+	if err := os.Symlink(outside, filepath.Join(data, "link.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Data(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if info, _ := os.Stat(filepath.Join(data, "kept.yml")); info.Mode().Perm() != 0o644 {
+		t.Fatalf("a file inside a private folder was changed to %v; the folder was walked", info.Mode().Perm())
+	}
+	if err := os.Chmod(data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = store.Data(app); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if info, _ := os.Stat(outside); info.Mode().Perm() != 0o644 {
+		t.Fatalf("the file a link leads to was changed to %v", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(filepath.Join(data, "kept.yml")); info.Mode().Perm() != 0o600 {
+		t.Fatalf("a file inside a folder open to others stayed %v", info.Mode().Perm())
+	}
+}
+
+func TestAChangeMadePastTheLimitIsDoneAndSaid(t *testing.T) {
+	dir := fresh(t)
+	var said bytes.Buffer
+	a := app
+	a.Log, a.Limit = &said, time.Nanosecond
+	root := filepath.Join(dir, "served")
+	_ = os.MkdirAll(root, 0o755)
+	s, err := store.Served(a, root, lines(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Change(ctx, "shop", "slow", func(store.Tx) error { time.Sleep(50 * time.Millisecond); return nil }); err != nil {
+		t.Fatalf("a change done past the limit = %v, want done", err)
+	}
+	if !strings.Contains(said.String(), "past the queue's limit") {
+		t.Fatalf("the overrun was not said: %q", said.String())
+	}
+}
+
 func TestAnOwnFolderThatIsALinkIsNotUsed(t *testing.T) {
 	dir := fresh(t)
 	elsewhere := filepath.Join(dir, "elsewhere")
@@ -661,6 +716,12 @@ func TestTxGetSeesTheChangesOwnWritesAndWantsAreCheckedAsTheyAreStaged(t *testin
 		if err := tx.Put(key(t, "shop/a.yml"), []byte("a3"), store.Holds(item.Sum)); err != nil {
 			return err
 		}
+		if err := tx.Put(key(t, "shop/a.yml/x"), []byte("x"), store.Anything()); reason(err) != store.ReasonChanged {
+			t.Fatalf("a Put under a file the change wrote = %v, want changed at once", err)
+		}
+		if _, there, err := tx.Get(key(t, "shop/a.yml/x")); there || err != nil {
+			t.Fatalf("Get under a file the change wrote = %v, %v, want not there", there, err)
+		}
 		if err := tx.Move(key(t, "shop/f"), key(t, "shop/g"), store.Anything()); err != nil {
 			return err
 		}
@@ -755,16 +816,24 @@ func TestAJournalLeftAfterItsMarksAreClearedIsShown(t *testing.T) {
 	s := served(t, dir)
 	journal, _ := cutShort(t, s, 5)
 	raw, _ := os.ReadFile(journal)
-	lines := bytes.Split(raw, []byte("\n"))
-	lines[1] = []byte("{broken")
-	_ = os.WriteFile(journal, bytes.Join(lines, []byte("\n")), 0o600)
+	parts := bytes.Split(raw, []byte("\n"))
+	parts[1] = []byte("{broken")
+	_ = os.WriteFile(journal, bytes.Join(parts, []byte("\n")), 0o600)
 	cleared, err := s.Clear(ctx, "shop")
 	if err != nil || len(cleared) != 1 || cleared[0].File != journal {
 		t.Fatalf("Clear = %+v, %v, want the journal named", cleared, err)
 	}
-	// A journal that cannot be read is still said, never taken for none.
-	if _, err := s.Unfinished("shop"); reason(err) != store.ReasonUnfinished {
-		t.Fatalf("Unfinished beside a broken journal = %v", err)
+	// A journal that cannot be read may be any scope's: it is said and passed over.
+	var said bytes.Buffer
+	a := app
+	a.Log = &said
+	logged, err := store.Served(a, filepath.Join(dir, "served"), lines(filepath.Join(dir, "served")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logged.Close()
+	if got, err := logged.Unfinished("shop"); err != nil || len(got) != 0 || !strings.Contains(said.String(), journal) {
+		t.Fatalf("Unfinished beside a broken journal = %+v, %v, said %q", got, err, said.String())
 	}
 	_ = os.WriteFile(journal, raw, 0o600)
 	left, err := s.Unfinished("shop")
