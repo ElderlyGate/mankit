@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"os"
 	"os/user"
@@ -49,6 +50,8 @@ type line struct {
 	Dir    bool    `json:"dir,omitempty"`
 	Gone   bool    `json:"gone,omitempty"`
 	From   Key     `json:"from,omitempty"`
+	// mode is the file's mode, kept while the change runs so putting it back in this process gives it back; a journal does not hold it.
+	mode fs.FileMode
 }
 
 // content is body as a line holds it: nil stays nil, and an empty file stays an empty file.
@@ -84,6 +87,10 @@ type Unfinished struct {
 	Journal string
 	Folder  bool
 	Keys    []Key
+	// File is the journal on this machine when it is this user's and still there, for a person to look at before clearing.
+	File string
+	// Left is a journal of this user's whose marks are gone, cleared or lost: it puts nothing back by itself and is kept, as the only copy of what was there.
+	Left bool
 }
 
 func (m mark) unfinished() Unfinished {
@@ -153,6 +160,14 @@ func encodeHead(id, app, scope string) ([]byte, error) {
 }
 
 func encodeLine(n int, l line) ([]byte, error) {
+	if err := l.Key.check(); err != nil {
+		return nil, err
+	}
+	if l.From != "" {
+		if err := l.From.check(); err != nil {
+			return nil, err
+		}
+	}
 	var jl journalLine
 	jl.APIVersion, jl.Kind, jl.Spec = APIVersion(), JournalChangeKind, l
 	jl.Metadata.ID = n

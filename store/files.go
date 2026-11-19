@@ -71,6 +71,18 @@ func (f *files) current(key Key) ([]byte, error) {
 	return body, nil
 }
 
+// look is what is at key now: a file's body, or a folder; anything else, or a link on the way, is refused.
+func (f *files) look(key Key) ([]byte, bool, bool, error) {
+	if err := disk.NoLinks(f.r, slash(key)); err != nil {
+		return nil, false, false, diskFail(err, string(key), string(key))
+	}
+	if info, err := f.r.Lstat(slash(key)); err == nil && info.IsDir() {
+		return nil, true, true, nil
+	}
+	body, err := f.current(key)
+	return body, body != nil, false, err
+}
+
 func (f *files) there(thing Key) bool {
 	_, err := f.r.Lstat(slash(thing))
 	return err == nil
@@ -187,7 +199,7 @@ func (f *files) plan(o op) ([]line, error) {
 		if err != nil {
 			return nil, err
 		}
-		return append(made, line{Key: o.key, Before: content(cur), After: content(o.body)}), nil
+		return append(made, line{Key: o.key, Before: content(cur), After: content(o.body), mode: f.modeFor(o.key)}), nil
 	case opRemove:
 		info, err := f.r.Lstat(slash(o.key))
 		if errors.Is(err, fs.ErrNotExist) {
@@ -209,7 +221,7 @@ func (f *files) plan(o op) ([]line, error) {
 		if err := f.wants(o, true, false, cur); err != nil {
 			return nil, err
 		}
-		return []line{{Key: o.key, Before: content(cur)}}, nil
+		return []line{{Key: o.key, Before: content(cur), mode: f.modeFor(o.key)}}, nil
 	}
 	info, err := f.r.Lstat(slash(o.from))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -240,27 +252,14 @@ func (f *files) plan(o op) ([]line, error) {
 	if info.IsDir() {
 		return append(made, line{Key: o.key, Dir: true, From: o.from}), nil
 	}
-	// A file moved is two writes, made then gone; a move in one line is kept for folders (contracts store-journal-change).
-	return append(made, line{Key: o.key, After: content(cur)}, line{Key: o.from, Before: content(cur)}), nil
+	// A file moved is two writes, made then gone, the new one with the old one's mode; a move in one line is kept for folders (contracts store-journal-change).
+	mode := f.modeFor(o.from)
+	return append(made, line{Key: o.key, After: content(cur), mode: mode}, line{Key: o.from, Before: content(cur), mode: mode}), nil
 }
 
 // wants refuses as changed a thing that is not what the op wants.
 func (f *files) wants(o op, there, folder bool, body []byte) error {
-	sum := ""
-	if there && !folder {
-		sum = SumOf(body)
-	}
-	if o.want.met(there, folder, sum) {
-		return nil
-	}
-	now := "nothing"
-	switch {
-	case folder:
-		now = "a folder"
-	case there:
-		now = sum
-	}
-	return fail(serve.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s holds %s, not %s as the writer read; read it again before trying again", o.key, now, o.want))
+	return unmet(o.key, o.want, there, folder, body)
 }
 
 // parents are the folders above key that are not there yet, outermost first, each a line of its own.
@@ -291,6 +290,13 @@ func (f *files) tree(key Key) ([]line, error) {
 		if err != nil {
 			return err
 		}
+		if disk.IsTemp(d.Name()) && !d.IsDir() {
+			return nil
+		}
+		// A name no key can hold is refused before anything is written, so every line a journal holds is a key.
+		if err := Key(p).check(); err != nil {
+			return fail(serve.TypeRefused, ReasonOutside, "", fmt.Sprintf("%s holds a name no key can hold, so it is not removed: %v", key, err))
+		}
 		switch {
 		case d.IsDir():
 			if reserved[d.Name()] {
@@ -304,7 +310,7 @@ func (f *files) tree(key Key) ([]line, error) {
 			if err != nil {
 				return err
 			}
-			fileLines = append(fileLines, line{Key: Key(p), Before: content(body)})
+			fileLines = append(fileLines, line{Key: Key(p), Before: content(body), mode: f.modeFor(Key(p))})
 		default:
 			return fail(serve.TypeRefused, ReasonOutside, p, fmt.Sprintf("%s holds %s, which is not a file or a folder, so it is not removed", key, p))
 		}
@@ -321,30 +327,81 @@ func (f *files) tree(key Key) ([]line, error) {
 	return append(out, line{Key: key, Dir: true, Gone: true}), nil
 }
 
-// apply makes one line's write; synced, it also syncs the folder, else it says which folder the caller syncs.
-func (f *files) apply(l line, synced bool) (string, error) {
+// apply makes one line's write, and says the folders it changed; synced, it also syncs them.
+func (f *files) apply(l line, synced bool) ([]string, error) {
 	name := slash(l.Key)
+	dirs := []string{path.Dir(name)}
 	var err error
 	switch {
 	case l.From != "":
 		err = f.r.Rename(slash(l.From), name)
+		dirs = append(dirs, path.Dir(slash(l.From)))
 	case l.Dir && l.Gone:
-		err = f.r.Remove(name)
+		// A temporary file the core left there is no thing, and would keep the folder from going.
+		if err = f.sweep(name, ""); err == nil {
+			err = f.r.Remove(name)
+		}
 	case l.Dir:
 		err = f.r.Mkdir(name, f.dirMode())
 	case l.After != nil:
-		err = disk.WriteContent(f.r, name, *l.After, f.modeFor(l.Key))
+		err = disk.WriteContent(f.r, name, *l.After, f.fileMode(l))
 	default:
 		err = f.r.Remove(name)
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	dir := path.Dir(name)
 	if synced {
-		return dir, disk.SyncDir(f.r, dir)
+		return dirs, f.syncAll(dirs)
 	}
-	return dir, nil
+	return dirs, nil
+}
+
+// fileMode is the mode a line's file is written with: the one it recorded, or as modeFor says.
+func (f *files) fileMode(l line) fs.FileMode {
+	if l.mode != 0 && !f.s.private {
+		return l.mode
+	}
+	return f.modeFor(l.Key)
+}
+
+// syncAll syncs each folder once; one that is gone since has nothing to sync.
+func (f *files) syncAll(dirs []string) error {
+	var done []string
+	for _, d := range dirs {
+		if slices.Contains(done, d) {
+			continue
+		}
+		done = append(done, d)
+		if err := disk.SyncDir(f.r, d); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+// sweep removes the core's temporary files in the folder dir, those of the file base only when base is given; a crash can leave one beside a file it was writing.
+func (f *files) sweep(dir, base string) error {
+	d, err := f.r.Open(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	names, err := d.Readdirnames(-1)
+	d.Close()
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		if disk.IsTemp(n) && (base == "" || strings.HasPrefix(n, "."+base+disk.TempMark)) {
+			if err := f.r.Remove(path.Join(dir, n)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // commit makes ops all or nothing: one write alone is whole by itself; more are marked in every queue held, logged ahead in this user's journal, made, read back, and the journal removed before the marks (contracts store-journal).
@@ -443,6 +500,7 @@ func (f *files) commit(t *turns, ops []op) error {
 		if err := jr.Remove(name); err != nil {
 			return errors.Join(cause, fail(serve.TypeFailed, "", "", fmt.Sprintf("the change was put back, but its journal %s could not be removed: %v", journal, err)))
 		}
+		f.syncJournals(jr, journal)
 		removeMarks(marks, id)
 		return cause
 	}
@@ -474,24 +532,20 @@ func (f *files) commit(t *turns, ops []op) error {
 			if err := over(); err != nil {
 				return undo(err)
 			}
-			dir, err := f.apply(l, false)
+			changed, err := f.apply(l, false)
 			if err != nil {
 				return undo(diskFail(err, string(l.Key), string(l.Key)))
 			}
 			done = append(done, l)
-			if !slices.Contains(dirs, dir) {
-				dirs = append(dirs, dir)
-			}
+			dirs = append(dirs, changed...)
 			if err := step(); err != nil {
 				return err
 			}
 		}
 	}
 	// Each folder written in is synced once, before the journal that could put it back goes.
-	for _, dir := range dirs {
-		if err := disk.SyncDir(f.r, dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return undo(diskFail(err, dir, dir))
-		}
+	if err := f.syncAll(dirs); err != nil {
+		return undo(diskFail(err, "", "a folder the change wrote in"))
 	}
 	if err := f.readBack(done); err != nil {
 		return undo(err)
@@ -499,7 +553,7 @@ func (f *files) commit(t *turns, ops []op) error {
 	if err := jr.Remove(name); err != nil {
 		return fail(serve.TypeFailed, "", "", fmt.Sprintf("the change was made, but its journal %s could not be removed, so the next run puts it back: %v", journal, err))
 	}
-	_ = disk.SyncDir(jr, ".")
+	f.syncJournals(jr, journal)
 	if err := step(); err != nil {
 		return err
 	}
@@ -570,15 +624,27 @@ func (f *files) readBack(lines []line) error {
 	return nil
 }
 
-// undo puts lines back, last first, and says how many are left: it stops at a file that holds neither what was written nor what was there, since somebody changed it since.
+// undo puts lines back, last first, and says how many are left: it stops at a file that holds neither what was written nor what was there, since somebody changed it since. Every folder it touched is synced before it returns, so the journal may go.
 func (f *files) undo(lines []line) (int, error) {
+	var dirs []string
+	left := 0
+	var err error
 	for i := len(lines) - 1; i >= 0; i-- {
-		done, err := f.undoOne(lines[i])
-		if err != nil || !done {
-			return i + 1, err
+		l := lines[i]
+		dirs = append(dirs, path.Dir(slash(l.Key)))
+		if l.From != "" {
+			dirs = append(dirs, path.Dir(slash(l.From)))
+		}
+		var done bool
+		if done, err = f.undoOne(l); err != nil || !done {
+			left = i + 1
+			break
 		}
 	}
-	return 0, nil
+	if serr := f.syncAll(dirs); err == nil && serr != nil {
+		return left, serr
+	}
+	return left, err
 }
 
 // undoOne puts one line back; done is false where it is not the store's to put back any more.
@@ -612,8 +678,15 @@ func (f *files) undoOne(l line) (bool, error) {
 		if !there {
 			return true, nil
 		}
+		if err := f.sweep(name, ""); err != nil {
+			return false, err
+		}
 		// A folder somebody has put a file in is theirs now.
 		return f.r.Remove(name) == nil, nil
+	}
+	// A temporary file a crash left beside the file is the core's, never somebody's change.
+	if err := f.sweep(path.Dir(name), path.Base(name)); err != nil {
+		return false, err
 	}
 	now, err := f.current(l.Key)
 	if err != nil {
@@ -631,7 +704,7 @@ func (f *files) undoOne(l line) (bool, error) {
 	if err := f.r.MkdirAll(path.Dir(name), f.dirMode()); err != nil {
 		return false, err
 	}
-	return true, disk.Write(f.r, name, before, f.modeFor(l.Key))
+	return true, disk.WriteContent(f.r, name, before, f.fileMode(l))
 }
 
 func deref(b *[]byte) []byte {
@@ -655,8 +728,12 @@ func (f *files) journals() (string, error) {
 	}
 	sum := sha256.Sum256([]byte(hostname()))
 	dir := filepath.Join(data, ".store", hex.EncodeToString(sum[:4]))
-	if err := disk.Private(dir); err != nil {
+	tightened, err := disk.Private(dir)
+	if err != nil {
 		return "", diskFail(err, "", "the journal folder "+dir)
+	}
+	for _, p := range tightened {
+		fmt.Fprintf(f.log(), "store: %s was open to other users; it is now this user's alone\n", p)
 	}
 	return dir, nil
 }
@@ -709,10 +786,10 @@ func removeMarks(dirs []string, id string) {
 	}
 }
 
-// marksIn are the marks in the queue folder dir; one that cannot be read is said, never taken for absent (G-CODE-6), and a folder this user cannot read is left to the queue to report.
+// marksIn are the marks in the queue folder dir; a folder or a mark that cannot be read is said, never taken for none (G-CODE-6).
 func marksIn(dir string) ([]mark, error) {
 	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
@@ -832,11 +909,24 @@ func (f *files) settle(ctx context.Context, thing Key) error {
 			}
 			seen[m.Metadata.ID] = true
 			if err := f.recoverMark(ctx, m); err != nil {
+				// A change cut short that this one does not meet waits for a change that does; this one goes on.
+				if !f.meets(m, thing) {
+					fmt.Fprintf(f.log(), "store: %v\n", err)
+					continue
+				}
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// meets says whether a change to thing meets what mark m holds: a key of the thing, or the folder's own turn, which a change to the scope itself or to a thing not there yet takes.
+func (f *files) meets(m mark, thing Key) bool {
+	if m.Spec.Folder && (thing == "" || !f.there(thing)) {
+		return true
+	}
+	return thing != "" && slices.ContainsFunc(m.Spec.Keys, func(k Key) bool { return k.thing() == thing })
 }
 
 // recoverMark puts back the change of one of this user's marks in its turns, the folder's first, then removes its journal and, last, its marks.
@@ -901,7 +991,10 @@ func (f *files) putBack(m mark) error {
 	if head.Metadata.Host == hostname() && head.Metadata.PID != os.Getpid() && alive(head.Metadata.PID) {
 		return fail(serve.TypeRefused, ReasonUnfinished, string(m.Spec.Keys[0]), fmt.Sprintf("the journal %s belongs to process %d, which still runs on this machine, so it is not put back; wait for it to end", journal, head.Metadata.PID))
 	}
-	if filepath.Clean(head.Spec.Scope) != f.s.root {
+	if head.Metadata.ID != m.Spec.Journal || head.Spec.Mark != m.Metadata.ID {
+		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s is %s with the mark %s, not the journal the mark %s names, so it is not put back", journal, head.Metadata.ID, head.Spec.Mark, m.Metadata.ID))
+	}
+	if !sameFolder(head.Spec.Scope, f.s.root) {
 		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s names the folder %s, not %s, so it is not put back here", journal, head.Spec.Scope, f.s.root))
 	}
 	left, err := f.undo(lines)
@@ -919,8 +1012,25 @@ func (f *files) putBack(m mark) error {
 	if err := r.Remove(name); err != nil {
 		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the change in %s was put back, but its journal could not be removed: %v", journal, err))
 	}
-	_ = disk.SyncDir(r, ".")
+	f.syncJournals(r, journal)
 	return f.dropMarks(m)
+}
+
+// sameFolder says whether two paths name one folder, links and all.
+func sameFolder(a, b string) bool {
+	ia, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	ib, err := os.Stat(b)
+	return err == nil && os.SameFile(ia, ib)
+}
+
+// syncJournals syncs the journal folder once a journal is gone; the change is made either way, so a sync that fails is said, not returned.
+func (f *files) syncJournals(r *os.Root, journal string) {
+	if err := disk.SyncDir(r, "."); err != nil {
+		fmt.Fprintf(f.log(), "store: the folder of %s, removed, could not be synced: %v\n", journal, err)
+	}
 }
 
 // dropMarks removes every copy of a mark, the last thing a change does.
@@ -943,13 +1053,83 @@ func (f *files) log() io.Writer {
 
 func (f *files) unfinished(thing Key) ([]Unfinished, error) {
 	marks, err := marksIn(f.s.queueFor(f.s.line(thing)).Dir())
+	if err != nil {
+		return nil, err
+	}
 	out := []Unfinished{}
 	for _, m := range marks {
 		if thing == "" || slices.ContainsFunc(m.Spec.Keys, func(k Key) bool { return k.thing() == thing }) {
-			out = append(out, m.unfinished())
+			out = append(out, f.withFile(m.unfinished()))
 		}
 	}
-	return out, err
+	left, err := f.leftJournals(thing)
+	return append(out, left...), err
+}
+
+// withFile names u's journal when it is this user's on this machine and still there.
+func (f *files) withFile(u Unfinished) Unfinished {
+	if u.User != userName() || u.Host != hostname() {
+		return u
+	}
+	if dir, err := f.journals(); err == nil {
+		if p := filepath.Join(dir, u.Journal+journalExt); fileThere(p) {
+			u.File = p
+		}
+	}
+	return u
+}
+
+func fileThere(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// leftJournals are this user's journals of this scope whose marks are gone, with the keys they name inside thing, or all when thing is empty.
+func (f *files) leftJournals(thing Key) ([]Unfinished, error) {
+	dir, err := f.journals()
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, diskFail(err, "", "the journal folder "+dir)
+	}
+	defer r.Close()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, diskFail(err, "", "the journal folder "+dir)
+	}
+	var out []Unfinished
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), journalExt) {
+			continue
+		}
+		raw, _, err := disk.Read(r, e.Name())
+		if err != nil {
+			return nil, fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s cannot be read: %v", filepath.Join(dir, e.Name()), err))
+		}
+		head, lines, err := parseJournal(raw)
+		if err != nil {
+			return nil, fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s %v", filepath.Join(dir, e.Name()), err))
+		}
+		if !sameFolder(head.Spec.Scope, f.s.root) {
+			continue
+		}
+		var m mark
+		m.Metadata.ID, m.Spec.Folder = head.Spec.Mark, true
+		for _, l := range lines {
+			for _, k := range []Key{l.Key, l.From} {
+				if k != "" && !slices.Contains(m.Spec.Keys, k) {
+					m.Spec.Keys = append(m.Spec.Keys, k)
+				}
+			}
+		}
+		if f.markThere(m) || thing != "" && !slices.ContainsFunc(m.Spec.Keys, func(k Key) bool { return k.thing() == thing }) {
+			continue
+		}
+		out = append(out, Unfinished{ID: head.Spec.Mark, User: userName(), Host: head.Metadata.Host, Journal: head.Metadata.ID, Keys: m.Spec.Keys, File: filepath.Join(dir, e.Name()), Left: true})
+	}
+	return out, nil
 }
 
 func (f *files) clear(ctx context.Context, thing Key) ([]Unfinished, error) {
@@ -977,7 +1157,7 @@ func (f *files) clear(ctx context.Context, thing Key) ([]Unfinished, error) {
 		if err := t.give(err); err != nil {
 			return out, err
 		}
-		out = append(out, m.unfinished())
+		out = append(out, f.withFile(m.unfinished()))
 	}
 	return out, nil
 }
