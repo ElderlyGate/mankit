@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v3/internal/configfile"
+	"github.com/tugbayatilla/mankit/v3/home"
 )
 
 // Config is the colour part of an app's config.yaml:
@@ -23,7 +23,7 @@ type Config struct {
 }
 
 // configPath is <config dir>/<app>/config.yaml.
-func configPath(app string) (string, error) { return configfile.Path(app, "") }
+func configPath(app string) (string, error) { return home.Config(app, "") }
 
 // LoadConfig reads the colour settings from path; a missing file is fine.
 func LoadConfig(path string) (Config, error) {

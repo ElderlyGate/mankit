@@ -76,6 +76,8 @@ line. A relative `XDG_*` value is ignored, as the XDG rules say.
 
 `home.File(id, name)` is `<app folder>/<name>`, a path and nothing more: it
 never copies or makes a file, so a read-only verb changes nothing.
+`home.Config(id, dir)` is `<dir>/<id>/config.yaml`, the app folder's
+`config.yaml` when `dir` is empty.
 
 `home.Migrate(id, names...)` brings each named file the app kept before in the
 system's config folder (`~/.config/<app>/` on Linux,
