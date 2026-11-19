@@ -344,7 +344,7 @@ func TestAnUnknownVerbUnderAGroupIsAMistakeOnTheGroup(t *testing.T) {
 	}
 	root, _ := grouped(nil, false)
 	out, errOut, code, err := execute(root, "remote")
-	if !strings.Contains(out, "add         Add a remote") || errOut != "" || code != 0 || err != nil {
+	if !strings.Contains(out, "  add    Add a remote\n") || errOut != "" || code != 0 || err != nil {
 		t.Errorf("bare group: code %d, err %v, stdout:\n%s\nstderr %q", code, err, out, errOut)
 	}
 }
