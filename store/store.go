@@ -330,10 +330,12 @@ func (s *Scope) Change(ctx context.Context, thing Key, what string, fn func(Tx) 
 				}
 			}
 			tx := &tx{s: s, t: t, thing: thing}
-			done := holding(tx)
-			err := fn(tx)
-			done()
-			if err != nil {
+			// Known as running until fn returns, or panics.
+			if err := func() error {
+				done := holding(tx)
+				defer done()
+				return fn(tx)
+			}(); err != nil {
 				return err
 			}
 			if len(tx.ops) == 0 {

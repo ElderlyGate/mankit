@@ -33,6 +33,7 @@ func ownFolder(dir string) (*Scope, error) {
 // EditFile changes the one file at path, in its folder opened with Own: edit gets what is there, nil and false when nothing is, and gives back what to keep, nil to remove it. It is written whole, only if the file still holds what edit was given, and read back; what edit gives back unchanged writes nothing.
 // A file that is a link is refused, never followed or replaced.
 // Inside a change whose fn holds this folder's turn, as when an app's change of its config folder calls settings.Set, the write joins that change instead of waiting for the turn it holds; a folder another scope's change holds is refused at once.
+// Joined, it is made with that change or not at all: a nested write is lost when the outer change fails. Only fn's own goroutine joins; a goroutine fn starts waits for the turn like any other, so fn must not wait for it.
 func EditFile(path string, edit func(body []byte, there bool) ([]byte, error)) error {
 	key, err := ParseKey(filepath.Base(path))
 	if err != nil {
