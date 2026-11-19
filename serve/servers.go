@@ -16,8 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // A record is a claim a detached server leaves, never proof: a process can die without removing it, and a pid is reused.
@@ -196,7 +197,7 @@ func (a App) find(recs []record, target string) (record, error) {
 	}
 	switch len(hits) {
 	case 0:
-		return record{}, fmt.Errorf("no server here is on %q; `%s servers` lists them", target, a.command())
+		return record{}, fmt.Errorf("no server here is on %q; `%s server list` lists them", target, a.command())
 	case 1:
 		return hits[0], nil
 	}
@@ -212,7 +213,7 @@ var errNoToken = errors.New("this machine has no server token yet")
 // readToken reads the machine's token whole on every call, checking the folder and the open file, so no link or swapped file is read.
 func (a App) readToken(dir string) (string, error) {
 	path := filepath.Join(dir, tokenName)
-	renew := fmt.Sprintf("`%s servers token renew` writes a new one", a.command())
+	renew := fmt.Sprintf("`%s server token renew` writes a new one", a.command())
 	info, err := os.Lstat(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("%w: `%s serve` or %s", errNoToken, a.command(), renew)
@@ -340,7 +341,7 @@ func (a App) probe(addr string, timeout time.Duration) probed {
 	var e Envelope
 	// An answer with ran: null is not envelope/v1, so UpgradeEnvelope refuses it and the decode fails: not this app.
 	if resp.StatusCode != http.StatusUnauthorized || json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&e) != nil ||
-		len(e.Errors) != 1 || e.Errors[0].Type != TypeRefused || e.Errors[0].Reason != ReasonToken || e.Source.App != a.ID || e.Source.Version == "" {
+		len(e.Errors) != 1 || e.Errors[0].Type != problem.TypeRefused || e.Errors[0].Reason != ReasonToken || e.Source.App != a.ID || e.Source.Version == "" {
 		return probed{}
 	}
 	return probed{answering: true, version: e.Source.Version}

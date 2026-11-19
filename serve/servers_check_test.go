@@ -11,19 +11,21 @@ import (
 	"testing"
 
 	"github.com/ElderlyGate/contracts"
-	"github.com/tugbayatilla/mankit/v3/helpout"
-	"github.com/tugbayatilla/mankit/v3/serve"
+
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
-// servers --check: the list of servers, and a failure unless at least one server is listed and every one answers, said in the answer's errors.
+// server list --check: the list of servers, and a failure unless at least one server is listed and every one answers, said in the answer's errors.
 
 func TestServersCheckPassesWhenEveryServerAnswers(t *testing.T) {
 	machine(t)
 	detached(t)
-	if out, err := run(t, "servers", "--check"); err != nil {
+	if out, err := run(t, "server", "list", "--check"); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if e := answer(t, listSchema, "servers", "--check"); len(e.Errors) != 0 {
+	if e := answer(t, listSchema, "server", "list", "--check"); len(e.Errors) != 0 {
 		t.Fatalf("errors %v", e.Errors)
 	}
 }
@@ -37,13 +39,13 @@ func TestServersCheckFailsWhenAServerDoesNotAnswer(t *testing.T) {
 	defer other.Close()
 	writeRecord(t, dir, other.Listener.Addr().String(), 999999)
 
-	out, err := run(t, "servers", "--check")
+	out, err := run(t, "server", "list", "--check")
 	why := "1 of 2 servers do not answer: " + other.Listener.Addr().String()
 	if !errors.As(err, new(helpout.Printed)) || strings.Count(out, why) != 1 {
 		t.Fatalf("table: %v\n%s", err, out)
 	}
-	var p *serve.Problem
-	if !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Type != problem.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
 		t.Fatalf("not a not_found problem for not_answering: %v", err)
 	}
 }
@@ -55,7 +57,7 @@ func TestServersCheckAnswersOneEnvelopeWithItsReason(t *testing.T) {
 	defer other.Close()
 	writeRecord(t, dir, other.Listener.Addr().String(), 999999)
 
-	out, err := run(t, "servers", "--check", "-o", "json")
+	out, err := run(t, "server", "list", "--check", "-o", "json")
 	if !errors.As(err, new(helpout.Printed)) {
 		t.Fatalf("got %v", err)
 	}
@@ -71,7 +73,7 @@ func TestServersCheckAnswersOneEnvelopeWithItsReason(t *testing.T) {
 	if dec.Decode(&checked) != nil || dec.Decode(&second) == nil {
 		t.Fatalf("not exactly one envelope:\n%s", out)
 	}
-	plain := answer(t, listSchema, "servers")
+	plain := answer(t, listSchema, "server", "list")
 	data, _ := json.Marshal(plain.Data)
 	var same, was any
 	_ = json.Unmarshal(checked.Data, &same)
@@ -89,24 +91,24 @@ func TestServersCheckAnswersOneEnvelopeWithItsReason(t *testing.T) {
 
 func TestServersCheckFailsWhenNoServerIsListed(t *testing.T) {
 	machine(t)
-	out, err := run(t, "servers", "--check")
-	var p *serve.Problem
-	if !errors.As(err, new(helpout.Printed)) || strings.Count(out, "no server is listed") != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNoneListed {
+	out, err := run(t, "server", "list", "--check")
+	var p *problem.Problem
+	if !errors.As(err, new(helpout.Printed)) || strings.Count(out, "no server is listed") != 1 || !errors.As(err, &p) || p.Type != problem.TypeNotFound || p.Reason != serve.ReasonNoneListed {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	out, _ = run(t, "servers", "--check", "-o", "json")
+	out, _ = run(t, "server", "list", "--check", "-o", "json")
 	var said struct{ Errors []struct{ Code string } }
 	if json.Unmarshal([]byte(out), &said) != nil || len(said.Errors) != 1 || said.Errors[0].Code != serve.ReasonNoneListed {
 		t.Fatalf("json: %s", out)
 	}
 }
 
-// servers --check <addr>: only that server is asked, and no record is removed, as a container's health check shares the records of servers it cannot reach.
+// server list --check <addr>: only that server is asked, and no record is removed, as a container's health check shares the records of servers it cannot reach.
 
 func TestServersCheckAnAddressPassesWhenItAnswers(t *testing.T) {
 	machine(t)
 	addr := addrOf(detached(t))
-	e := answer(t, listSchema, "servers", "--check", addr)
+	e := answer(t, listSchema, "server", "list", "--check", addr)
 	if list, _ := e.Data.([]any); len(e.Errors) != 0 || len(list) != 1 || list[0].(map[string]any)["answering"] != true {
 		t.Fatalf("got %+v", e)
 	}
@@ -116,9 +118,9 @@ func TestServersCheckAnAddressPassesWhenItAnswers(t *testing.T) {
 func TestServersCheckAnAddressAtLoopback(t *testing.T) {
 	machine(t)
 	e := answer(t, "", "serve", "--detach", "--addr", "0.0.0.0:0", "--allow-remote")
-	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+	t.Cleanup(func() { _, _ = run(t, "server", "stop", "--all", "--yes") })
 	_, port, _ := net.SplitHostPort(addrOf(e.Data.(map[string]any)))
-	if out, err := run(t, "servers", "--check", net.JoinHostPort("127.0.0.1", port)); err != nil {
+	if out, err := run(t, "server", "list", "--check", net.JoinHostPort("127.0.0.1", port)); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
@@ -130,7 +132,7 @@ func TestServersCheckAnAddressFailsAndRemovesNothing(t *testing.T) {
 	mine := writeRecord(t, dir, gone, 999999)
 	other := writeRecord(t, dir, goneAddr(t), 999998)
 
-	out, err := run(t, "servers", "--check", gone, "-o", "json")
+	out, err := run(t, "server", "list", "--check", gone, "-o", "json")
 	if !errors.As(err, new(helpout.Printed)) {
 		t.Fatalf("got %v\n%s", err, out)
 	}
@@ -153,8 +155,8 @@ func TestServersCheckAnAddressFailsAndRemovesNothing(t *testing.T) {
 			t.Errorf("a record was removed: %v", err)
 		}
 	}
-	var p *serve.Problem
-	if _, err := run(t, "servers", "--check", gone); !errors.As(err, &p) || p.Type != serve.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
+	var p *problem.Problem
+	if _, err := run(t, "server", "list", "--check", gone); !errors.As(err, &p) || p.Type != problem.TypeNotFound || p.Reason != serve.ReasonNotAnswering {
 		t.Fatalf("table: %v", err)
 	}
 }
@@ -162,14 +164,14 @@ func TestServersCheckAnAddressFailsAndRemovesNothing(t *testing.T) {
 // An address is taken only with --check.
 func TestServersTakesAnAddressOnlyWithCheck(t *testing.T) {
 	machine(t)
-	for _, args := range [][]string{{"servers", "127.0.0.1:7799"}, {"servers", "--check=false", "127.0.0.1:7799"}} {
+	for _, args := range [][]string{{"server", "list", "127.0.0.1:7799"}, {"server", "list", "--check=false", "127.0.0.1:7799"}} {
 		if out, err := run(t, args...); err == nil || !strings.Contains(out+err.Error(), "only with --check") {
 			t.Errorf("%v: %v\n%s", args, err, out)
 		}
 	}
 	// A typo is a usage mistake, never a server reported as not answering.
 	for _, addr := range []string{"5173", "not an address", "127.0.0.1:"} {
-		out, err := run(t, "servers", "--check", addr)
+		out, err := run(t, "server", "list", "--check", addr)
 		if err == nil || errors.As(err, new(helpout.Printed)) || !strings.Contains(out+err.Error(), "is not an address") {
 			t.Errorf("%q: %v\n%s", addr, err, out)
 		}

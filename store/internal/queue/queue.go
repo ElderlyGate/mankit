@@ -1,4 +1,5 @@
 // Package queue is the change queue every app shares (ADR-S14): one change at a time per served thing, across processes, done once written and read back.
+// It is the store's own: only the store takes a turn in it (ADR-S22), and store/queue, beside it, shows the line and sets its waits; Go's internal rule keeps every package outside the store from it.
 package queue
 
 import (
@@ -20,10 +21,9 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/settings"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // The reasons of the queue's Problems, each with the type failed: the request was fine and the app could not do it; a program decides by type and reason, never by the detail (G-STACK-15).
@@ -42,51 +42,6 @@ const (
 	DefaultWait  = 30 * time.Second
 	DefaultLimit = 2 * time.Minute
 )
-
-// minSetting is the least a user may set queue.wait or queue.limit to, so a typo such as 1ms does not fail every change.
-const minSetting = time.Second
-
-// WaitKey and LimitKey are the rows every app adds to its settings, so users set the queue's waits the same way in each.
-var (
-	WaitKey  = settings.Key{Name: "queue.wait", Default: DefaultWait.String(), Help: "how long a change waits for its turn before it gives up"}
-	LimitKey = settings.Key{Name: "queue.limit", Default: DefaultLimit.String(), Help: "how long a change may hold its turn before it is stopped"}
-)
-
-// Duration is a value of queue.wait or queue.limit as the queue takes it: a duration of at least a second in whole seconds, the one rule contracts mankit/v1 queue-settings states; its d.String() (45s, 2m0s) is the form written and shown.
-// What it refuses is said with ADR-S21's reasons: wrong_type for no duration, out_of_range for one under a second or not in whole seconds, empty for nothing.
-func Duration(key settings.Key, value string) (time.Duration, error) {
-	if value == "" {
-		return 0, serve.Fail(serve.TypeRefused, "empty", fmt.Sprintf("%s needs a duration of at least %s in whole seconds, such as %s", key.Name, minSetting, key.Default))
-	}
-	d, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, serve.Fail(serve.TypeRefused, "wrong_type", fmt.Sprintf("%s is %q, which is no duration; it takes one of at least %s in whole seconds, such as %s", key.Name, value, minSetting, key.Default))
-	}
-	if d < minSetting || d%time.Second != 0 {
-		return 0, serve.Fail(serve.TypeRefused, "out_of_range", fmt.Sprintf("%s is %q; it takes a duration of at least %s in whole seconds, such as %s", key.Name, value, minSetting, key.Default))
-	}
-	return d, nil
-}
-
-// Settings is q with Wait and Limit from the rows queue.wait and queue.limit (empty keeps them); a value Duration refuses is the app's config that cannot be read, with serve's config code.
-func (q Queue) Settings(wait, limit string) (Queue, error) {
-	for _, row := range []struct {
-		key   settings.Key
-		value string
-		to    *time.Duration
-	}{{WaitKey, wait, &q.Wait}, {LimitKey, limit, &q.Limit}} {
-		if row.value == "" {
-			continue
-		}
-		d, err := Duration(row.key, row.value)
-		var p *serve.Problem
-		if errors.As(err, &p) {
-			return q, serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, p.Detail)
-		}
-		*row.to = d
-	}
-	return q, nil
-}
 
 // Kind is the kind of a ticket, and ListKind the kind of the answer <app> queue gives (contracts mankit/v1).
 const (
@@ -236,7 +191,7 @@ func (q Queue) backend() (backend, error) {
 		return files{}, nil
 	}
 	refuse := func(why string) error {
-		return serve.Fail(serve.TypeFailed, ReasonBackendUnsupported, fmt.Sprintf("the change queue's marker %s %s; no change is made here until it names %q", path, why, BackendFiles))
+		return problem.Fail(problem.TypeFailed, ReasonBackendUnsupported, fmt.Sprintf("the change queue's marker %s %s; no change is made here until it names %q", path, why, BackendFiles))
 	}
 	if err != nil {
 		return nil, refuse(fmt.Sprintf("cannot be read: %v", err))
@@ -273,7 +228,7 @@ func (files) change(ctx context.Context, q Queue, change string, write, readBack
 	defer stop()
 	if err := write(running); err != nil {
 		if errors.Is(running.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
-			return serve.Fail(serve.TypeFailed, ReasonTooLong, fmt.Sprintf("%s held the turn in %s past the limit of %s and stopped: %v", change, q.dir(), q.limit(), err))
+			return problem.Fail(problem.TypeFailed, ReasonTooLong, fmt.Sprintf("%s held the turn in %s past the limit of %s and stopped: %v", change, q.dir(), q.limit(), err))
 		}
 		return err
 	}
@@ -281,7 +236,7 @@ func (files) change(ctx context.Context, q Queue, change string, write, readBack
 	reading, done := context.WithTimeout(ctx, readBackFor)
 	defer done()
 	if err := readBack(reading); err != nil {
-		return serve.Fail(serve.TypeFailed, ReasonNotReadBack, fmt.Sprintf("%s was written but could not be read back: %v", change, err))
+		return problem.Fail(problem.TypeFailed, ReasonNotReadBack, fmt.Sprintf("%s was written but could not be read back: %v", change, err))
 	}
 	return nil
 }
@@ -350,7 +305,7 @@ func (q Queue) log() io.Writer {
 // gaveUp is the error of a wait that ended: the queue's timeout when its own deadline passed, else what the caller's context says.
 func (q Queue) gaveUp(ctx context.Context, err error) error {
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		return serve.Fail(serve.TypeFailed, ReasonTimeout, fmt.Sprintf("the change waited %s for its turn in %s and did not run%s", q.wait(), q.dir(), q.holderSays()))
+		return problem.Fail(problem.TypeFailed, ReasonTimeout, fmt.Sprintf("the change waited %s for its turn in %s and did not run%s", q.wait(), q.dir(), q.holderSays()))
 	}
 	return err
 }
@@ -381,7 +336,7 @@ func (q Queue) holderSays() string {
 }
 
 func unusable(format string, args ...any) error {
-	return serve.Fail(serve.TypeFailed, ReasonUnusable, "the change queue "+fmt.Sprintf(format, args...))
+	return problem.Fail(problem.TypeFailed, ReasonUnusable, "the change queue "+fmt.Sprintf(format, args...))
 }
 
 // retry calls try until it succeeds, fails or ctx ends, pausing longer each time up to longest.
@@ -595,7 +550,7 @@ func (t *ticket) try() (bool, int, error) {
 	}
 	at := slices.IndexFunc(tickets, func(o Ticket) bool { return o.Metadata.ID == t.id })
 	if at < 0 {
-		return false, 0, serve.Fail(serve.TypeFailed, ReasonLost, fmt.Sprintf("the ticket %s was taken for stale and moved to %s; the change did not run", t.path, filepath.Join(t.q.dir(), badName)))
+		return false, 0, problem.Fail(problem.TypeFailed, ReasonLost, fmt.Sprintf("the ticket %s was taken for stale and moved to %s; the change did not run", t.path, filepath.Join(t.q.dir(), badName)))
 	}
 	if at > 0 {
 		return false, at, nil

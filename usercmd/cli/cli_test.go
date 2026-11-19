@@ -7,7 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v3/usercmd"
+	"github.com/spf13/cobra"
+
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/helpout/helptest"
+	"github.com/tugbayatilla/mankit/v4/usercmd"
 )
 
 const starter = "commands:\n  - {id: hello, key: h, label: say hello, run: echo hi}\n  - {id: quit2, key: q, label: clash, run: echo}\n"
@@ -25,7 +29,7 @@ func run(t *testing.T, args ...string) (string, error) {
 	return out.String(), err
 }
 
-func TestInitPathCheck(t *testing.T) {
+func TestCreatePathCheck(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	path := usercmd.Path("testapp")
@@ -37,14 +41,14 @@ func TestInitPathCheck(t *testing.T) {
 	if _, err := run(t, "check"); err == nil {
 		t.Fatal("check without a file fails")
 	}
-	if out, err := run(t, "init"); err != nil || !strings.Contains(out, "wrote the starter") {
+	if out, err := run(t, "create"); err != nil || !strings.Contains(out, "wrote the starter") {
 		t.Fatalf("init: %q %v", out, err)
 	}
 	os.WriteFile(path, []byte("commands: []\n"), 0o644)
-	if out, _ := run(t, "init"); !strings.Contains(out, "kept your") {
+	if out, _ := run(t, "create"); !strings.Contains(out, "kept your") {
 		t.Fatalf("init keeps an existing file: %q", out)
 	}
-	if out, _ := run(t, "init", "--force"); !strings.Contains(out, ".bak") {
+	if out, _ := run(t, "create", "--force"); !strings.Contains(out, ".bak") {
 		t.Fatalf("init --force: %q", out)
 	}
 	if b, _ := os.ReadFile(path + ".bak"); string(b) != "commands: []\n" {
@@ -65,11 +69,23 @@ func TestCommandAtUsesThePathGiven(t *testing.T) {
 	var out bytes.Buffer
 	c.SetOut(&out)
 	c.SetErr(&out)
-	c.SetArgs([]string{"init"})
+	c.SetArgs([]string{"create"})
 	if err := c.Execute(); err != nil || !strings.Contains(out.String(), path) {
 		t.Fatalf("%q %v", out.String(), err)
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// The old forms under commands still run, for one release, as their full forms under command do (G-STACK-5).
+func TestTheOldCommandsFormsRunTheirFullForms(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	helptest.Check(t, func() *cobra.Command {
+		root := &cobra.Command{Use: "testapp"}
+		root.AddCommand(Command("testapp", []byte(starter), spec, func() map[string][]string { return nil }))
+		helpout.Apply(root, helpout.Info{What: "a test app"})
+		return root
+	})
 }

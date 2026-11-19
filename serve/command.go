@@ -21,10 +21,11 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/features"
-	"github.com/tugbayatilla/mankit/v3/helpout"
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // The kinds of the answers the commands print with -o json or yaml.
@@ -35,15 +36,15 @@ const (
 	LinkKind       = "Link"
 )
 
-// Commands are serve and servers for the app's root: open builds what serve serves, confirm (such as prefs.Asker.Ask) asks before a change.
+// Commands are serve and the thing server for the app's root: open builds what serve serves, confirm (such as prefs.Asker.Ask) asks before a change.
 func (a App) Commands(open func(*cobra.Command) (Site, error), confirm func(*cobra.Command, ask.Action) error) ([]*cobra.Command, error) {
 	if err := a.check(); err != nil {
 		return nil, err
 	}
 	if open == nil || confirm == nil {
-		return nil, errors.New("serve: Commands needs open, which builds what serve serves, and confirm, which asks before servers stop and servers token renew")
+		return nil, errors.New("serve: Commands needs open, which builds what serve serves, and confirm, which asks before server stop and server token renew")
 	}
-	return []*cobra.Command{a.serveCommand(open), a.serversCommand(confirm)}, nil
+	return []*cobra.Command{a.serveCommand(open), a.serverCommand(confirm)}, nil
 }
 
 // terminal reports whether w is a terminal, the only place the token link is printed.
@@ -124,16 +125,16 @@ func (a App) serveCommand(open func(*cobra.Command) (Site, error)) *cobra.Comman
 
 It answers only to this machine's own address (--host names another), and every
 API request carries this machine's token, as Authorization: Bearer <token>. The
-page opens from the link serve prints (` + "`servers link`" + ` prints it again), which
-leaves the token in a cookie. ` + "`servers token renew`" + ` replaces the token without a
+page opens from the link serve prints (` + "`server link`" + ` prints it again), which
+leaves the token in a cookie. ` + "`server token renew`" + ` replaces the token without a
 restart.
 
 --addr binds this machine's own address only; another needs --allow-remote, as
 every machine that reaches it can then try the token.
 
 --detach returns to the prompt with the server still up, in its own session. It
-waits until the server serves, so an address in use fails the command. ` + "`servers`" + `
-lists the detached servers and ` + "`servers stop`" + ` stops one.`,
+waits until the server serves, so an address in use fails the command. ` + "`server list`" + `
+lists the detached servers and ` + "`server stop`" + ` stops one.`,
 		Args: cobra.NoArgs,
 	}
 	out := a.printing(c)
@@ -193,7 +194,7 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 		fmt.Fprintf(w, "%s serving on http://%s\n", a.command(), bound)
 		switch {
 		case child:
-			fmt.Fprintf(w, "detached; `%s servers stop %s` stops it\n", a.command(), bound)
+			fmt.Fprintf(w, "detached; `%s server stop %s` stops it\n", a.command(), bound)
 		case terminal(w):
 			token, err := a.readToken(dir)
 			if err != nil {
@@ -203,14 +204,14 @@ lists the detached servers and ` + "`servers stop`" + ` stops one.`,
 			fmt.Fprintf(w, "open: %s\npress ctrl-c to stop\n", pageLink(bound, token))
 		default:
 			// A running server's output may be its log, so the link goes there only when it is a terminal.
-			fmt.Fprintf(w, "`%s servers link %s` prints the link that opens it\n", a.command(), bound)
+			fmt.Fprintf(w, "`%s server link %s` prints the link that opens it\n", a.command(), bound)
 		}
 		return run(cmd.Context(), &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}, ln)
 	}
 	c.Flags().StringVar(&addr, "addr", a.Addr, "address to bind (this machine's own address by default)")
 	c.Flags().StringSliceVar(&hosts, "host", nil, "a name besides localhost this server answers to, such as a tunnel's host name")
 	c.Flags().BoolVar(&allowRemote, "allow-remote", false, "let --addr be an address other machines reach; they still need the token")
-	c.Flags().BoolVarP(&detach, "detach", "d", false, "run in the background and return to the prompt; see servers")
+	c.Flags().BoolVarP(&detach, "detach", "d", false, "run in the background and return to the prompt; see server list")
 	return c
 }
 
@@ -260,7 +261,7 @@ func (a App) detach(cmd *cobra.Command, out *printing, dir, addr string) error {
 		return err
 	}
 	if held, err := a.find(recs, addr); err == nil && !a.probe(addr, probeWait).refused {
-		return fmt.Errorf("a server is already on %s (pid %d); `%s servers stop %s` stops it", addr, held.Metadata.PID, a.command(), addr)
+		return fmt.Errorf("a server is already on %s (pid %d); `%s server stop %s` stops it", addr, held.Metadata.PID, a.command(), addr)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -281,7 +282,7 @@ func (a App) detach(cmd *cobra.Command, out *printing, dir, addr string) error {
 	link := pageLink(rec.Metadata.Addr, token)
 	return out.print(cmd.OutOrStdout(), rec.Spec.Name, ServerKind, rec, func(w io.Writer) {
 		fmt.Fprintf(w, "%s serving on http://%s\n", a.command(), rec.Metadata.Addr)
-		fmt.Fprintf(w, "open:\t%s\npid:\t%d\nlog:\t%s\nstop:\t%s servers stop %s\n", link, rec.Metadata.PID, rec.Spec.Log, a.command(), rec.Metadata.Addr)
+		fmt.Fprintf(w, "open:\t%s\npid:\t%d\nlog:\t%s\nstop:\t%s server stop %s\n", link, rec.Metadata.PID, rec.Spec.Log, a.command(), rec.Metadata.Addr)
 	})
 }
 
@@ -304,9 +305,22 @@ func childArgs(cmd *cobra.Command) []string {
 	return args
 }
 
-func (a App) serversCommand(confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
+// serverCommand is the thing server: list, stop, link and token renew, each with its old form under servers for one release (G-STACK-5).
+func (a App) serverCommand(confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
+	server := &cobra.Command{Use: "server", Short: "The servers of this app on this machine"}
+	token := a.tokenCommand(confirm)
+	server.AddCommand(
+		helpout.Old(a.listCommand(), "servers"),
+		helpout.Old(a.stopCommand(confirm), "servers stop"),
+		helpout.Old(a.linkCommand(), "servers link"),
+		helpout.Old(token, "servers token"),
+	)
+	return server
+}
+
+func (a App) listCommand() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "servers",
+		Use:   "list",
 		Short: "List the servers on this machine",
 		Long: `List every server of this app on this machine, in the foreground or detached
 (serve --detach), and say which.
@@ -329,10 +343,10 @@ that address and fails unless the server answers.`,
 				return nil
 			}
 			if on, _ := cmd.Flags().GetBool("check"); !on {
-				return fmt.Errorf("an address is taken only with --check, as in `%s servers --check %s`", a.command(), args[0])
+				return fmt.Errorf("an address is taken only with --check, as in `%s server list --check %s`", a.command(), args[0])
 			}
 			if _, port, err := net.SplitHostPort(args[0]); err != nil || port == "" {
-				return fmt.Errorf("%q is not an address: --check takes host:port, as in `%s servers --check 127.0.0.1:5173`", args[0], a.command())
+				return fmt.Errorf("%q is not an address: --check takes host:port, as in `%s server list --check 127.0.0.1:5173`", args[0], a.command())
 			}
 			return nil
 		},
@@ -356,7 +370,7 @@ that address and fails unless the server answers.`,
 				return err
 			}
 			if !answering {
-				problems = []error{Fail(TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%s does not answer", args[0]))}
+				problems = []error{problem.Fail(problem.TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%s does not answer", args[0]))}
 			}
 		} else {
 			if live, err = a.live(dir); err != nil {
@@ -387,15 +401,14 @@ that address and fails unless the server answers.`,
 			return err
 		}
 		if out.output == "table" {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s servers --check: %v\n", a.command(), problems[0])
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s server list --check: %v\n", a.command(), problems[0])
 		}
 		return helpout.Printed{Err: problems[0]}
 	}
-	c.AddCommand(a.stopCommand(confirm), a.linkCommand(), a.tokenCommand(confirm))
 	return c
 }
 
-// checked is why servers --check fails on live: no server listed, or one that does not answer; nil when every listed one answers.
+// checked is why server list --check fails on live: no server listed, or one that does not answer; nil when every listed one answers.
 func checked(live []status) error {
 	var silent []string
 	for _, s := range live {
@@ -405,9 +418,9 @@ func checked(live []status) error {
 	}
 	switch {
 	case len(live) == 0:
-		return Fail(TypeNotFound, ReasonNoneListed, "no server is listed")
+		return problem.Fail(problem.TypeNotFound, ReasonNoneListed, "no server is listed")
 	case len(silent) > 0:
-		return Fail(TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", ")))
+		return problem.Fail(problem.TypeNotFound, ReasonNotAnswering, fmt.Sprintf("%d of %d servers do not answer: %s", len(silent), len(live), strings.Join(silent, ", ")))
 	}
 	return nil
 }
@@ -449,7 +462,7 @@ so. It asks first, as a change of type run.`,
 			targets = []record{one}
 		}
 		if len(targets) == 0 {
-			return fmt.Errorf("no server is recorded; `%s servers` lists them", a.command())
+			return fmt.Errorf("no server is recorded; `%s server list` lists them", a.command())
 		}
 		addrs := make([]string, 0, len(targets))
 		for _, r := range targets {
@@ -544,7 +557,7 @@ func (a App) tokenCommand(confirm func(*cobra.Command, ask.Action) error) *cobra
 		Short: "The token every server of this app on this machine asks for",
 		Long: `The token every server of this app on this machine asks for. It stays in this
 app's data folder and is never printed alone: every page and client gets in
-through the link ` + "`servers link`" + ` prints.`,
+through the link ` + "`server link`" + ` prints.`,
 		Args: cobra.NoArgs,
 	}
 	c.AddCommand(a.renewCommand(confirm))
@@ -556,7 +569,7 @@ func (a App) renewCommand(confirm func(*cobra.Command, ask.Action) error) *cobra
 		Use:   "renew",
 		Short: "Replace the token with a new one, without restarting the servers",
 		Long: `Replace this machine's token with a new one and print the link that opens the
-page of the server on ` + a.Addr + ` with it; ` + "`servers link <addr>`" + ` prints the link
+page of the server on ` + a.Addr + ` with it; ` + "`server link <addr>`" + ` prints the link
 for another.
 
 Every running server takes the new token on its next request and refuses the
@@ -606,7 +619,7 @@ func loopback(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// Printer prints a command's answer the way serve's own commands do: rows as a table, or the envelope with -o json or yaml, in the contract asked with --contract; another package's command, such as `config queue`, uses it.
+// Printer prints a command's answer the way serve's own commands do: rows as a table, or the envelope with -o json or yaml, in the contract asked with --contract; another package's command, such as `queue show`, uses it.
 type Printer struct{ p *printing }
 
 // Printer gives c the -o and --contract flags and prints its answer.

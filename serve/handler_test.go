@@ -19,9 +19,10 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/features"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 // The HTTP door of every app: App.Handler and what it answers.
@@ -148,7 +149,7 @@ func TestServeTakesARenewedTokenWithoutARestart(t *testing.T) {
 	if got := get(token, ""); got != http.StatusOK {
 		t.Fatalf("before the renew: status %d", got)
 	}
-	link, err := url.Parse(answer(t, linkSchema, "servers", "token", "renew", "--yes").Data.(map[string]any)["url"].(string))
+	link, err := url.Parse(answer(t, linkSchema, "server", "token", "renew", "--yes").Data.(map[string]any)["url"].(string))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,17 +175,17 @@ func TestServeTakesARenewedTokenWithoutARestart(t *testing.T) {
 	}
 	page, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(string(page), "e-designer servers link") {
+	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(string(page), "e-designer server link") {
 		t.Fatalf("the page with no cookie: %d %s", resp.StatusCode, page)
 	}
 }
 
 func TestServeRefusesEveryEarlierTokenAfterRenewsBackToBack(t *testing.T) {
 	h := handler(t, nil)
-	first := tokenOf(t, answer(t, linkSchema, "servers", "token", "renew", "--yes"))
-	second := tokenOf(t, answer(t, linkSchema, "servers", "token", "renew", "--yes"))
+	first := tokenOf(t, answer(t, linkSchema, "server", "token", "renew", "--yes"))
+	second := tokenOf(t, answer(t, linkSchema, "server", "token", "renew", "--yes"))
 	for _, old := range []string{token, first} {
-		refusal(t, call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer " + old}), http.StatusUnauthorized, serve.TypeRefused, serve.ReasonToken)
+		refusal(t, call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer " + old}), http.StatusUnauthorized, problem.TypeRefused, serve.ReasonToken)
 	}
 	if w := call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer " + second}); w.Code != http.StatusOK {
 		t.Fatalf("the last token: status %d", w.Code)
@@ -213,7 +214,7 @@ func TestServeTakesATokenWrittenInPlaceOfTheSameSize(t *testing.T) {
 	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	refusal(t, call(t, h, "GET", "/api/greeting", "", nil), http.StatusUnauthorized, serve.TypeRefused, serve.ReasonToken)
+	refusal(t, call(t, h, "GET", "/api/greeting", "", nil), http.StatusUnauthorized, problem.TypeRefused, serve.ReasonToken)
 	if w := call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer t0ken!"}); w.Code != http.StatusOK {
 		t.Fatalf("the new token: status %d", w.Code)
 	}
@@ -229,7 +230,7 @@ func TestServeLetsNobodyInWhileTheTokenFolderIsOpenToOthers(t *testing.T) {
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	e := refusal(t, call(t, h, "GET", "/api/greeting", "", nil), http.StatusInternalServerError, serve.TypeFailed, serve.ReasonConfigUnreadable)
+	e := refusal(t, call(t, h, "GET", "/api/greeting", "", nil), http.StatusInternalServerError, problem.TypeFailed, serve.ReasonConfigUnreadable)
 	if !strings.Contains(e.Detail, dir) {
 		t.Fatalf("the refusal does not name %s: %s", dir, e.Detail)
 	}
@@ -338,7 +339,7 @@ func TestServeAnswersTheContractAskedFor(t *testing.T) {
 
 func TestServeRefusesAContractItDoesNotAnswer(t *testing.T) {
 	w := call(t, handler(t, nil), "GET", "/api/greeting", "", map[string]string{serve.ContractHeader: "v9"})
-	refusal(t, w, http.StatusNotAcceptable, serve.TypeUnsupportedContract, "")
+	refusal(t, w, http.StatusNotAcceptable, problem.TypeUnsupportedContract, "")
 	// error/v1 still lists the contracts for a contract on envelope/v1.
 	var raw struct {
 		Errors []struct {
@@ -357,8 +358,8 @@ func TestAppChoosesItsNewestContractByDefault(t *testing.T) {
 		t.Fatalf("got %q, %v", c, err)
 	}
 	_, err := two.Contract("v3")
-	var e *serve.Problem
-	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract || !strings.Contains(e.Detail, "v1, v2") {
+	var e *problem.Problem
+	if !errors.As(err, &e) || e.Type != problem.TypeUnsupportedContract || !strings.Contains(e.Detail, "v1, v2") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -370,7 +371,7 @@ func TestServeRefusesAnotherHost(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	handler(t, nil).ServeHTTP(w, req)
-	refusal(t, w, http.StatusForbidden, serve.TypeRefused, serve.ReasonHost)
+	refusal(t, w, http.StatusForbidden, problem.TypeRefused, serve.ReasonHost)
 }
 
 func TestServeRefusesAnotherOrigin(t *testing.T) {
@@ -379,7 +380,7 @@ func TestServeRefusesAnotherOrigin(t *testing.T) {
 		"sec-fetch-site": {"Sec-Fetch-Site": "cross-site"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", header), http.StatusForbidden, serve.TypeRefused, serve.ReasonOrigin)
+			refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", header), http.StatusForbidden, problem.TypeRefused, serve.ReasonOrigin)
 		})
 	}
 }
@@ -394,7 +395,7 @@ func TestServeTakesItsOwnOrigin(t *testing.T) {
 func TestServeRefusesARequestWithoutTheToken(t *testing.T) {
 	for name, value := range map[string]string{"none": "", "wrong": "guess"} {
 		t.Run(name, func(t *testing.T) {
-			e := refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{"Authorization": "Bearer " + value}), http.StatusUnauthorized, serve.TypeRefused, serve.ReasonToken)
+			e := refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{"Authorization": "Bearer " + value}), http.StatusUnauthorized, problem.TypeRefused, serve.ReasonToken)
 			if strings.Contains(e.Detail, token) {
 				t.Fatal("the refusal tells the token")
 			}
@@ -430,7 +431,7 @@ func TestServeRefusesTheTokenInAnyOtherHeader(t *testing.T) {
 		"no scheme":                {"Authorization": token},
 	} {
 		t.Run(name, func(t *testing.T) {
-			refusal(t, call(t, handler(t, nil), "GET", "/api/greeting", "", header), http.StatusUnauthorized, serve.TypeRefused, serve.ReasonToken)
+			refusal(t, call(t, handler(t, nil), "GET", "/api/greeting", "", header), http.StatusUnauthorized, problem.TypeRefused, serve.ReasonToken)
 		})
 	}
 }
@@ -467,7 +468,7 @@ func TestServeLetsNobodyInWhileTheTokenFileCannotBeTrusted(t *testing.T) {
 			path := filepath.Join(dir, "token")
 			spoil(t, path)
 			for _, header := range []map[string]string{nil, {"Authorization": ""}} {
-				e := refusal(t, call(t, h, "GET", "/api/greeting", "", header), http.StatusInternalServerError, serve.TypeFailed, serve.ReasonConfigUnreadable)
+				e := refusal(t, call(t, h, "GET", "/api/greeting", "", header), http.StatusInternalServerError, problem.TypeFailed, serve.ReasonConfigUnreadable)
 				if strings.Contains(e.Detail, token) {
 					t.Fatal("the refusal tells the token")
 				}
@@ -499,7 +500,7 @@ func TestServeShowsThePageWithoutTheCookieOnlyWhereItsLinkIs(t *testing.T) {
 	for _, target := range []string{"/", "/?token=guess"} {
 		w := httptest.NewRecorder()
 		handler(t, nil).ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1:7480"+target, nil))
-		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "e-designer servers link") || len(w.Result().Cookies()) != 0 {
+		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "e-designer server link") || len(w.Result().Cookies()) != 0 {
 			t.Fatalf("%s: %d %q", target, w.Code, w.Body)
 		}
 	}
@@ -507,7 +508,7 @@ func TestServeShowsThePageWithoutTheCookieOnlyWhereItsLinkIs(t *testing.T) {
 
 func TestServeRefusesABodyThatIsNotJSON(t *testing.T) {
 	w := call(t, handler(t, nil), "POST", "/api/greeting?confirm=yes", "text=hi", map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
-	refusal(t, w, http.StatusUnsupportedMediaType, serve.TypeRefused, serve.ReasonNotJSON)
+	refusal(t, w, http.StatusUnsupportedMediaType, problem.TypeRefused, serve.ReasonNotJSON)
 }
 
 func TestServeRefusesAChunkedBodyThatIsNotJSON(t *testing.T) {
@@ -517,15 +518,15 @@ func TestServeRefusesAChunkedBodyThatIsNotJSON(t *testing.T) {
 	req.Header.Set("Content-Type", "text/plain")
 	w := httptest.NewRecorder()
 	handler(t, nil).ServeHTTP(w, req)
-	refusal(t, w, http.StatusUnsupportedMediaType, serve.TypeRefused, serve.ReasonNotJSON)
+	refusal(t, w, http.StatusUnsupportedMediaType, problem.TypeRefused, serve.ReasonNotJSON)
 }
 
 func TestServeAnswersAnUnknownRouteInTheEnvelope(t *testing.T) {
-	refusal(t, call(t, handler(t, nil), "GET", "/api/nothing", "", nil), http.StatusNotFound, serve.TypeNotFound, "")
+	refusal(t, call(t, handler(t, nil), "GET", "/api/nothing", "", nil), http.StatusNotFound, problem.TypeNotFound, "")
 }
 
 func TestServeAnswersAnAppErrorWithItsCode(t *testing.T) {
-	refusal(t, call(t, handler(t, nil), "DELETE", "/api/greeting?confirm=yes", "", nil), http.StatusConflict, serve.TypeFailed, "")
+	refusal(t, call(t, handler(t, nil), "DELETE", "/api/greeting?confirm=yes", "", nil), http.StatusConflict, problem.TypeFailed, "")
 }
 
 func TestHandlerRefusesARouteItCannotGuard(t *testing.T) {
@@ -555,7 +556,7 @@ func TestHandlerRefusesARouteItCannotGuard(t *testing.T) {
 // Asking
 
 func TestServeRefusesAChangeWithoutTheUsersYes(t *testing.T) {
-	e := refusal(t, call(t, handler(t, nil), "POST", "/api/greeting", `{"text":"hi"}`, nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	e := refusal(t, call(t, handler(t, nil), "POST", "/api/greeting", `{"text":"hi"}`, nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
 	if !strings.Contains(e.Detail, "change the greeting") {
 		t.Fatalf("the refusal does not say what it would change: %q", e.Detail)
 	}
@@ -579,12 +580,12 @@ func TestServeTakesAChangeTheUserNeverWantsToBeAskedAbout(t *testing.T) {
 		t.Fatalf("edit set to never: %d %s", w.Code, w.Body)
 	}
 	// A change to the system itself still asks, whatever was remembered.
-	refusal(t, call(t, h, "DELETE", "/api/greeting", "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	refusal(t, call(t, h, "DELETE", "/api/greeting", "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
 }
 
 func TestServeSaysWhichConfigItCannotRead(t *testing.T) {
 	broken := func() (map[ask.Type]ask.Style, error) { return nil, errors.New("config.yaml: confirm is not a map") }
-	e := refusal(t, call(t, handler(t, broken), "POST", "/api/greeting", `{"text":"hi"}`, nil), http.StatusInternalServerError, serve.TypeFailed, serve.ReasonConfigUnreadable)
+	e := refusal(t, call(t, handler(t, broken), "POST", "/api/greeting", `{"text":"hi"}`, nil), http.StatusInternalServerError, problem.TypeFailed, serve.ReasonConfigUnreadable)
 	if !strings.Contains(e.Detail, "config.yaml") {
 		t.Fatalf("message %q", e.Detail)
 	}
@@ -627,7 +628,7 @@ func TestARequestThatDoesNotAskNeedsNoYes(t *testing.T) {
 		t.Fatalf("a request that follows a yes was asked: %d %s", w.Code, w.Body)
 	}
 	*changed = false
-	e := refusal(t, call(t, h, "POST", "/api/x", "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	e := refusal(t, call(t, h, "POST", "/api/x", "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
 	if *changed || !strings.Contains(e.Detail, "move asks first") {
 		t.Fatalf("any other request was not asked as its route's type: %q", e.Detail)
 	}
@@ -640,7 +641,7 @@ func TestARequestAsksAsTheTypeItSays(t *testing.T) {
 	if w := call(t, h, "POST", "/api/x", "", nil); w.Code != http.StatusOK {
 		t.Fatalf("the route's type set to never still asked: %d %s", w.Code, w.Body)
 	}
-	e := refusal(t, call(t, h, "POST", "/api/x?as=create", "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	e := refusal(t, call(t, h, "POST", "/api/x?as=create", "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
 	if !strings.Contains(e.Detail, "create asks first") {
 		t.Fatalf("not asked as create: %q", e.Detail)
 	}
@@ -654,7 +655,7 @@ func TestAChangeToTheSystemItselfAlwaysAsks(t *testing.T) {
 	never := func() (map[ask.Type]ask.Style, error) { return map[ask.Type]ask.Style{ask.Move: ask.Never}, nil }
 	h, changed := actionFor(t, never, true)
 	for _, path := range []string{"/api/x?follows=1", "/api/x?system=0"} {
-		refusal(t, call(t, h, "POST", path, "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+		refusal(t, call(t, h, "POST", path, "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
 	}
 	if *changed {
 		t.Fatal("a change to the system itself went through unasked")
@@ -684,7 +685,7 @@ func TestActionForReadsTheBodyAndTheHandlerStillGetsItWhole(t *testing.T) {
 func TestActionForRefusesABodyLargerThanServeTakes(t *testing.T) {
 	h, changed := actionFor(t, nil, false)
 	big := `{"text":"` + strings.Repeat("x", 1<<20) + `"}`
-	refusal(t, call(t, h, "POST", "/api/x?confirm=yes", big, nil), http.StatusRequestEntityTooLarge, serve.TypeRefused, serve.ReasonTooLarge)
+	refusal(t, call(t, h, "POST", "/api/x?confirm=yes", big, nil), http.StatusRequestEntityTooLarge, problem.TypeRefused, serve.ReasonTooLarge)
 	if *changed {
 		t.Fatal("a body too large was handed on")
 	}
@@ -712,7 +713,7 @@ func TestAnActionForThatFailsChangesNothingAndIsSaid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refusal(t, call(t, h, "POST", "/api/x?confirm=yes", "", nil), http.StatusInternalServerError, serve.TypeFailed, "")
+	refusal(t, call(t, h, "POST", "/api/x?confirm=yes", "", nil), http.StatusInternalServerError, problem.TypeFailed, "")
 	if changed || !strings.Contains(log.String(), "no act in the body") {
 		t.Fatalf("changed %t, log %q", changed, log.String())
 	}
@@ -721,7 +722,7 @@ func TestAnActionForThatFailsChangesNothingAndIsSaid(t *testing.T) {
 func TestAChangeActionForMarksAsTheSystemsAlwaysAsks(t *testing.T) {
 	never := func() (map[ask.Type]ask.Style, error) { return map[ask.Type]ask.Style{ask.Move: ask.Never}, nil }
 	h, changed := actionFor(t, never, false)
-	refusal(t, call(t, h, "POST", "/api/x?system=1&follows=1", "", nil), http.StatusPreconditionRequired, serve.TypeRefused, serve.ReasonUnconfirmed)
+	refusal(t, call(t, h, "POST", "/api/x?system=1&follows=1", "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
 	if *changed {
 		t.Fatal("a change ActionFor marked as the system's went through unasked")
 	}
@@ -849,7 +850,7 @@ func TestServeChangesNothingWhenTheAnswerCannotBeSaved(t *testing.T) {
 // More errors and codes
 
 func TestServeRefusesASameSiteRequest(t *testing.T) {
-	refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{"Sec-Fetch-Site": "same-site"}), http.StatusForbidden, serve.TypeRefused, serve.ReasonOrigin)
+	refusal(t, call(t, handler(t, nil), "GET", "/api/version", "", map[string]string{"Sec-Fetch-Site": "same-site"}), http.StatusForbidden, problem.TypeRefused, serve.ReasonOrigin)
 }
 
 func TestServeRefusesAWrongPageCookie(t *testing.T) {
@@ -944,7 +945,7 @@ func TestAModuleOffIsNotServedAndHearsOnlyThatItMissedAChange(t *testing.T) {
 	h := withModule(t, m, true)
 	call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil)
 	call(t, h, "POST", "/api/greeting", `{"text":"hi"}`, nil)
-	refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusNotFound, serve.TypeNotFound, "")
+	refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusNotFound, problem.TypeNotFound, "")
 	if len(m.heard) != 0 || len(m.skipped) != 1 {
 		t.Fatalf("heard %+v, skipped %+v with the feature off", m.heard, m.skipped)
 	}
@@ -976,7 +977,7 @@ func needing(t *testing.T, m any, closed bool) http.Handler {
 func TestAModuleMissingAValueAnswersWhatItNeedsAndTheRestRuns(t *testing.T) {
 	m := &recorder{}
 	h := needing(t, m, false)
-	e := refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusServiceUnavailable, serve.TypeFailed, features.ReasonNeedsValues)
+	e := refusal(t, call(t, h, "GET", "/api/heard", "", nil), http.StatusServiceUnavailable, problem.TypeFailed, features.ReasonNeedsValues)
 	if !strings.Contains(e.Detail, "HEAR_URL (where changes go)") {
 		t.Fatalf("message %q does not name the missing value", e.Detail)
 	}
@@ -989,7 +990,7 @@ func TestAModuleMissingAValueAnswersWhatItNeedsAndTheRestRuns(t *testing.T) {
 }
 
 func TestAModuleOffAndMissingAValueIsNotThere(t *testing.T) {
-	refusal(t, call(t, needing(t, &recorder{}, true), "GET", "/api/heard", "", nil), http.StatusNotFound, serve.TypeNotFound, "")
+	refusal(t, call(t, needing(t, &recorder{}, true), "GET", "/api/heard", "", nil), http.StatusNotFound, problem.TypeNotFound, "")
 }
 
 func TestHandlerRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) {
@@ -997,8 +998,8 @@ func TestHandlerRefusesToStartWithoutAValueTheAppCannotRunWithout(t *testing.T) 
 	s.Needs = []features.Value{{Name: "SHOP_DIR", Purpose: "where the shop lives"}, {Name: "SHOP_KEY", Purpose: "what opens it"}}
 	s.Lookup = func(name string) bool { return name == "SHOP_KEY" }
 	_, err := serveHandler(t, app, s, nil)
-	var e *serve.Problem
-	if !errors.As(err, &e) || e.Type != serve.TypeFailed || e.Reason != serve.ReasonCoreNeedsValues || !strings.Contains(e.Detail, "SHOP_DIR (where the shop lives)") || strings.Contains(e.Detail, "SHOP_KEY") {
+	var e *problem.Problem
+	if !errors.As(err, &e) || e.Type != problem.TypeFailed || e.Reason != serve.ReasonCoreNeedsValues || !strings.Contains(e.Detail, "SHOP_DIR (where the shop lives)") || strings.Contains(e.Detail, "SHOP_KEY") {
 		t.Fatalf("err = %v, want core_needs_values naming SHOP_DIR alone", err)
 	}
 	s.Lookup = func(string) bool { return true }

@@ -1,4 +1,4 @@
-// Package cli is `<app> commands`: where the config file with the commands
+// Package cli is `<app> command`: where the config file with the commands
 // is, how to get the starter one back, and whether it loads.
 package cli
 
@@ -11,10 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/usercmd"
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/usercmd"
 )
 
-// Command builds `<app> commands`. starter is the file the app ships; taken
+// Command builds the thing `<app> command`, each verb with its old form under commands for one release (G-STACK-5). starter is the file the app ships; taken
 // is the app's own keys per view, to report the ones a user command loses.
 func Command(app string, starter []byte, spec usercmd.Spec, taken func() map[string][]string) *cobra.Command {
 	return CommandAt(app, func() string { return usercmd.Path(app) }, starter, spec, taken)
@@ -23,8 +24,8 @@ func Command(app string, starter []byte, spec usercmd.Spec, taken func() map[str
 // CommandAt is Command for the config.yaml that path names, asked each time a command runs.
 func CommandAt(app string, path func() string, starter []byte, spec usercmd.Spec, taken func() map[string][]string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "commands",
-		Short: "Your own palette commands: where the file is, recreate it, check it",
+		Use:   "command",
+		Short: "Your own palette commands: where the file is, create it, check it",
 		Long: fmt.Sprintf(`The dashboard's palette also lists the commands in
 %s,
 the one file of %s you edit (it also holds theme: and background:).
@@ -37,21 +38,22 @@ the command stays in the palette. An old commands.yaml is moved in.`, path(), ap
 			}
 		},
 	}
-	root.AddCommand(&cobra.Command{
+	helpout.Old(root, "commands")
+	root.AddCommand(helpout.Old(&cobra.Command{
 		Use:   "path",
 		Short: "Print where the config file with the commands is",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintln(cmd.OutOrStdout(), path())
 			if _, err := os.Stat(path()); errors.Is(err, os.ErrNotExist) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "it does not exist; `%s commands init` creates it\n", app)
+				fmt.Fprintf(cmd.ErrOrStderr(), "it does not exist; `%s command create` creates it\n", app)
 			}
 			return nil
 		},
-	})
+	}, "commands path"))
 	var force bool
-	initCmd := &cobra.Command{
-		Use:   "init",
+	create := &cobra.Command{
+		Use:   "create",
 		Short: "Write the starter config file when it is missing (--force replaces yours, kept as .bak)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -72,17 +74,17 @@ the command stays in the palette. An old commands.yaml is moved in.`, path(), ap
 			return nil
 		},
 	}
-	initCmd.Flags().BoolVar(&force, "force", false, "replace an existing file, keeping it as config.yaml.bak")
-	root.AddCommand(initCmd)
-	root.AddCommand(&cobra.Command{
+	create.Flags().BoolVar(&force, "force", false, "replace an existing file, keeping it as config.yaml.bak")
+	root.AddCommand(helpout.Old(create, "commands init"))
+	root.AddCommand(helpout.Old(&cobra.Command{
 		Use:   "check",
 		Short: "Check the commands in the config file and list what they add",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return check(cmd.OutOrStdout(), app, path(), spec, taken())
 		},
-	})
-	root.AddCommand(&cobra.Command{
+	}, "commands check"))
+	root.AddCommand(helpout.Old(&cobra.Command{
 		Use:   "edit",
 		Short: "Open the config file in $VISUAL or $EDITOR, writing the starter one first if it is missing",
 		Args:  cobra.NoArgs,
@@ -98,13 +100,13 @@ the command stays in the palette. An old commands.yaml is moved in.`, path(), ap
 			}
 			return check(cmd.OutOrStdout(), app, p, spec, taken())
 		},
-	})
+	}, "commands edit"))
 	return root
 }
 
 func check(w io.Writer, app, path string, spec usercmd.Spec, taken map[string][]string) error {
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s does not exist; `%s commands init` creates it", path, app)
+		return fmt.Errorf("%s does not exist; `%s command create` creates it", path, app)
 	}
 	cmds, err := usercmd.Load(path, spec)
 	if err != nil {

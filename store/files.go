@@ -18,10 +18,10 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
-	"github.com/tugbayatilla/mankit/v3/queue"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store/internal/queue"
 )
 
 // files keeps a scope's things as files in its folder, opened once, through the safety core; a change of more than one write is logged ahead in this user's journal and marked in every queue it holds a turn of (contracts mankit/v1 store-journal, store-unfinished).
@@ -33,7 +33,7 @@ type files struct {
 func openFiles(s *Scope) (adapter, error) {
 	r, err := os.OpenRoot(s.root)
 	if err != nil {
-		return nil, fail(serve.TypeFailed, "", "", fmt.Sprintf("the folder %s cannot be opened: %v", s.root, err))
+		return nil, problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the folder %s cannot be opened: %v", s.root, err))
 	}
 	return &files{s: s, r: r}, nil
 }
@@ -189,7 +189,7 @@ func (f *files) plan(o op) ([]line, error) {
 	case opPut:
 		info, err := f.r.Lstat(slash(o.key))
 		if err == nil && info.IsDir() {
-			return nil, fail(serve.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s is a folder, so no file is written there", o.key))
+			return nil, problem.FailAt(problem.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s is a folder, so no file is written there", o.key))
 		}
 		cur, err := f.current(o.key)
 		if err != nil {
@@ -228,16 +228,16 @@ func (f *files) plan(o op) ([]line, error) {
 	}
 	info, err := f.r.Lstat(slash(o.from))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fail(serve.TypeRefused, ReasonChanged, string(o.from), fmt.Sprintf("%s is not there, so it is not moved", o.from))
+		return nil, problem.FailAt(problem.TypeRefused, ReasonChanged, string(o.from), fmt.Sprintf("%s is not there, so it is not moved", o.from))
 	}
 	if err != nil {
 		return nil, diskFail(err, string(o.from), string(o.from))
 	}
 	if _, err := f.r.Lstat(slash(o.key)); err == nil {
-		return nil, fail(serve.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s is there already, so %s is not moved onto it", o.key, o.from))
+		return nil, problem.FailAt(problem.TypeRefused, ReasonChanged, string(o.key), fmt.Sprintf("%s is there already, so %s is not moved onto it", o.key, o.from))
 	}
 	if o.key.within(o.from) {
-		return nil, fail(serve.TypeRefused, "", string(o.key), fmt.Sprintf("%s is inside %s, so %s cannot move there", o.key, o.from, o.from))
+		return nil, problem.FailAt(problem.TypeRefused, "", string(o.key), fmt.Sprintf("%s is inside %s, so %s cannot move there", o.key, o.from, o.from))
 	}
 	var cur []byte
 	if !info.IsDir() {
@@ -272,7 +272,7 @@ func (f *files) parents(key Key) ([]line, error) {
 		info, err := f.r.Lstat(p)
 		if err == nil {
 			if !info.IsDir() {
-				return nil, fail(serve.TypeRefused, ReasonChanged, p, fmt.Sprintf("%s is a file, so nothing is written inside it", p))
+				return nil, problem.FailAt(problem.TypeRefused, ReasonChanged, p, fmt.Sprintf("%s is a file, so nothing is written inside it", p))
 			}
 			break
 		}
@@ -298,12 +298,12 @@ func (f *files) tree(key Key) ([]line, error) {
 		}
 		// A name no key can hold is refused before anything is written, so every line a journal holds is a key.
 		if err := Key(p).check(); err != nil {
-			return fail(serve.TypeRefused, ReasonOutside, "", fmt.Sprintf("%s holds a name no key can hold, so it is not removed: %v", key, err))
+			return problem.FailAt(problem.TypeRefused, ReasonOutside, "", fmt.Sprintf("%s holds a name no key can hold, so it is not removed: %v", key, err))
 		}
 		switch {
 		case d.IsDir():
 			if reserved[d.Name()] {
-				return fail(serve.TypeRefused, ReasonOutside, p, fmt.Sprintf("%s holds %s, the store's own folder, so it is not removed", key, p))
+				return problem.FailAt(problem.TypeRefused, ReasonOutside, p, fmt.Sprintf("%s holds %s, the store's own folder, so it is not removed", key, p))
 			}
 			if Key(p) != key {
 				dirs = append(dirs, p)
@@ -315,7 +315,7 @@ func (f *files) tree(key Key) ([]line, error) {
 			}
 			fileLines = append(fileLines, line{Key: Key(p), Before: content(body), mode: f.modeFor(Key(p))})
 		default:
-			return fail(serve.TypeRefused, ReasonOutside, p, fmt.Sprintf("%s holds %s, which is not a file or a folder, so it is not removed", key, p))
+			return problem.FailAt(problem.TypeRefused, ReasonOutside, p, fmt.Sprintf("%s holds %s, which is not a file or a folder, so it is not removed", key, p))
 		}
 		return nil
 	})
@@ -504,7 +504,7 @@ func (f *files) commit(t *turns, ops []op) error {
 			return errors.Join(cause, f.stuck(done[:left], err, journal))
 		}
 		if err := jr.Remove(name); err != nil {
-			return errors.Join(cause, fail(serve.TypeFailed, "", "", fmt.Sprintf("the change was put back, but its journal %s could not be removed: %v", journal, err)))
+			return errors.Join(cause, problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the change was put back, but its journal %s could not be removed: %v", journal, err)))
 		}
 		f.syncJournals(jr, journal)
 		removeMarks(marks, id)
@@ -528,7 +528,7 @@ func (f *files) commit(t *turns, ops []op) error {
 				return undo(err)
 			}
 			if err := disk.Append(jr, name, text); err != nil {
-				return undo(fail(serve.TypeFailed, "", "", fmt.Sprintf("the journal %s cannot be written: %v", journal, err)))
+				return undo(problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the journal %s cannot be written: %v", journal, err)))
 			}
 			if err := step(); err != nil {
 				return err
@@ -560,7 +560,7 @@ func (f *files) commit(t *turns, ops []op) error {
 		return undo(err)
 	}
 	if err := jr.Remove(name); err != nil {
-		return fail(serve.TypeFailed, "", "", fmt.Sprintf("the change was made, but its journal %s could not be removed, so the next run puts it back: %v", journal, err))
+		return problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the change was made, but its journal %s could not be removed, so the next run puts it back: %v", journal, err))
 	}
 	f.syncJournals(jr, journal)
 	if err := step(); err != nil {
@@ -568,7 +568,7 @@ func (f *files) commit(t *turns, ops []op) error {
 	}
 	for _, dir := range marks {
 		if err := os.Remove(markPath(dir, id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fail(serve.TypeFailed, "", "", fmt.Sprintf("the change was made, but its mark %s could not be removed: %v", markPath(dir, id), err))
+			return problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the change was made, but its mark %s could not be removed: %v", markPath(dir, id), err))
 		}
 		if err := step(); err != nil {
 			return err
@@ -580,10 +580,10 @@ func (f *files) commit(t *turns, ops []op) error {
 // stuck is a change that could not all be put back: its journal and marks stay, so nothing else changes the thing until it is.
 func (f *files) stuck(left []line, err error, journal string) error {
 	if err != nil {
-		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("putting the change back stopped: %v; what was there before is kept in %s", err, journal))
+		return problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("putting the change back stopped: %v; what was there before is kept in %s", err, journal))
 	}
 	last := left[len(left)-1].Key
-	return fail(serve.TypeFailed, ReasonUnfinished, string(last), fmt.Sprintf("putting the change back stopped at %s, which was changed since, so it and what came before it were left as they are; what was there before is kept in %s", last, journal))
+	return problem.FailAt(problem.TypeFailed, ReasonUnfinished, string(last), fmt.Sprintf("putting the change back stopped at %s, which was changed since, so it and what came before it were left as they are; what was there before is kept in %s", last, journal))
 }
 
 // readBack checks the disk holds what the lines left, each key where and as the last line touching it leaves it: a folder moved takes what was written inside it along, and what was there under its new name before is gone.
@@ -646,7 +646,7 @@ func (f *files) readBack(lines []line) error {
 			ok = rerr == nil && body != nil && bytes.Equal(body, e.body)
 		}
 		if !ok {
-			return fail(serve.TypeFailed, queue.ReasonNotReadBack, string(k), fmt.Sprintf("%s was written but could not be read back as written", k))
+			return problem.FailAt(problem.TypeFailed, queue.ReasonNotReadBack, string(k), fmt.Sprintf("%s was written but could not be read back as written", k))
 		}
 	}
 	return nil
@@ -772,7 +772,7 @@ func same(a, b []byte) bool { return (a == nil) == (b == nil) && bytes.Equal(a, 
 func (f *files) journals() (string, error) {
 	data, err := home.ProductData(f.s.app.ID)
 	if err != nil {
-		return "", fail(serve.TypeFailed, "", "", fmt.Sprintf("%s's data folder cannot be found: %v", f.s.app.ID, err))
+		return "", problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("%s's data folder cannot be found: %v", f.s.app.ID, err))
 	}
 	sum := sha256.Sum256([]byte(hostname()))
 	dir := filepath.Join(data, ".store", hex.EncodeToString(sum[:4]))
@@ -803,7 +803,7 @@ func (f *files) startJournal(id string, lines []byte) (*os.Root, string, error) 
 	}
 	if err != nil {
 		r.Close()
-		return nil, "", fail(serve.TypeFailed, "", "", fmt.Sprintf("the journal %s cannot be written: %v", filepath.Join(dir, name), err))
+		return nil, "", problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the journal %s cannot be written: %v", filepath.Join(dir, name), err))
 	}
 	return r, name, nil
 }
@@ -822,7 +822,7 @@ func writeMark(dir string, m mark) error {
 		}
 	}
 	if err != nil {
-		return fail(serve.TypeFailed, queue.ReasonUnusable, "", fmt.Sprintf("the change's mark cannot be written in %s: %v", dir, err))
+		return problem.FailAt(problem.TypeFailed, queue.ReasonUnusable, "", fmt.Sprintf("the change's mark cannot be written in %s: %v", dir, err))
 	}
 	return nil
 }
@@ -841,7 +841,7 @@ func marksIn(dir string) ([]mark, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fail(serve.TypeFailed, queue.ReasonUnusable, "", fmt.Sprintf("the change queue %s cannot be read: %v", dir, err))
+		return nil, problem.FailAt(problem.TypeFailed, queue.ReasonUnusable, "", fmt.Sprintf("the change queue %s cannot be read: %v", dir, err))
 	}
 	var out []mark
 	for _, e := range entries {
@@ -861,16 +861,16 @@ func marksIn(dir string) ([]mark, error) {
 func readMarkFile(dir, name, id string) (mark, error) {
 	r, err := os.OpenRoot(dir)
 	if err != nil {
-		return mark{}, fail(serve.TypeFailed, queue.ReasonUnusable, "", fmt.Sprintf("the change queue %s cannot be read: %v", dir, err))
+		return mark{}, problem.FailAt(problem.TypeFailed, queue.ReasonUnusable, "", fmt.Sprintf("the change queue %s cannot be read: %v", dir, err))
 	}
 	defer r.Close()
 	data, _, err := disk.Read(r, name)
 	if err != nil {
-		return mark{}, fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the mark of a change cut short, %s, cannot be read, so nothing it may hold back is changed: %v", filepath.Join(dir, name), err))
+		return mark{}, problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the mark of a change cut short, %s, cannot be read, so nothing it may hold back is changed: %v", filepath.Join(dir, name), err))
 	}
 	m, err := readMark(data, id)
 	if err != nil {
-		return mark{}, fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the mark of a change cut short, %s, %v, so nothing it may hold back is changed", filepath.Join(dir, name), err))
+		return mark{}, problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the mark of a change cut short, %s, %v, so nothing it may hold back is changed", filepath.Join(dir, name), err))
 	}
 	return m, nil
 }
@@ -918,8 +918,8 @@ func (f *files) blocked(t *turns, key Key) error {
 // refuse is unfinished_change, naming who must run again, where, and the command that clears the mark (contracts store-unfinished).
 func (f *files) refuse(m mark, what string) error {
 	app, thing := f.s.app.command(), m.Spec.Keys[0].thing()
-	p := fail(serve.TypeRefused, ReasonUnfinished, string(m.Spec.Keys[0]), fmt.Sprintf(
-		"%s is not changed: a change %s made on %s was cut short and waits to be put back; %s's next run of %s on %s puts it back, and once sure it was put back or given up, `%s store unfinished clear %s` clears it",
+	p := problem.FailAt(problem.TypeRefused, ReasonUnfinished, string(m.Spec.Keys[0]), fmt.Sprintf(
+		"%s is not changed: a change %s made on %s was cut short and waits to be put back; %s's next run of %s on %s puts it back, and once sure it was put back or given up, `%s store unfinished remove %s` clears it",
 		what, m.Spec.User, m.Spec.Host, m.Spec.User, app, m.Spec.Host, app, thing))
 	return p
 }
@@ -932,7 +932,7 @@ func (f *files) settle(ctx context.Context, thing Key) error {
 		things = nil
 		entries, err := os.ReadDir(f.s.root)
 		if err != nil {
-			return fail(serve.TypeFailed, "", "", fmt.Sprintf("the folder %s cannot be read: %v", f.s.root, err))
+			return problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the folder %s cannot be read: %v", f.s.root, err))
 		}
 		for _, e := range entries {
 			if !reserved[e.Name()] && !disk.IsTemp(e.Name()) {
@@ -1025,25 +1025,25 @@ func (f *files) putBack(m mark) error {
 	case errors.Is(err, fs.ErrNotExist):
 		return f.dropMarks(m)
 	case errors.Is(err, disk.ErrLink):
-		return fail(serve.TypeFailed, ReasonNotOwned, "", fmt.Sprintf("the journal %s is a link, so it is not put back and nothing it holds back is changed", journal))
+		return problem.FailAt(problem.TypeFailed, ReasonNotOwned, "", fmt.Sprintf("the journal %s is a link, so it is not put back and nothing it holds back is changed", journal))
 	case err != nil:
-		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s cannot be read, so nothing is put back and nothing it holds back is changed: %v", journal, err))
+		return problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s cannot be read, so nothing is put back and nothing it holds back is changed: %v", journal, err))
 	}
 	if err := disk.OwnFile(info, journal); err != nil {
-		return fail(serve.TypeFailed, ReasonNotOwned, "", fmt.Sprintf("the journal %s is not this user's own, or others can write it, so it is not put back", journal))
+		return problem.FailAt(problem.TypeFailed, ReasonNotOwned, "", fmt.Sprintf("the journal %s is not this user's own, or others can write it, so it is not put back", journal))
 	}
 	head, lines, err := parseJournal(raw)
 	if err != nil {
-		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s %v, so nothing is put back and nothing it holds back is changed", journal, err))
+		return problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s %v, so nothing is put back and nothing it holds back is changed", journal, err))
 	}
 	if head.Metadata.Host == hostname() && head.Metadata.PID != os.Getpid() && alive(head.Metadata.PID) {
-		return fail(serve.TypeRefused, ReasonUnfinished, string(m.Spec.Keys[0]), fmt.Sprintf("the journal %s belongs to process %d, which still runs on this machine, so it is not put back; wait for it to end", journal, head.Metadata.PID))
+		return problem.FailAt(problem.TypeRefused, ReasonUnfinished, string(m.Spec.Keys[0]), fmt.Sprintf("the journal %s belongs to process %d, which still runs on this machine, so it is not put back; wait for it to end", journal, head.Metadata.PID))
 	}
 	if head.Metadata.ID != m.Spec.Journal || head.Spec.Mark != m.Metadata.ID {
-		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s is %s with the mark %s, not the journal the mark %s names, so it is not put back", journal, head.Metadata.ID, head.Spec.Mark, m.Metadata.ID))
+		return problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s is %s with the mark %s, not the journal the mark %s names, so it is not put back", journal, head.Metadata.ID, head.Spec.Mark, m.Metadata.ID))
 	}
 	if !sameFolder(head.Spec.Scope, f.s.root) {
-		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s names the folder %s, not %s, so it is not put back here", journal, head.Spec.Scope, f.s.root))
+		return problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the journal %s names the folder %s, not %s, so it is not put back here", journal, head.Spec.Scope, f.s.root))
 	}
 	left, err := f.undo(lines)
 	if left > 0 || err != nil {
@@ -1058,7 +1058,7 @@ func (f *files) putBack(m mark) error {
 	}
 	fmt.Fprintf(f.log(), "store: a change %s cut short in %s was put back (journal %s)\n", head.Metadata.App, f.s.root, journal)
 	if err := r.Remove(name); err != nil {
-		return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the change in %s was put back, but its journal could not be removed: %v", journal, err))
+		return problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the change in %s was put back, but its journal could not be removed: %v", journal, err))
 	}
 	f.syncJournals(r, journal)
 	return f.dropMarks(m)
@@ -1086,7 +1086,7 @@ func (f *files) dropMarks(m mark) error {
 	for _, l := range f.markLines(m) {
 		p := markPath(f.s.queueFor(l).Dir(), m.Metadata.ID)
 		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fail(serve.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the mark %s cannot be removed: %v", p, err))
+			return problem.FailAt(problem.TypeFailed, ReasonUnfinished, "", fmt.Sprintf("the mark %s cannot be removed: %v", p, err))
 		}
 	}
 	return nil
@@ -1178,7 +1178,7 @@ func (f *files) leftJournals(thing Key) ([]Unfinished, error) {
 		if f.markThere(m) || thing != "" && !slices.ContainsFunc(m.Spec.Keys, func(k Key) bool { return k.thing() == thing }) {
 			continue
 		}
-		out = append(out, Unfinished{ID: head.Spec.Mark, User: userName(), Host: head.Metadata.Host, Journal: head.Metadata.ID, Keys: m.Spec.Keys, File: filepath.Join(dir, e.Name()), Left: true})
+		out = append(out, shown(Unfinished{ID: head.Spec.Mark, User: userName(), Host: head.Metadata.Host, Journal: head.Metadata.ID, Keys: m.Spec.Keys, File: filepath.Join(dir, e.Name()), Left: true}))
 	}
 	return out, nil
 }
@@ -1190,7 +1190,7 @@ func (f *files) clear(ctx context.Context, thing Key, ids []string) ([]Unfinishe
 	}
 	out := []Unfinished{}
 	for _, m := range marks {
-		if thing != "" && !slices.ContainsFunc(m.Spec.Keys, func(k Key) bool { return k.thing() == thing }) || ids != nil && !slices.Contains(ids, m.Metadata.ID) {
+		if thing != "" && !slices.ContainsFunc(m.Spec.Keys, func(k Key) bool { return k.thing() == thing }) || !slices.Contains(ids, m.Metadata.ID) {
 			continue
 		}
 		t := f.s.turns(ctx, "clear a change cut short")

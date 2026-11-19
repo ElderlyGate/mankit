@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
 )
 
 // The child of serve --detach is told what it is by the environment, never by a flag a user could type.

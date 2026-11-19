@@ -13,7 +13,8 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 // moved is designer answering v1 in envelope/v1 and v2 in envelope/v2, as an app that moved with its next contract.
@@ -65,7 +66,7 @@ func TestTheGuardRefusesInTheContractAskedFor(t *testing.T) {
 			t.Errorf("asked %q: not %s: %v\n%s", asked, schema, err, w.Body)
 		}
 		var e serve.Envelope
-		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || len(e.Errors) != 1 || e.Errors[0].Type != serve.TypeRefused || e.Errors[0].Reason != serve.ReasonToken {
+		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || len(e.Errors) != 1 || e.Errors[0].Type != problem.TypeRefused || e.Errors[0].Reason != serve.ReasonToken {
 			t.Errorf("asked %q: %+v, %v", asked, e.Errors, err)
 		}
 	}
@@ -77,7 +78,7 @@ func TestServersFindsTheAppInEitherEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v2, err := json.Marshal(serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v2", Envelope: "v2"}}}.Failure("shop", "v2", serve.Fail(serve.TypeRefused, serve.ReasonToken, "no token")))
+	v2, err := json.Marshal(serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v2", Envelope: "v2"}}}.Failure("shop", "v2", problem.Fail(problem.TypeRefused, serve.ReasonToken, "no token")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestServersFindsTheAppInEitherEnvelope(t *testing.T) {
 			}
 			defer func() { _ = sleeper.Process.Kill(); _ = sleeper.Wait() }()
 			writeRecord(t, dir, srv.Listener.Addr().String(), sleeper.Process.Pid)
-			e := answer(t, listSchema, "servers")
+			e := answer(t, listSchema, "server", "list")
 			list, _ := e.Data.([]any)
 			if len(list) != 1 || list[0].(map[string]any)["answering"] != true {
 				t.Fatalf("listed %v", e.Data)
@@ -136,8 +137,8 @@ func TestAppContractsAreChecked(t *testing.T) {
 
 // error/v1 has one place, so a Problem's first place is its at {file, field}.
 func TestTheFirstPlaceIsTheV1At(t *testing.T) {
-	p := serve.Fail(serve.TypeRefused, "duplicate", "another file already holds the request second")
-	p.At = []serve.Place{{File: "request/second-copy.yml", Document: 1, Line: 3, Path: "metadata.id"}, {File: "request/second.yml", Path: "metadata.id"}}
+	p := problem.Fail(problem.TypeRefused, "duplicate", "another file already holds the request second")
+	p.At = []problem.Place{{File: "request/second-copy.yml", Document: 1, Line: 3, Path: "metadata.id"}, {File: "request/second.yml", Path: "metadata.id"}}
 	body, err := json.Marshal(app.Failure("shop", "v1", p))
 	if err != nil {
 		t.Fatal(err)
@@ -179,8 +180,8 @@ func TestA406OnEnvelopeV2IsAProblem(t *testing.T) {
 
 // An empty detail or an empty place never reaches the wire, as problem/v1 refuses both.
 func TestAFailureNeverWritesAnEmptyDetailOrPlace(t *testing.T) {
-	p := serve.Fail(serve.TypeFailed, serve.ReasonConfigUnreadable, "")
-	p.At = []serve.Place{{}, {Path: "queue.wait"}, {}}
+	p := problem.Fail(problem.TypeFailed, serve.ReasonConfigUnreadable, "")
+	p.At = []problem.Place{{}, {Path: "queue.wait"}, {}}
 	e := moved.Failure("shop", "v2", p)
 	body, err := json.Marshal(e)
 	if err != nil {

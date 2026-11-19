@@ -12,10 +12,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/internal/disk"
-	"github.com/tugbayatilla/mankit/v3/theme"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/theme"
 )
 
 // Key is one setting of config.yaml.
@@ -55,7 +55,7 @@ var (
 
 // Commands is the commands: block of the loaded file, shown as a count.
 func Commands(app string) Key {
-	return Key{Name: "commands", Help: "edit with `" + app + " commands edit`", ReadOnly: true}
+	return Key{Name: "commands", Help: "edit with `" + app + " command edit`", ReadOnly: true}
 }
 
 // Keys is mankit's keys, then the app's own, each with its own copy of Values.

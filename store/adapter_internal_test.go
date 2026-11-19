@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v3/features"
+	"github.com/tugbayatilla/mankit/v4/features"
 )
 
 // other stands for an enterprise adapter's module: it is picked only through the feature it is attached to.

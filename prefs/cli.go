@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/helpout"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/helpout"
 )
 
-// confirmKey starts a key of `set config` that sets a type's style.
+// confirmKey starts a key of `config set` that sets a type's style.
 const confirmKey = ask.Section + "."
 
 // Options are what AddTo needs from the app.
@@ -26,21 +26,25 @@ type Options struct {
 	Extra  func() []Location // places the app keeps besides its config and data; nil for none
 }
 
-// AddTo adds `get locations` and `get confirm`, and makes mankit's `set config` (added first) ask and take `confirm.<type>`.
+// AddTo adds `location list` and `confirm list`, each with its old form for one release (G-STACK-5), and makes mankit's `config set` (added first) ask and take `confirm.<type>`.
 func AddTo(root *cobra.Command, o Options) error {
-	get, set := child(root, "get"), child(root, "set")
-	if get == nil || set == nil || child(set, "config") == nil {
+	config := child(root, "config")
+	if config == nil || child(config, "set") == nil {
 		return errors.New("prefs: add mankit's settings verbs first")
 	}
-	get.AddCommand(locationsCmd(o), confirmCmd(o))
-	wrapSetConfig(child(set, "config"), o)
+	location := &cobra.Command{Use: "location", Short: "Where " + o.App + " keeps things"}
+	location.AddCommand(helpout.Old(locationsCmd(o), "get locations"))
+	confirm := &cobra.Command{Use: "confirm", Short: "How each type of change asks"}
+	confirm.AddCommand(helpout.Old(confirmCmd(o), "get confirm"))
+	root.AddCommand(location, confirm)
+	wrapSetConfig(child(config, "set"), o)
 	return nil
 }
 
 func locationsCmd(o Options) *cobra.Command {
 	var format string
 	c := &cobra.Command{
-		Use:   "locations",
+		Use:   "list",
 		Short: "Show where " + o.App + " keeps things: its config and its data",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -67,7 +71,7 @@ func locationsCmd(o Options) *cobra.Command {
 func confirmCmd(o Options) *cobra.Command {
 	var format string
 	c := &cobra.Command{
-		Use:   "confirm",
+		Use:   "list",
 		Short: "Show how each type of change asks, and whether the style is " + o.App + "'s or the default",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -94,7 +98,7 @@ func wrapSetConfig(set *cobra.Command, o Options) {
 	if set.Flag("yes") == nil {
 		set.Flags().BoolP("yes", "y", false, "make the change without asking")
 	}
-	set.Use = "config <key> <value>"
+	set.Use = "set <key> <value>"
 	set.Long = `Change a key of config.yaml; "" puts it back to its default.
 confirm.<type> <style> sets how a type of change asks: name, yes-no or never;
 default removes it, so the type asks in its default way again.

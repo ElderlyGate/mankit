@@ -12,12 +12,13 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/store"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store"
+	storecli "github.com/tugbayatilla/mankit/v4/store/cli"
 )
 
-// The tests of <app> store unfinished clear, in ADR-S19's six parts.
+// The tests of <app> store unfinished remove, in ADR-S19's six parts.
 
 // yes stands in a typed name for the question, keeping what was asked.
 func yes(t *testing.T) *ask.Action {
@@ -37,7 +38,7 @@ func TestUnfinishedClearRemovesTheMarkSoTheKeyIsChangedAgain(t *testing.T) {
 	if err := put(t, s, "shop/a.yml", "mine"); reason(err) != store.ReasonUnfinished {
 		t.Fatalf("before clear = %v, want unfinished_change", err)
 	}
-	out, code, err := unfinishedRun(t, dir, "clear", "shop", "--yes")
+	out, code, err := unfinishedRun(t, dir, "remove", "shop", "--yes")
 	if err != nil || code != 0 || !strings.Contains(out, "alice") || !strings.Contains(out, "nothing was put back") {
 		t.Fatalf("clear = %d, %v\n%s", code, err, out)
 	}
@@ -61,7 +62,7 @@ func TestUnfinishedClearRemovesOnlyTheMarksItShowed(t *testing.T) {
 		write(t, later, strings.ReplaceAll(string(raw), "17000000000000000001", "17000000000000000002"))
 		return nil
 	})
-	out, code, err := unfinishedRun(t, dir, "clear", "shop", "-o", "json")
+	out, code, err := unfinishedRun(t, dir, "remove", "shop", "-o", "json")
 	if err != nil || code != 0 || strings.Contains(out, "17000000000000000002") {
 		t.Fatalf("clear = %d, %v\n%s", code, err, out)
 	}
@@ -75,7 +76,7 @@ func TestUnfinishedClearAnswersInItsContractShape(t *testing.T) {
 	dir := fresh(t)
 	s := served(t, dir)
 	journal, _ := cutShort(t, s, 5)
-	out, _, err := unfinishedRun(t, dir, "clear", "shop", "--yes", "-o", "json")
+	out, _, err := unfinishedRun(t, dir, "remove", "shop", "--yes", "-o", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,22 +96,22 @@ func TestUnfinishedClearAnswersInItsContractShape(t *testing.T) {
 func TestUnfinishedClearNeedsTheMarkToExist(t *testing.T) {
 	dir := fresh(t)
 	s := served(t, dir)
-	out, code, err := unfinishedRun(t, dir, "clear", "shop", "--yes")
-	var p *serve.Problem
-	if code != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound || !strings.Contains(p.Detail, "storetest store unfinished list") {
+	out, code, err := unfinishedRun(t, dir, "remove", "shop", "--yes")
+	var p *problem.Problem
+	if code != 1 || !errors.As(err, &p) || p.Type != problem.TypeNotFound || !strings.Contains(p.Detail, "storetest store unfinished list") {
 		t.Fatalf("clear with no mark = %d, %v\n%s", code, err, out)
 	}
 	cutShort(t, s, 5)
 	if _, err := s.ClearShown(ctx, "shop", idsOf(t, s, "shop")); err != nil {
 		t.Fatal(err)
 	}
-	if _, code, err := unfinishedRun(t, dir, "clear", "shop", "--yes"); code != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound {
+	if _, code, err := unfinishedRun(t, dir, "remove", "shop", "--yes"); code != 1 || !errors.As(err, &p) || p.Type != problem.TypeNotFound {
 		t.Fatalf("clear with only a left journal = %d, %v", code, err)
 	}
-	if _, code, err := unfinishedRun(t, dir, "clear", "shop/a.yml", "--yes"); code != 1 || !errors.As(err, &p) || p.Type != serve.TypeRefused {
+	if _, code, err := unfinishedRun(t, dir, "remove", "shop/a.yml", "--yes"); code != 1 || !errors.As(err, &p) || p.Type != problem.TypeRefused {
 		t.Fatalf("clear of a key = %d, %v", code, err)
 	}
-	if _, code, _ := unfinishedRun(t, dir, "clear", "--yes"); code != 2 {
+	if _, code, _ := unfinishedRun(t, dir, "remove", "--yes"); code != 2 {
 		t.Fatalf("clear with no thing = %d, want 2, a usage mistake", code)
 	}
 }
@@ -124,9 +125,9 @@ func TestUnfinishedClearOfAMarkGoneMeanwhileIsNotFound(t *testing.T) {
 	store.AskWith(t, func(*cobra.Command, ask.Action) error {
 		return os.Remove(filepath.Join(line, ".queue", ".unfinished-17000000000000000001.json"))
 	})
-	_, code, err := unfinishedRun(t, dir, "clear", "shop")
-	var p *serve.Problem
-	if code != 1 || !errors.As(err, &p) || p.Type != serve.TypeNotFound || !strings.Contains(p.Detail, "nothing was cleared") {
+	_, code, err := unfinishedRun(t, dir, "remove", "shop")
+	var p *problem.Problem
+	if code != 1 || !errors.As(err, &p) || p.Type != problem.TypeNotFound || !strings.Contains(p.Detail, "nothing was cleared") {
 		t.Fatalf("clear of a mark gone meanwhile = %d, %v", code, err)
 	}
 }
@@ -144,11 +145,11 @@ func TestTheRefusalAndTheCommandNameTheAppsCLIAlike(t *testing.T) {
 	}
 	defer s.Close()
 	markOf(t, lines(root)("shop"), "alice", "elsewhere", false, "shop/a.yml")
-	if err := put(t, s, "shop/a.yml", "x"); !strings.Contains(fmt.Sprint(err), "`e-storetest store unfinished clear shop`") {
+	if err := put(t, s, "shop/a.yml", "x"); !strings.Contains(fmt.Sprint(err), "`e-storetest store unfinished remove shop`") {
 		t.Fatalf("the refusal = %v", err)
 	}
-	cli := store.UnfinishedCommand(serving, func() (*store.Scope, error) { return store.Served(named, root, lines(root)) })
-	cli.SetArgs([]string{"clear", "cart", "--yes"})
+	cli := storecli.UnfinishedCommand(serving, func() (*store.Scope, error) { return store.Served(named, root, lines(root)) })
+	cli.SetArgs([]string{"remove", "cart", "--yes"})
 	cli.SilenceErrors, cli.SilenceUsage = true, true
 	if err := cli.Execute(); !strings.Contains(fmt.Sprint(err), "`e-storetest store unfinished list`") {
 		t.Fatalf("clear's not_found = %v", err)
@@ -161,7 +162,7 @@ func TestUnfinishedClearShowsTheChangeAndAsksForTheName(t *testing.T) {
 	s := served(t, dir)
 	journal, _ := cutShort(t, s, 5)
 	markOf(t, lines(filepath.Join(dir, "served"))("shop"), "alice", "elsewhere", false, "shop/z.yml")
-	_, code, err := unfinishedRun(t, dir, "clear", "shop")
+	_, code, err := unfinishedRun(t, dir, "remove", "shop")
 	if code != 3 || !errors.Is(err, ask.ErrRefused) || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("no terminal and no --yes = %d, %v, want 3 and refused", code, err)
 	}
@@ -169,7 +170,7 @@ func TestUnfinishedClearShowsTheChangeAndAsksForTheName(t *testing.T) {
 		t.Fatalf("a refused clear removed a mark: %+v", got)
 	}
 	asked := yes(t)
-	if _, code, err := unfinishedRun(t, dir, "clear", "shop"); code != 0 || err != nil {
+	if _, code, err := unfinishedRun(t, dir, "remove", "shop"); code != 0 || err != nil {
 		t.Fatalf("a yes = %d, %v", code, err)
 	}
 	if asked.Type != ask.Delete || !asked.System || asked.Name != "shop" {
@@ -191,7 +192,7 @@ func TestUnfinishedClearSaysAJournalItCannotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	asked := yes(t)
-	if _, _, err := unfinishedRun(t, dir, "clear", "shop"); err != nil {
+	if _, _, err := unfinishedRun(t, dir, "remove", "shop"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(asked.What, "what it was doing is not known") {
@@ -212,14 +213,14 @@ func TestUnfinishedClearOverHTTPAsksAndAnswersAsTheCLI(t *testing.T) {
 			mine = id
 		}
 	}
-	target := store.UnfinishedPath + "/shop?id=" + mine
+	target := storecli.UnfinishedPath + "/shop?id=" + mine
 	if w := call(t, h, http.MethodDelete, target); w.Code != http.StatusPreconditionRequired {
 		t.Fatalf("DELETE without a yes = %d %s, want 428", w.Code, w.Body)
 	}
-	if w := call(t, h, http.MethodDelete, store.UnfinishedPath+"/shop"); w.Code != http.StatusBadRequest {
+	if w := call(t, h, http.MethodDelete, storecli.UnfinishedPath+"/shop"); w.Code != http.StatusBadRequest {
 		t.Fatalf("DELETE naming no mark, unasked = %d %s, want 400 before 428", w.Code, w.Body)
 	}
-	if w := call(t, h, http.MethodDelete, store.UnfinishedPath+"/shop?confirm=yes"); w.Code != http.StatusBadRequest {
+	if w := call(t, h, http.MethodDelete, storecli.UnfinishedPath+"/shop?confirm=yes"); w.Code != http.StatusBadRequest {
 		t.Fatalf("DELETE naming no mark = %d %s, want 400", w.Code, w.Body)
 	}
 	if got := idsOf(t, s, "shop"); len(got) != 2 {
@@ -240,21 +241,21 @@ func TestUnfinishedClearOverHTTPAsksAndAnswersAsTheCLI(t *testing.T) {
 		t.Fatalf("DELETE of a mark gone = %d %s, want 404", again.Code, again.Body)
 	}
 	// The same clear on the CLI answers the same data.
-	cli, _, err := unfinishedRun(t, dir, "clear", "shop", "--yes", "-o", "json")
+	cli, _, err := unfinishedRun(t, dir, "remove", "shop", "--yes", "-o", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	markOf(t, lines(filepath.Join(dir, "served"))("shop"), "alice", "elsewhere", false, "shop/z.yml")
-	over := call(t, h, http.MethodDelete, store.UnfinishedPath+"/shop?id=17000000000000000001&confirm=yes")
+	over := call(t, h, http.MethodDelete, storecli.UnfinishedPath+"/shop?id=17000000000000000001&confirm=yes")
 	if dataOf(t, over.Body.Bytes()) != dataOf(t, []byte(cli)) {
 		t.Fatalf("DELETE and clear differ:\n%s\n%s", over.Body, cli)
 	}
 }
 
 // 6. Help.
-func TestUnfinishedClearHelpSaysItPutsNothingBack(t *testing.T) {
-	out, code, err := unfinishedRun(t, fresh(t), "clear", "--help")
-	if err != nil || code != 0 || !strings.Contains(out, "clear <thing>") || !strings.Contains(out, "puts nothing back") || !strings.Contains(out, "name") || !strings.Contains(out, "--yes") {
+func TestUnfinishedRemoveHelpSaysItPutsNothingBack(t *testing.T) {
+	out, code, err := unfinishedRun(t, fresh(t), "remove", "--help")
+	if err != nil || code != 0 || !strings.Contains(out, "remove <thing>") || !strings.Contains(out, "puts nothing back") || !strings.Contains(out, "name") || !strings.Contains(out, "--yes") {
 		t.Fatalf("help = %d, %v\n%s", code, err, out)
 	}
 }

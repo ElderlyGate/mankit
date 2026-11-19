@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/tugbayatilla/mankit/v3/features"
+	"github.com/tugbayatilla/mankit/v4/features"
 )
 
 // adapter is how a scope keeps its things; files is the one every build has, always on.
@@ -21,7 +21,7 @@ type adapter interface {
 	// commit makes ops all or nothing inside the turns held, and reads them back.
 	commit(t *turns, ops []op) error
 	unfinished(thing Key) ([]Unfinished, error)
-	// clear removes the marks in thing's turn still there once their turns are taken, only those of ids unless ids is nil.
+	// clear removes the marks of ids in thing's turn still there once their turns are taken.
 	clear(ctx context.Context, thing Key, ids []string) ([]Unfinished, error)
 	close() error
 }

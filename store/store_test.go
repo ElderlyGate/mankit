@@ -20,10 +20,10 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v3/queue"
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/store"
-	"github.com/tugbayatilla/mankit/v3/store/storetest"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store"
+	"github.com/tugbayatilla/mankit/v4/store/queue"
+	"github.com/tugbayatilla/mankit/v4/store/storetest"
 )
 
 var ctx = context.Background()
@@ -100,7 +100,7 @@ func key(t testing.TB, s string) store.Key {
 }
 
 func reason(err error) string {
-	var p *serve.Problem
+	var p *problem.Problem
 	if errors.As(err, &p) {
 		return p.Reason
 	}
@@ -171,8 +171,8 @@ func TestAPipeIsRefusedWithoutWaiting(t *testing.T) {
 	go func() { _, _, err := s.Get(key(t, "shop/pipe.yml")); done <- err }()
 	select {
 	case err := <-done:
-		var p *serve.Problem
-		if !errors.As(err, &p) || p.Type != serve.TypeRefused {
+		var p *problem.Problem
+		if !errors.As(err, &p) || p.Type != problem.TypeRefused {
 			t.Fatalf("Get of a pipe = %v, want refused", err)
 		}
 	case <-time.After(5 * time.Second):
@@ -348,11 +348,11 @@ func TestAnotherUsersUnfinishedChangeHoldsItsKeysUntilCleared(t *testing.T) {
 	root := filepath.Join(dir, "served")
 	markOf(t, lines(root)("shop"), "alice", "elsewhere", false, "shop/a.yml", "shop/b.yml")
 	err := put(t, s, "shop/a.yml", "mine")
-	var p *serve.Problem
-	if !errors.As(err, &p) || p.Reason != store.ReasonUnfinished || p.Type != serve.TypeRefused {
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Reason != store.ReasonUnfinished || p.Type != problem.TypeRefused {
 		t.Fatalf("a change to a held key = %v, want refused unfinished_change", err)
 	}
-	for _, says := range []string{"alice", "elsewhere", "storetest store unfinished clear shop"} {
+	for _, says := range []string{"alice", "elsewhere", "storetest store unfinished remove shop"} {
 		if !strings.Contains(p.Detail, says) {
 			t.Errorf("the refusal %q does not name %q", p.Detail, says)
 		}
@@ -370,8 +370,8 @@ func TestAnotherUsersUnfinishedChangeHoldsItsKeysUntilCleared(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].User != "alice" || got[0].Host != "elsewhere" || len(got[0].Keys) != 2 {
 		t.Fatalf("Unfinished = %+v, %v", got, err)
 	}
-	if cleared, err := s.Clear(ctx, "shop"); err != nil || len(cleared) != 1 {
-		t.Fatalf("Clear = %+v, %v", cleared, err)
+	if cleared, err := s.ClearShown(ctx, "shop", []string{got[0].ID}); err != nil || len(cleared) != 1 {
+		t.Fatalf("ClearShown = %+v, %v", cleared, err)
 	}
 	if err := put(t, s, "shop/a.yml", "mine"); err != nil {
 		t.Fatalf("once cleared: %v", err)
@@ -821,9 +821,13 @@ func TestAJournalLeftAfterItsMarksAreClearedIsShown(t *testing.T) {
 	parts := bytes.Split(raw, []byte("\n"))
 	parts[1] = []byte("{broken")
 	_ = os.WriteFile(journal, bytes.Join(parts, []byte("\n")), 0o600)
-	cleared, err := s.Clear(ctx, "shop")
+	held, err := s.Unfinished("shop")
+	if err != nil || len(held) != 1 {
+		t.Fatalf("Unfinished = %+v, %v", held, err)
+	}
+	cleared, err := s.ClearShown(ctx, "shop", []string{held[0].ID})
 	if err != nil || len(cleared) != 1 || cleared[0].File != journal {
-		t.Fatalf("Clear = %+v, %v, want the journal named", cleared, err)
+		t.Fatalf("ClearShown = %+v, %v, want the journal named", cleared, err)
 	}
 	// A journal that cannot be read may be any scope's: it is said and passed over.
 	var said bytes.Buffer
@@ -936,5 +940,12 @@ func TestAWriteLostBeforeItsReadBackFailsAndLeavesTheScopeAsItWas(t *testing.T) 
 				t.Fatalf("unfinished: %v, %v", left, err)
 			}
 		})
+	}
+}
+
+// A change cut short whose journal is not on this machine has nothing to say of what it was doing, and that is no error.
+func TestAChangeWithNoJournalHereSaysNothingOfWhatItWasDoing(t *testing.T) {
+	if doing, err := (store.Unfinished{ID: "17000000000000000001", User: "alice"}).Doing(); doing != nil || err != nil {
+		t.Fatalf("Doing = %v, %v; want nothing and no error", doing, err)
 	}
 }

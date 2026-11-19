@@ -12,8 +12,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/features"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // The words of a request: the header a reader asks a contract with, and the query that carries the user's yes to a change.
@@ -88,7 +89,7 @@ const VersionAPIVersion = "elderlygate/contracts/version/v1"
 
 var writing = map[string]bool{http.MethodPost: true, http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true}
 
-// Handler serves site behind the guard, with this machine's token read on every request, so servers token renew counts at once.
+// Handler serves site behind the guard, with this machine's token read on every request, so server token renew counts at once.
 func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 	if err := a.check(); err != nil {
 		return nil, err
@@ -101,7 +102,7 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 		return nil, err
 	}
 	if missing := features.Missing(site.Needs, site.Lookup); len(missing) > 0 {
-		return nil, Fail(TypeFailed, ReasonCoreNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
+		return nil, problem.Fail(problem.TypeFailed, ReasonCoreNeedsValues, fmt.Sprintf("%s cannot start: it needs values that are not set: %s", a.command(), features.Names(missing)))
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +145,7 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 		}
 	}
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		WriteError(w, r, http.StatusNotFound, Fail(TypeNotFound, "", fmt.Sprintf("%s has no %s %s", a.command(), r.Method, r.URL.Path)))
+		WriteError(w, r, http.StatusNotFound, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("%s has no %s %s", a.command(), r.Method, r.URL.Path)))
 	})
 	if site.UI != nil {
 		mux.Handle("/", site.UI)
@@ -269,15 +270,15 @@ func (a App) feature(list *features.List, id string, next http.Handler) http.Han
 		on, err := list.On(id)
 		var nv *features.NeedsValues
 		if errors.As(err, &nv) {
-			WriteError(w, r, http.StatusServiceUnavailable, Fail(TypeFailed, features.ReasonNeedsValues, nv.Error()))
+			WriteError(w, r, http.StatusServiceUnavailable, problem.Fail(problem.TypeFailed, features.ReasonNeedsValues, nv.Error()))
 			return
 		}
 		if err != nil {
-			WriteError(w, r, http.StatusInternalServerError, Fail(TypeFailed, ReasonConfigUnreadable, fmt.Sprintf("the feature %s cannot be read: %v", id, err)))
+			WriteError(w, r, http.StatusInternalServerError, problem.Fail(problem.TypeFailed, ReasonConfigUnreadable, fmt.Sprintf("the feature %s cannot be read: %v", id, err)))
 			return
 		}
 		if !on {
-			WriteError(w, r, http.StatusNotFound, Fail(TypeNotFound, "", fmt.Sprintf("%s has no %s %s: the feature %s is off", a.command(), r.Method, r.URL.Path, id)))
+			WriteError(w, r, http.StatusNotFound, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("%s has no %s %s: the feature %s is off", a.command(), r.Method, r.URL.Path, id)))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -326,7 +327,7 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 		action, asks, err := rt.actionOf(r, log)
 		if err != nil {
 			status := http.StatusInternalServerError
-			if p, ok := err.(*Problem); ok && p.Reason == ReasonTooLarge {
+			if p, ok := err.(*problem.Problem); ok && p.Reason == ReasonTooLarge {
 				status = http.StatusRequestEntityTooLarge
 			}
 			WriteError(w, r, status, err)
@@ -344,7 +345,7 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 			// A change to the system itself is never remembered (G-STACK-6); without Site.Remember the app keeps no answer, so remember is a yes.
 			if site.Remember != nil && !action.System {
 				if err := site.Remember(action.Type); err != nil {
-					WriteError(w, r, http.StatusInternalServerError, Fail(TypeFailed, ReasonConfigUnreadable, fmt.Sprintf(
+					WriteError(w, r, http.StatusInternalServerError, problem.Fail(problem.TypeFailed, ReasonConfigUnreadable, fmt.Sprintf(
 						"nothing was changed: the answer for %s could not be saved: %v; send it again with %s=%s", action.Type, err, ConfirmParam, ConfirmYes)))
 					return
 				}
@@ -356,7 +357,7 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 		if site.Styles != nil {
 			read, err := site.Styles()
 			if err != nil {
-				WriteError(w, r, http.StatusInternalServerError, Fail(TypeFailed, ReasonConfigUnreadable, err.Error()))
+				WriteError(w, r, http.StatusInternalServerError, problem.Fail(problem.TypeFailed, ReasonConfigUnreadable, err.Error()))
 				return
 			}
 			styles = read
@@ -367,7 +368,7 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 			if action.What != "" {
 				what = action.What
 			}
-			WriteError(w, r, http.StatusPreconditionRequired, Fail(TypeRefused, ReasonUnconfirmed, fmt.Sprintf(
+			WriteError(w, r, http.StatusPreconditionRequired, problem.Fail(problem.TypeRefused, ReasonUnconfirmed, fmt.Sprintf(
 				"nothing was changed: %s asks first; send it again with %s=%s once the user said yes", what, ConfirmParam, ConfirmYes)))
 			return
 		}
@@ -385,9 +386,9 @@ func (rt Route) actionOf(r *http.Request, log io.Writer) (a ask.Action, asks boo
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			return ask.Action{}, false, Fail(TypeRefused, ReasonTooLarge, fmt.Sprintf("the request body is larger than the %d bytes serve takes", tooLarge.Limit))
+			return ask.Action{}, false, problem.Fail(problem.TypeRefused, ReasonTooLarge, fmt.Sprintf("the request body is larger than the %d bytes serve takes", tooLarge.Limit))
 		}
-		return ask.Action{}, false, Fail(TypeFailed, "", "nothing was changed: the request body could not be read: "+err.Error())
+		return ask.Action{}, false, problem.Fail(problem.TypeFailed, "", "nothing was changed: the request body could not be read: "+err.Error())
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	read := r.Clone(r.Context())
@@ -395,7 +396,7 @@ func (rt Route) actionOf(r *http.Request, log io.Writer) (a ask.Action, asks boo
 	defer func() {
 		if p := recover(); p != nil {
 			fmt.Fprintf(log, "%s %s: the route's ActionFor failed: %v\n", r.Method, r.URL.Path, p)
-			a, asks, err = ask.Action{}, false, Fail(TypeFailed, "", fmt.Sprintf("nothing was changed: %s %s could not say what it changes", r.Method, r.URL.Path))
+			a, asks, err = ask.Action{}, false, problem.Fail(problem.TypeFailed, "", fmt.Sprintf("nothing was changed: %s %s could not say what it changes", r.Method, r.URL.Path))
 		}
 	}()
 	a, asks = rt.ActionFor(read)

@@ -1,4 +1,4 @@
-// Package serve is the server every app shares: the guard, the contract, the answers, asking before a change, and serve --detach with servers, servers stop and servers link.
+// Package serve is the server every app shares: the guard, the contract, the answers, asking before a change, and serve --detach with server list, server stop and server link.
 package serve
 
 import (
@@ -12,7 +12,8 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v3/home"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 // App is what an app tells serve about itself.
@@ -57,17 +58,6 @@ func (a App) versions() []string {
 	return out
 }
 
-// The types of a Problem, a few general words a program decides by, never by detail (problem/v1, G-STACK-15).
-const (
-	TypeRefused             = "refused"
-	TypeFailed              = "failed"
-	TypeNotFound            = "not_found"
-	TypeUnsupportedContract = "unsupported_contract"
-	TypeUnread              = "unread"
-	TypeUndeclared          = "undeclared"
-	TypeOld                 = "old"
-)
-
 // The reasons serve gives with a type; problem/v1 says what each means.
 const (
 	ReasonToken            = "token"
@@ -93,41 +83,14 @@ type Source struct {
 
 // Envelope is every answer, from the CLI and from HTTP alike, in the envelope its contract names: envelope/v2, or envelope/v1.
 type Envelope struct {
-	APIVersion string    `json:"apiVersion"`
-	Kind       string    `json:"kind"`
-	Source     Source    `json:"source"`
-	Data       any       `json:"data"`
-	Errors     []Problem `json:"errors"`
+	APIVersion string            `json:"apiVersion"`
+	Kind       string            `json:"kind"`
+	Source     Source            `json:"source"`
+	Data       any               `json:"data"`
+	Errors     []problem.Problem `json:"errors"`
 
 	form      string   // the envelope it is written in, one of envelopes; empty is the newest
 	supported []string // the contracts an error/v1 unsupported_contract lists
-}
-
-// Problem is one thing that went wrong (contracts problem/v1); Fail makes one, and an answer fills in its apiVersion and kind.
-type Problem struct {
-	APIVersion string  `json:"apiVersion"`
-	Kind       string  `json:"kind"`
-	Type       string  `json:"type"`
-	Title      string  `json:"title,omitempty"`
-	Detail     string  `json:"detail"`
-	Reason     string  `json:"reason,omitempty"`
-	At         []Place `json:"at,omitempty"`
-}
-
-// Place is where a Problem points (problem/v1); a field it does not know is left empty.
-type Place struct {
-	File     string `json:"file,omitempty"`
-	Document int    `json:"document,omitempty"`
-	Line     int    `json:"line,omitempty"`
-	Path     string `json:"path,omitempty"`
-}
-
-func (p *Problem) Error() string { return p.Detail }
-
-// Fail is a Problem of typ, with reason when a program needs more than the type (empty for none), for an answer.
-// problem/v1 requires a detail, so Failure writes the type and reason as the detail when it is empty.
-func Fail(typ, reason, detail string) *Problem {
-	return &Problem{Type: typ, Reason: reason, Detail: detail}
 }
 
 // The apiVersion and kind every Problem carries (problem/v1).
@@ -147,7 +110,7 @@ func (a App) Contract(asked string) (string, error) {
 	if slices.Contains(a.versions(), asked) {
 		return asked, nil
 	}
-	return "", Fail(TypeUnsupportedContract, "", fmt.Sprintf("%s does not answer contract %s; it answers %s", a.command(), asked, strings.Join(a.versions(), ", ")))
+	return "", problem.Fail(problem.TypeUnsupportedContract, "", fmt.Sprintf("%s does not answer contract %s; it answers %s", a.command(), asked, strings.Join(a.versions(), ", ")))
 }
 
 // form is the envelope contract is answered in, as its Contract names.
@@ -170,7 +133,7 @@ func (a App) Answer(name, contract, kind string, data any) Envelope {
 		Kind:       kind,
 		Source:     Source{Name: name, App: a.ID, Version: a.Version, Contract: contract},
 		Data:       data,
-		Errors:     []Problem{},
+		Errors:     []problem.Problem{},
 		form:       a.form(contract),
 		supported:  a.versions(),
 	}
@@ -180,13 +143,13 @@ func (a App) Answer(name, contract, kind string, data any) Envelope {
 // The answer's kind is Error in both envelopes: it says the answer failed, and each Problem in errors says why, so the two words never name one thing.
 func (a App) Failure(name, contract string, err error) Envelope {
 	env := a.Answer(name, contract, "Error", nil)
-	env.Errors = []Problem{problemOf(err)}
+	env.Errors = []problem.Problem{problemOf(err)}
 	return env
 }
 
 // problemOf is err as the Problem an answer carries: its own when it is a *Problem, else one of type failed, filled in as problem/v1 asks.
-func problemOf(err error) Problem {
-	p := Fail(TypeFailed, "", err.Error())
+func problemOf(err error) problem.Problem {
+	p := problem.Fail(problem.TypeFailed, "", err.Error())
 	if errors.As(err, &p) {
 		copied := *p
 		p = &copied
@@ -196,7 +159,7 @@ func problemOf(err error) Problem {
 		p.Detail = strings.TrimSuffix(p.Type+": "+p.Reason, ": ")
 	}
 	// A place must say at least one thing (problem/v1), so an empty one is dropped.
-	p.At = slices.DeleteFunc(slices.Clone(p.At), func(at Place) bool { return at == (Place{}) })
+	p.At = slices.DeleteFunc(slices.Clone(p.At), func(at problem.Place) bool { return at == (problem.Place{}) })
 	if len(p.At) == 0 {
 		p.At = nil
 	}
@@ -204,13 +167,13 @@ func problemOf(err error) Problem {
 }
 
 // codeOf is the error/v1 code a Problem had before Problems: the owner's words back from type and reason, else the reason, else the type.
-func codeOf(p Problem) string {
+func codeOf(p problem.Problem) string {
 	switch {
-	case p.Type == TypeRefused && p.Reason == ReasonToken:
+	case p.Type == problem.TypeRefused && p.Reason == ReasonToken:
 		return "token_refused"
-	case p.Type == TypeRefused && p.Reason == ReasonHost:
+	case p.Type == problem.TypeRefused && p.Reason == ReasonHost:
 		return "host_refused"
-	case p.Type == TypeRefused && p.Reason == ReasonOrigin:
+	case p.Type == problem.TypeRefused && p.Reason == ReasonOrigin:
 		return "origin_refused"
 	case p.Reason != "":
 		return p.Reason
@@ -259,7 +222,7 @@ func (e Envelope) v1JSON() ([]byte, error) {
 		if len(p.At) > 0 && (p.At[0].File != "" || p.At[0].Path != "") {
 			item.At = &atV1{File: p.At[0].File, Field: p.At[0].Path}
 		}
-		if item.Code == TypeUnsupportedContract {
+		if item.Code == problem.TypeUnsupportedContract {
 			item.Supported = e.supported
 		}
 		out.Errors = append(out.Errors, item)

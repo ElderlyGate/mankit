@@ -95,7 +95,7 @@ type Unfinished struct {
 }
 
 func (m mark) unfinished() Unfinished {
-	return Unfinished{ID: m.Metadata.ID, User: m.Spec.User, Host: m.Spec.Host, Journal: m.Spec.Journal, Folder: m.Spec.Folder, Keys: m.Spec.Keys}
+	return shown(Unfinished{ID: m.Metadata.ID, User: m.Spec.User, Host: m.Spec.Host, Journal: m.Spec.Journal, Folder: m.Spec.Folder, Keys: m.Spec.Keys})
 }
 
 const (

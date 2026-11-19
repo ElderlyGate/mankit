@@ -1,4 +1,4 @@
-// Package helpout gives a cobra app the shared help layout (H-1) for `<app> help` and `<app> --help`, and for a usage mistake.
+// Package helpout gives a cobra app the shared help layout (H-1) for `<app> help` and `<app> --help`, for `<app> <thing> help` at every level, and for a usage mistake.
 package helpout
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
+	"github.com/tugbayatilla/mankit/v4/ask"
 )
 
 // Info is what an app says about itself; the commands and flags come from cobra.
@@ -20,26 +20,32 @@ type Info struct {
 	What  string   // one line: what the app is
 	Start []string // how to start it and where to run it
 	More  string   // the repository URL
+	// Answer, when set, gives c the app's -o and --contract flags and prints c's answer as the app's other commands do, so help -o json is the app's envelope: an app passes func(c *cobra.Command) helpout.Answerer { return app.Printer(c) }.
+	Answer func(c *cobra.Command) Answerer
 }
 
-// Apply makes root's help and usage the H-1 layout; a verb's own help stays cobra's.
+// Apply makes the help and usage of root and of every thing under it, a command with commands of its own, the H-1 layout, and gives help -o json and yaml; a verb's own help stays cobra's.
 func Apply(root *cobra.Command, info Info) {
+	answerHelp(root, info)
 	verbHelp, verbUsage := root.HelpFunc(), root.UsageFunc()
 	root.SetHelpFunc(func(c *cobra.Command, args []string) {
-		if c != root {
+		if !laidOut(root, c) {
 			verbHelp(c, args)
 			return
 		}
-		write(c.OutOrStdout(), root, info)
+		write(c.OutOrStdout(), root, c, info)
 	})
 	root.SetUsageFunc(func(c *cobra.Command) error {
-		if c != root {
+		if !laidOut(root, c) {
 			return verbUsage(c)
 		}
-		write(c.OutOrStderr(), root, info)
+		write(c.OutOrStderr(), root, c, info)
 		return nil
 	})
 }
+
+// laidOut says whether c's help is the layout: root's, and every thing's.
+func laidOut(root, c *cobra.Command) bool { return c == root || c.HasAvailableSubCommands() }
 
 // mistake is a usage mistake on cmd: the arguments do not fit it.
 type mistake struct {
@@ -59,12 +65,23 @@ func (p Printed) Unwrap() error { return p.Err }
 func Execute(ctx context.Context, root *cobra.Command) (code int, err error) {
 	root.SilenceErrors, root.SilenceUsage = true, true
 	root.InitDefaultHelpCmd()
+	addThingHelp(root)
+	if err := addOld(root); err != nil {
+		return 1, err
+	}
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error { return &mistake{c, err} })
 	wrapArgs(root)
 	if help, _, err := root.Find([]string{"help"}); err == nil && help != root {
 		rejectUnknownTopics(root, help)
 	}
 	cmd, err := root.ExecuteContextC(ctx)
+	// An old form says its new name on stderr, then its full form runs, once.
+	var old *rerun
+	if errors.As(err, &old) {
+		fmt.Fprintf(root.ErrOrStderr(), "%s: %s\n", root.Name(), old.Error())
+		root.SetArgs(old.args)
+		cmd, err = root.ExecuteContextC(ctx)
+	}
 	var m *mistake
 	switch {
 	case err == nil:
@@ -120,6 +137,25 @@ func noVerb(c *cobra.Command, args []string) error {
 	return errors.New(msg)
 }
 
+// addThingHelp gives every thing under root a help verb, so `<app> <thing> help` shows the thing's layout as `<app> help <thing>` does.
+func addThingHelp(root *cobra.Command) {
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			if sub.HasSubCommands() && child(sub, "help") == nil && !isOld(sub) {
+				sub.AddCommand(&cobra.Command{
+					Use:   "help",
+					Short: "Help about " + sub.Name(),
+					Args:  cobra.NoArgs,
+					RunE:  func(c *cobra.Command, _ []string) error { return c.Parent().Help() },
+				})
+			}
+			walk(sub)
+		}
+	}
+	walk(root)
+}
+
 // rejectUnknownTopics makes `help <topic>` a usage mistake on root when no command matches the topic.
 func rejectUnknownTopics(root, help *cobra.Command) {
 	run, runE := help.Run, help.RunE
@@ -144,14 +180,18 @@ func isFlagError(err error) bool {
 	return false
 }
 
-// write prints the layout: what, Start, Commands, Flags, More; an empty section is left out.
-func write(w io.Writer, root *cobra.Command, info Info) {
-	if info.What == "" {
-		fmt.Fprintln(w, root.Name())
-	} else {
-		fmt.Fprintf(w, "%s: %s\n", root.Name(), info.What)
+// write prints c's layout: what, Start, Commands, Flags, More; an empty section is left out. A thing's first line is its own short line, and Start is root's alone.
+func write(w io.Writer, root, c *cobra.Command, info Info) {
+	what := info.What
+	if c != root {
+		what = c.Short
 	}
-	if len(info.Start) > 0 {
+	if what == "" {
+		fmt.Fprintln(w, c.CommandPath())
+	} else {
+		fmt.Fprintf(w, "%s: %s\n", c.CommandPath(), what)
+	}
+	if c == root && len(info.Start) > 0 {
 		fmt.Fprint(w, "\nStart:\n")
 		for _, line := range info.Start {
 			fmt.Fprintf(w, "  %s\n", line)
@@ -159,20 +199,20 @@ func write(w io.Writer, root *cobra.Command, info Info) {
 	}
 	var verbs []*cobra.Command
 	width := 0
-	for _, c := range root.Commands() {
-		if c.IsAvailableCommand() || c.Name() == "help" {
-			verbs = append(verbs, c)
-			width = max(width, runewidth.StringWidth(c.Name()))
+	for _, sub := range c.Commands() {
+		if sub.IsAvailableCommand() || sub.Name() == "help" {
+			verbs = append(verbs, sub)
+			width = max(width, runewidth.StringWidth(sub.Name()))
 		}
 	}
 	if len(verbs) > 0 {
 		fmt.Fprint(w, "\nCommands:\n")
-		for _, c := range verbs {
-			fmt.Fprintf(w, "  %s   %s\n", runewidth.FillRight(c.Name(), width), c.Short)
+		for _, sub := range verbs {
+			fmt.Fprintf(w, "  %s   %s\n", runewidth.FillRight(sub.Name(), width), sub.Short)
 		}
 	}
-	own := pflag.NewFlagSet(root.Name(), pflag.ContinueOnError)
-	root.LocalFlags().VisitAll(func(f *pflag.Flag) {
+	own := pflag.NewFlagSet(c.Name(), pflag.ContinueOnError)
+	c.LocalFlags().VisitAll(func(f *pflag.Flag) {
 		if f.Name != "help" {
 			own.AddFlag(f)
 		}
@@ -183,4 +223,14 @@ func write(w io.Writer, root *cobra.Command, info Info) {
 	if info.More != "" {
 		fmt.Fprintf(w, "\nMore: %s\n", info.More)
 	}
+}
+
+// child is c's command named name, nil when it has none.
+func child(c *cobra.Command, name string) *cobra.Command {
+	for _, sub := range c.Commands() {
+		if sub.Name() == name {
+			return sub
+		}
+	}
+	return nil
 }

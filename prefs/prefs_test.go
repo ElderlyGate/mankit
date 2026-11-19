@@ -12,9 +12,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/home"
-	settingscli "github.com/tugbayatilla/mankit/v3/settings/cli"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/helpout/helptest"
+	"github.com/tugbayatilla/mankit/v4/home"
+	settingscli "github.com/tugbayatilla/mankit/v4/settings/cli"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 // sandbox gives the test its own home and returns the app's config file.
@@ -81,7 +84,7 @@ func TestATypeWithChangesToTheSystemSaysTheyAskForTheName(t *testing.T) {
 	writeFile(t, config, "confirm:\n  delete: never\n")
 	var out bytes.Buffer
 	root.SetOut(&out)
-	root.SetArgs([]string{"get", "confirm"})
+	root.SetArgs([]string{"confirm", "list"})
 	if err := root.Execute(); err != nil || !strings.Contains(out.String(), "never — a change to the system itself still asks for the name") {
 		t.Fatalf("get confirm (%v):\n%s", err, out.String())
 	}
@@ -147,12 +150,12 @@ func oldConfig(t *testing.T, body string) string {
 	return path
 }
 
-// homeAsker reads the styles where home.Current says and copies the old config with home.Migrate after the yes.
+// homeAsker reads the styles where home.Current says and copies the old config with store.Migrate after the yes.
 func homeAsker(config string) Asker {
 	return Asker{
 		Config:  func() string { return config },
 		Read:    func() string { p, _ := home.Current("app", "config.yaml"); return p },
-		Migrate: func() error { return home.Migrate("app", "config.yaml") },
+		Migrate: func() error { return store.Migrate("app", "config.yaml") },
 	}
 }
 
@@ -181,7 +184,7 @@ func TestARefusedChangeCopiesNothingAndWritesNothing(t *testing.T) {
 func TestTheOldStyleHoldsUntilTheYesThenTheOldFileIsCopied(t *testing.T) {
 	config := sandbox(t)
 	oldConfig(t, "confirm:\n  edit: never\n")
-	if out, err := cliWith(t, config, homeAsker(config), "get", "confirm"); err != nil || !strings.Contains(out, "never") {
+	if out, err := cliWith(t, config, homeAsker(config), "confirm", "list"); err != nil || !strings.Contains(out, "never") {
 		t.Fatalf("get confirm before the first change shows the old style (%v):\n%s", err, out)
 	}
 	var asked ask.Style
@@ -214,7 +217,7 @@ func TestADryRunAsksNothingAndWritesNothing(t *testing.T) {
 	if err := k.Ask(c, ask.Action{Type: ask.Edit, What: "edit x"}); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := cliWith(t, config, homeAsker(config), "set", "config", "confirm.delete", "never", "--yes", "--dry-run"); err != nil || !strings.Contains(out, "dry run") {
+	if out, err := cliWith(t, config, homeAsker(config), "config", "set", "confirm.delete", "never", "--yes", "--dry-run"); err != nil || !strings.Contains(out, "dry run") {
 		t.Fatalf("set config --dry-run (%v):\n%s", err, out)
 	}
 	dir, _ := home.Dir()
@@ -264,20 +267,20 @@ func cliWith(t *testing.T, config string, asker Asker, args ...string) (string, 
 
 func TestSetConfigWritesTheAppsConfig(t *testing.T) {
 	config := sandbox(t)
-	if _, err := cli(t, config, "set", "config", "confirm.delete", "yes-no"); !errors.Is(err, ask.ErrRefused) {
+	if _, err := cli(t, config, "config", "set", "confirm.delete", "yes-no"); !errors.Is(err, ask.ErrRefused) {
 		t.Fatalf("set config asks first: %v", err)
 	}
-	if out, err := cli(t, config, "set", "config", "confirm.delete", "name", "--yes"); err != nil || !strings.Contains(out, "name (product)") {
+	if out, err := cli(t, config, "config", "set", "confirm.delete", "name", "--yes"); err != nil || !strings.Contains(out, "name (product)") {
 		t.Fatalf("set: %v\n%s", err, out)
 	}
 	if got := readFile(t, config); got != "confirm:\n  delete: name\n" {
 		t.Fatalf("app config:\n%s", got)
 	}
-	if _, err := cli(t, config, "set", "config", "confirm.delete", UseDefault, "-y"); err != nil {
+	if _, err := cli(t, config, "config", "set", "confirm.delete", UseDefault, "-y"); err != nil {
 		t.Fatal(err)
 	}
 	var rows []Row
-	out, _ := cli(t, config, "get", "confirm", "-o", "json")
+	out, _ := cli(t, config, "confirm", "list", "-o", "json")
 	if err := json.Unmarshal([]byte(out), &rows); err != nil || rows[0] != (Row{ask.Delete, ask.YesNo, ask.FromDefault, ""}) || rows[1].Source != ask.FromDefault {
 		t.Fatalf("default falls back to the default: %v\n%s", err, out)
 	}
@@ -289,7 +292,7 @@ func TestSetConfigRefusesWhatItCannotUse(t *testing.T) {
 		{"confirm.archive", "never"},    // a type this app does not use
 		{"confirm.delete", "sometimes"}, // not a style
 	} {
-		if _, err := cli(t, config, append([]string{"set", "config", "--yes"}, args...)...); err == nil || errors.Is(err, ask.ErrRefused) {
+		if _, err := cli(t, config, append([]string{"config", "set", "--yes"}, args...)...); err == nil || errors.Is(err, ask.ErrRefused) {
 			t.Errorf("%v: err = %v", args, err)
 		}
 	}
@@ -297,7 +300,7 @@ func TestSetConfigRefusesWhatItCannotUse(t *testing.T) {
 
 func TestGetLocationsShowsTheAppsConfigAndItsData(t *testing.T) {
 	config := sandbox(t)
-	out, err := cli(t, config, "get", "locations")
+	out, err := cli(t, config, "location", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,4 +313,19 @@ func TestGetLocationsShowsTheAppsConfigAndItsData(t *testing.T) {
 	if strings.Contains(out, "global-config.yaml") {
 		t.Errorf("a shared config is shown:\n%s", out)
 	}
+}
+
+// The old forms get config, set config, get confirm and get locations still run, for one release, as their full forms do (G-STACK-5).
+func TestTheOldGetAndSetFormsRunTheirFullForms(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "config.yaml")
+	helptest.Check(t, func() *cobra.Command {
+		root := &cobra.Command{Use: "app"}
+		settingscli.AddTo(root, nil, func() string { return config })
+		if err := AddTo(root, Options{App: "app", Config: func() string { return config }, Types: []ask.Type{ask.Delete},
+			Asker: Asker{Config: func() string { return config }}}); err != nil {
+			t.Fatal(err)
+		}
+		helpout.Apply(root, helpout.Info{What: "a test app"})
+		return root
+	})
 }

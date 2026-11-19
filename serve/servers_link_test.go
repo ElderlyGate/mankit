@@ -6,10 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
-// The servers link command: the link that opens a server's page.
+// The server link command: the link that opens a server's page.
 
 const linkSchema = "mankit/v1/link.schema.json"
 
@@ -18,7 +19,7 @@ const linkSchema = "mankit/v1/link.schema.json"
 func TestServersLinkOpensThePage(t *testing.T) {
 	machine(t)
 	addr := addrOf(detached(t))
-	e := answer(t, linkSchema, "servers", "link", addr)
+	e := answer(t, linkSchema, "server", "link", addr)
 	link := e.Data.(map[string]any)["url"].(string)
 	if e.Kind != serve.LinkKind || !strings.HasPrefix(link, "http://"+addr+"/?token=") {
 		t.Fatalf("link %q", link)
@@ -31,7 +32,7 @@ func TestServersLinkOpensThePage(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) != 1 {
 		t.Fatalf("status %d, cookies %v", resp.StatusCode, resp.Cookies())
 	}
-	out, err := run(t, "servers", "link", addr)
+	out, err := run(t, "server", "link", addr)
 	if err != nil || strings.TrimSpace(out) != link {
 		t.Fatalf("table %q, %v", out, err)
 	}
@@ -40,10 +41,10 @@ func TestServersLinkOpensThePage(t *testing.T) {
 func TestServersLinkStartsAtTheBaseGiven(t *testing.T) {
 	machine(t)
 	addr := addrOf(detached(t))
-	own := answer(t, linkSchema, "servers", "link", addr).Data.(map[string]any)["url"].(string)
+	own := answer(t, linkSchema, "server", "link", addr).Data.(map[string]any)["url"].(string)
 	_, query, _ := strings.Cut(own, "/?")
 	for _, base := range []string{"https://board.example.com", "https://board.example.com/", "http://board.example.com:8080"} {
-		e := answer(t, linkSchema, "servers", "link", addr, "--base", base)
+		e := answer(t, linkSchema, "server", "link", addr, "--base", base)
 		want := strings.TrimSuffix(base, "/") + "/?" + query
 		if link := e.Data.(map[string]any)["url"].(string); link != want {
 			t.Errorf("--base %s: link %q, want %q", base, link, want)
@@ -56,9 +57,9 @@ func TestServersLinkStartsAtTheBaseGiven(t *testing.T) {
 func TestServersLinkRefusesAContractItDoesNotAnswer(t *testing.T) {
 	machine(t)
 	detached(t)
-	_, err := run(t, "servers", "link", "-o", "json", "--contract", "v9")
-	var e *serve.Problem
-	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract {
+	_, err := run(t, "server", "link", "-o", "json", "--contract", "v9")
+	var e *problem.Problem
+	if !errors.As(err, &e) || e.Type != problem.TypeUnsupportedContract {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -67,7 +68,7 @@ func TestServersLinkRefusesAContractItDoesNotAnswer(t *testing.T) {
 
 func TestServersLinkNeedsAToken(t *testing.T) {
 	machine(t)
-	if _, err := run(t, "servers", "link"); err == nil || !strings.Contains(err.Error(), "no server token") {
+	if _, err := run(t, "server", "link"); err == nil || !strings.Contains(err.Error(), "no server token") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -78,15 +79,15 @@ func TestServersLinkRefusesABaseThatIsNotASchemeAndHost(t *testing.T) {
 	for _, base := range []string{"board.example.com", "ftp://board.example.com", "https://", "https://:8080", "https://board.example.com/board",
 		"https://board.example.com/?a=b", "https://board.example.com/?", "https://board.example.com/#", "https://board.example.com#x", "https://user@board.example.com",
 		"https://board.example.com:", "https://board.example.com:0", "https://board.example.com:65536", "https://board.example.com:http"} {
-		if out, err := run(t, "servers", "link", "--base", base); err == nil || !strings.Contains(err.Error(), "--base takes") || strings.Contains(out, "token=") {
+		if out, err := run(t, "server", "link", "--base", base); err == nil || !strings.Contains(err.Error(), "--base takes") || strings.Contains(out, "token=") {
 			t.Errorf("--base %s: %q, %v", base, out, err)
 		}
 	}
 	// A pasted link is refused without its token in the message.
-	if _, err := run(t, "servers", "link", "--base", "https://board.example.com/?token=secret"); err == nil || strings.Contains(err.Error(), "secret") {
+	if _, err := run(t, "server", "link", "--base", "https://board.example.com/?token=secret"); err == nil || strings.Contains(err.Error(), "secret") {
 		t.Errorf("a pasted link: %v", err)
 	}
-	if out, err := run(t, "servers", "link", "--base", "https://board.example.com:65535"); err != nil || !strings.HasPrefix(out, "https://board.example.com:65535/?token=") {
+	if out, err := run(t, "server", "link", "--base", "https://board.example.com:65535"); err != nil || !strings.HasPrefix(out, "https://board.example.com:65535/?token=") {
 		t.Errorf("port 65535: %q, %v", out, err)
 	}
 }
@@ -96,7 +97,7 @@ func TestServersLinkRefusesABaseThatIsNotASchemeAndHost(t *testing.T) {
 func TestServersLinkNeverAsks(t *testing.T) {
 	machine(t)
 	detached(t)
-	if _, err := run(t, "servers", "link"); err != nil {
+	if _, err := run(t, "server", "link"); err != nil {
 		t.Fatalf("reading asked: %v", err)
 	}
 }
@@ -106,16 +107,16 @@ func TestServersLinkNeverAsks(t *testing.T) {
 func TestServersLinkAnswersLikeHTTP(t *testing.T) {
 	machine(t)
 	detached(t)
-	sameAsHTTP(t, "", "servers", "link")
+	sameAsHTTP(t, "", "server", "link")
 }
 
 // Help
 
 func TestServersLinkHelpNamesItsDefaultAddress(t *testing.T) {
-	out := help(t, "servers", "link")
+	out := help(t, "server", "link")
 	for _, want := range []string{"127.0.0.1:0", "--output", "--contract", "--base"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("servers link --help has no %s:\n%s", want, out)
+			t.Errorf("server link --help has no %s:\n%s", want, out)
 		}
 	}
 }

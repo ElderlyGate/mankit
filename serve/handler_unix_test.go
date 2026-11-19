@@ -12,7 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
 // A pipe exists on Linux and macOS only.
@@ -35,7 +36,7 @@ func TestServeRefusesAPipeInPlaceOfTheTokenAtOnce(t *testing.T) {
 	go func() { done <- call(t, h, "GET", "/api/greeting", "", nil) }()
 	select {
 	case w := <-done:
-		e := refusal(t, w, http.StatusInternalServerError, serve.TypeFailed, serve.ReasonConfigUnreadable)
+		e := refusal(t, w, http.StatusInternalServerError, problem.TypeFailed, serve.ReasonConfigUnreadable)
 		if !strings.Contains(e.Detail, path) {
 			t.Fatalf("the refusal does not name %s: %s", path, e.Detail)
 		}

@@ -19,17 +19,18 @@ three, instead of being made three times.
 | `confirm` | Asking before acting: `y` or `enter` says yes, any other key cancels |
 | `list` | The left-hand list: the highlighted row wraps to show its whole text, with scrolling and mouse clicks that account for it |
 | `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<app folder>/split` |
-| `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
-| `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
-| `helpout` | The one layout for `<app> help`, `<app> --help` and a usage mistake: what the app is, how to start it, its commands, the repository |
-| `home` | Where the org's apps keep their files: the org's config and data folders, a folder per product, and `CopyOnce` to bring old files along |
+| `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> config list` and `<app> config set <key> <value>` |
+| `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. `usercmd/cli` is `<app> command path`, `create`, `check` and `edit`. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
+| `helpout` | The one layout for `<app> help`, `<app> --help`, `<app> <thing> help` and a usage mistake: what the app is, how to start it, its commands, the repository; and the old forms of renamed commands, for one release |
+| `home` | Where the org's apps keep their files: the org's config and data folders and a folder per product; it names paths and writes nothing |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
-| `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
-| `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link`, `servers token renew` (see [Serve](#serve)) |
+| `prefs` | What every app adds beside `settings/cli`: `<app> confirm list`, `<app> location list`, `config set confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
+| `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `server list`, `server stop`, `server link`, `server token renew` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: each starts on or off and names the values it needs; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
-| `queue` | The change queue: every change to one served thing waits its turn in `<served folder>/<app folder>/.queue/`, one at a time across processes, done once written and read back (see [Change queue](#change-queue)) |
-| `store` | The one storage port (ADR-S22): a scope names its things by keys, reading never waits, every change takes the thing's turn and is made all or nothing, then read back; `store/storetest` is the conformance suite every adapter passes (see [Store](#store)) |
+| `store/queue` | Shows the change queue and sets its waits: the tickets in a line, `queue.wait` and `queue.limit`, `<app> queue show`, `set` and `unset`. The turns are the store's own (see [Change queue](#change-queue)) |
+| `problem` | A Problem (contracts problem/v1) and its types, below everything that makes one: the store and serve say what went wrong the same way |
+| `store` | The one storage port (ADR-S22): a scope names its things by keys, reading never waits, every change takes the thing's turn and is made all or nothing, then read back; `store.Migrate` and `store.CopyOnce` bring old files along; `store/cli` is `<app> store unfinished`; `store/storetest` is the conformance suite every adapter passes (see [Store](#store)) |
 
 ## Settings
 
@@ -47,14 +48,14 @@ cli.AddTo(root, keys, func() string { return settings.Path("hubman", "") })
 ```
 
 ```sh
-hubman get config            # KEY VALUE SOURCE HELP; -o json or -o yaml
-hubman set config theme nord
-hubman set config theme ""   # back to the default
+hubman config list            # KEY VALUE SOURCE HELP; -o json or -o yaml
+hubman config set theme nord
+hubman config set theme ""   # back to the default
 ```
 
 `settings.Path(app, dir)` is `<dir>/<app>/config.yaml`, the app folder
 (`home.File(app, "config.yaml")`) when `dir` is empty; `theme.ResolveIn(path, flag, set)` reads the colours from
-any path, and `usercmd/cli.CommandAt` serves `<app> commands` for any path.
+any path, and `usercmd/cli.CommandAt` serves `<app> command` for any path.
 `cli.AddToE` reports a clash with an existing `config` command or `-o` flag
 instead of working around it. `settings.Next` is the value after the current one, for a dashboard
 that changes a key with `enter`.
@@ -79,7 +80,7 @@ never copies or makes a file, so a read-only verb changes nothing.
 `home.Config(id, dir)` is `<dir>/<id>/config.yaml`, the app folder's
 `config.yaml` when `dir` is empty.
 
-`home.Migrate(id, names...)` brings each named file the app kept before in the
+`store.Migrate(id, names...)` brings each named file the app kept before in the
 system's config folder (`~/.config/<app>/` on Linux,
 `~/Library/Application Support/<app>/` on macOS) into the app folder. The app
 calls it in one explicit step before its first write: in a verb that changes
@@ -90,10 +91,11 @@ keep their settings. The old file stays as it was, so an older build of the
 app still finds it. Each copy runs once: when it is done, Migrate leaves a mark
 in `<config folder>/.migrated/<app>/`, so a file the user deletes afterwards
 never comes back. A name with no old file, or a copy that fails, leaves no
-mark and is tried again next time.
+mark and is tried again next time. Both live in `store`, since they write, and
+`home` only names paths.
 
 ```go
-if err := home.Migrate("gitman", "config.yaml", "split", "favorites"); err != nil {
+if err := store.Migrate("gitman", "config.yaml", "split", "favorites"); err != nil {
 	fmt.Fprintln(os.Stderr, "warning: old settings not copied:", err)
 }
 ```
@@ -103,7 +105,7 @@ Until then a read finds the old file where it is: `home.Current(id, name)` is
 not copied it and the old one exists. It never touches a file, so a read-only
 verb shows the value in use before the first change.
 
-`home.CopyOnce(from, to)` does the same for anything else: when `to` is missing
+`store.CopyOnce(from, to)` does the same for anything else: when `to` is missing
 and `from` exists, it copies the file or the whole folder, and leaves `from`
 as it was. A folder appears whole or not at all, and a `to` another process
 made while the copy ran is kept: the copy is placed only where nothing is.
@@ -112,7 +114,7 @@ made while the copy ran is kept: the copy is placed only where nothing is.
 dir, _ := home.ProductData("control-room")
 h, _ := os.UserHomeDir()
 old := filepath.Join(h, ".local", "share", "control-room", "github.json")
-if err := home.CopyOnce(old, filepath.Join(dir, "github.json")); err != nil {
+if err := store.CopyOnce(old, filepath.Join(dir, "github.json")); err != nil {
 	return err
 }
 ```
@@ -122,8 +124,27 @@ if err := home.CopyOnce(old, filepath.Join(dir, "github.json")); err != nil {
 Every app answers `<app> help` and `<app> --help` in one layout. The app says
 what it is, how to start it and where its repository is; the commands and
 their one-line help come from cobra, hidden and deprecated ones left out. A
-`Flags:` section lists the root's own flags, when it has any. `<app> help <verb>`
-and `<app> <verb> --help` keep cobra's full help.
+`Flags:` section lists the root's own flags, when it has any. A thing, a
+command with commands of its own (G-STACK-5), answers `<app> <thing> help`,
+`<app> <thing> --help` and `<app> help <thing>` in the same layout: its own
+short line first, then its verbs and its own things, its flags and `More:`.
+`Execute` gives every thing its `help` verb. `<app> help <verb>` and
+`<app> <verb> --help` keep cobra's full help.
+
+`<app> help -o json` (or `-o yaml`) prints the same commands and flags as
+data, with the hidden old forms marked old: contracts mankit/v1 `Help`.
+`<app> help <thing> -o json` holds only that thing. It is the app's answer, in
+the app's envelope, so the app hands helpout its printer:
+
+```go
+helpout.Apply(root, helpout.Info{
+	What:   "a live visual board",
+	Answer: func(c *cobra.Command) helpout.Answerer { return app.Printer(c) },
+})
+```
+
+An app that sets no `Answer` refuses `help -o json` with a plain error, never
+text.
 
 ```go
 helpout.Apply(root, helpout.Info{
@@ -169,6 +190,27 @@ if err != nil {
 os.Exit(code)
 ```
 
+### Old forms of renamed commands
+
+A renamed command keeps its old form for one release (G-STACK-5). The app
+marks the full command with its old words, after the app's name:
+
+```go
+helpout.Old(listCmd, "servers")       // server list
+helpout.Old(stopCmd, "servers stop")  // server stop
+```
+
+An old form that stood for a verb with an argument names it:
+`helpout.OldArgs(setCmd, "config queue wait", "wait")` runs `queue set wait`.
+`Execute` makes each old form a hidden command: it is never listed in help, it
+runs its full form with the rest of the line, and it says `<app>: servers stop
+is now server stop` on stderr, so stdout is the same as the full form's. An old
+form that is a command of its own is the app's mistake, and `Execute` refuses
+to run. `helpout.OldForms(root)` lists them. `helptest.Check(t, newRoot)`
+checks an app's old forms: each names a command, none is listed in help, and
+each gives the same stdout as its full form (run with `--help`, so nothing is
+done). Old forms, `helpout.Old` and `helptest` go at mankit's next major.
+
 ## Ask before a change
 
 Reading never asks; a verb that changes something asks first and shows what it
@@ -187,7 +229,7 @@ Each type has a **style**:
 The style lives in the app's own config only, as `confirm: {delete: name, move: never}`.
 `ask.Load(path)` reads it, `ask.Set(path, type, style)` writes one type (`""`
 puts it back to its default) and `ask.Remember(path, type)` saves `never` after
-"Remember my answer"; each keeps the rest of the file. `<app> set config
+"Remember my answer"; each keeps the rest of the file. `<app> config set
 confirm.delete never` does the same from the command line and refuses a style
 that is not one of the three.
 
@@ -264,22 +306,22 @@ app archive 7 < /dev/null; echo $?   # refused: archive card 7; pass --yes to ma
 
 `prefs.Asker` is the example above, done once: it resolves the style from the
 app's config, asks with `ask.Change`, and saves `never` when the user asks to
-stop asking. `prefs.AddTo` (after `settings/cli`) adds `get confirm` (each
-type's style and whether it is the app's or the default), `get locations`
+stop asking. `prefs.AddTo` (after `settings/cli`) adds `confirm list` (each
+type's style and whether it is the app's or the default), `location list`
 (the app's config, its data and the app's `Extra` places) and makes
-`set config` ask first and take `confirm.<type>`.
+`config set` ask first and take `confirm.<type>`.
 
 Nothing is copied or written before the yes. Until the first change the styles
-are read from `Read`, the old file in place (`home.Current`), so `get confirm`
+are read from `Read`, the old file in place (`home.Current`), so `confirm list`
 shows the style in use; a no, or no terminal without `--yes`, writes nothing.
 `Migrate` runs only after the yes, before the change is made.
 `Options.System` names the types some verb of which changes the system
-itself (`System: true`, such as `delete` for an uninstall): `get confirm` then
+itself (`System: true`, such as `delete` for an uninstall): `confirm list` then
 says how that change asks where the type's style does not hold for it, e.g.
 `never — a change to the system itself still asks for the name`.
 
 A command run with `--dry-run` asks nothing and writes nothing: no copy, no
-mark, no remembered answer, and `set config` only says what it would change.
+mark, no remembered answer, and `config set` only says what it would change.
 
 ```go
 read := func() string { p, _ := home.Current("gitman", "config.yaml"); return p }
@@ -324,11 +366,12 @@ comes from; contracts envelope/v2 describes its fields), `data` and `errors`.
 The CLI builds the same answer with `app.Answer` or `app.Failure` and writes it
 with `serve.Encode`, so both doors give the same bytes.
 
-Each error is a Problem (contracts `problem/v1`): `serve.Fail(type, reason,
-detail)` makes one, with a few general types (`serve.TypeRefused`,
+Each error is a Problem (contracts `problem/v1`), from the package `problem`,
+which sits below everything that makes one: `problem.Fail(type, reason,
+detail)` makes one, with a few general types (`problem.TypeRefused`,
 `TypeFailed`, `TypeNotFound`, `TypeUnsupportedContract` …) and a reason when a
 program needs more (`serve.ReasonToken` …); a program decides by type and
-reason, never by detail. An error that is not a `*serve.Problem` is type
+reason, never by detail. An error that is not a `*problem.Problem` is type
 `failed`. A failed answer's kind is `Error` in both envelopes.
 
 Each of `App.Contracts` is a `serve.Contract{Version, Envelope}`, oldest
@@ -390,13 +433,13 @@ What serve does for every app:
   no switch.
 
 Each error has a code (`serve.Code…`); a program decides by the code, never by
-the message. `<app> serve --help` and `<app> servers --help` are the reference
+the message. `<app> serve --help` and `<app> server help` are the reference
 for the commands. Every server, detached or in the foreground, leaves a record
 in `<data folder>/<folder>/servers/`, in the shape of contracts `mankit/v1`;
-`servers` lists them and says which is detached. The link that carries the
+`server list` lists them and says which is detached. The link that carries the
 token is printed only when asked for: by `serve` (to a terminal only, since a
-running server's output may be its log), `serve --detach`, `servers link` and
-`servers token renew`; never into a server's log.
+running server's output may be its log), `serve --detach`, `server link` and
+`server token renew`; never into a server's log.
 
 `<folder>` is `App.Folder`, else `App.ID`: an app whose folders are named apart
 from its ID until the rename (e-designer answers as `designer`) sets it, and the
@@ -405,7 +448,7 @@ ID still names its answers, cookie and command.
 The token is the machine's, one per app, in `<data folder>/<folder>/servers/token`
 (only the user's, 0600), and it stays there: `Handler` reads it itself, an app
 never holds or stores one, and every page and client gets in through the link
-`servers link` prints. `servers token renew` replaces it whole; every running
+`server link` prints. `server token renew` replaces it whole; every running
 server checks the file on each request and refuses the old token from the next
 one on, with no restart. A token file that cannot be read, is empty, or is open
 to other users lets nobody in.
@@ -564,7 +607,7 @@ answers 404 until the owner switches it on. Taking events out is taking out
 
 ## Change queue
 
-`queue` keeps every change to one served thing in one line (ADR-S14), so CLI
+The change queue keeps every change to one served thing in one line (ADR-S14), so CLI
 runs, servers, page clicks and other apps never change it at once. The line is
 kept in `<served folder>/<app folder>/.queue/`, which only this user may enter
 and which ignores itself in git. It holds tickets, never commands: each
@@ -573,51 +616,54 @@ rules every app sharing a queue follows on disk are fixed in contracts
 `mankit/v1`. One process may hold the queues of many served things at once:
 each folder has its own line, so a change in one never waits for another.
 
+The queue is the store's own (ADR-S22): a change takes its turn through
+`store.Scope.Change`, and no app takes a turn itself. The package `store/queue`
+shows the line and sets its waits; the turns live in `store/internal/queue`,
+which Go keeps every package outside the store from.
+
 ```go
-ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-defer stop()
-q, err := queue.Queue{Folder: filepath.Join(repo, ".designer"), App: "designer", Version: version}.
-	Settings(wait, limit) // the values of the app's rows queue.wait and queue.limit
+rowWait, rowLimit, err := queue.Waits(configPath) // the app's rows queue.wait and queue.limit
 if err != nil {
 	return err
 }
-err = q.Change(ctx, "add block shop", write, readBack)
+wait, limit, err := queue.Settings(rowWait, rowLimit)
+if err != nil {
+	return err
+}
+s, err := store.Served(store.App{ID: "designer", Version: version, Wait: wait, Limit: limit}, root, line)
 ```
 
 Every app adds `queue.WaitKey` and `queue.LimitKey` to its settings keys, so a
 user sets `queue.wait` (30s) and `queue.limit` (2m) the same way in each.
-`Settings` refuses a value that is not a duration of at least a second in whole
+`queue.Settings` refuses a value that is not a duration of at least a second in whole
 seconds, naming the row; `queue.Duration` is that one rule, the one contracts
 mankit/v1 queue-settings states, and `d.String()` (`45s`, `2m0s`) is the form
 written and shown. Each bounds only this process's own waiting and holding, so apps
 sharing a queue may set them apart. `queue.Waits(path)` reads the two rows from
-the app's config.yaml for `Settings`.
+the app's config.yaml for `queue.Settings`.
 
-`queue.ConfigCommand(app, path, confirm)` is `<app> config queue`, which each
-app mounts under its own `config` as it does `config confirm`: it shows both
-rows with the value in effect, the default and whether the config sets it
-(`-o json` answers contracts mankit/v1 `QueueSettings`), and `config queue wait
-45s` or `config queue limit 3m` sets one after the app's confirm asks, written
-as `d.String()` gives it; an argument the queue would refuse is refused with
-ADR-S21's reasons (`refused` with `wrong_type`, `out_of_range` or `empty`), a
-value edited by hand into the file is reported as `config_unreadable`, and
-`default` puts the default back. It prints through
+`queue.Command(app, path, confirm)` is the thing `<app> queue`, which each app
+mounts at its root: `queue show` shows both rows with the value in effect, the
+default and whether the config sets it (`-o json` answers contracts mankit/v1
+`QueueSettings`), `queue set wait 45s` or `queue set limit 3m` sets one after
+the app's confirm asks, written as `d.String()` gives it, and `queue unset wait`
+puts the default back. An argument the queue would refuse is refused with
+ADR-S21's reasons (`refused` with `wrong_type`, `out_of_range`, `empty` or
+`unknown_key`), and a value edited by hand into the file is reported as
+`config_unreadable`. An app with a queue of its own adds its verbs, such as
+`list`, to the thing. It prints through
 `serve.App.Printer`, which another package's command uses to answer as serve's
 own commands do.
 
-An app passes a context that ends on Ctrl-C (`signal.NotifyContext`), so the
-ticket leaves the line before the process does. `write` and `readBack` take a
-context too, and must stop when it ends: a change may hold the turn for
-`Limit`, and the turn is held until `write` returns.
+An app passes `Change` a context that ends on Ctrl-C (`signal.NotifyContext`), so the
+ticket leaves the line before the process does.
 
-- `Change` writes a ticket at the end of the line, waits until it is first and
-  holds the turn, runs `write`, then `readBack`: the change is done only once
-  it is read back. The ticket leaves the line whether the change ran or not.
-  An error from `write` comes back as it is. Past `Limit` (2 minutes) the
-  context of `write` ends; a `write` that then stops with an error fails with
-  `change_too_long`, and the next change gets the turn once `write` returns. A
-  `write` that returned no error is always read back, under a context of its
-  own (5s), and reported as done or `not_read_back`, never `change_too_long`.
+- A change writes a ticket at the end of the line, waits until it is first and
+  holds the turn, makes its writes, then reads them back: it is done only once
+  read back. The ticket leaves the line whether the change ran or not. Past
+  `Limit` (2 minutes) the change stops before its next write and fails with
+  `change_too_long`; a change that was made and read back is done, even past
+  the limit.
 - The turn is a lock on a file (`github.com/gofrs/flock`), so it holds across
   processes; within one process a lock in memory keeps changes apart as well.
   Locks sit on lock files beside what others read (`<id>.lock` beside each
@@ -632,8 +678,8 @@ context too, and must stop when it ends: a change may hold the turn for
 - `.queue/backend`, when present, names how every writer of the folder takes
   turns (contracts `mankit/v1/queue-backend`): `files`, as above, is the only
   one this build runs, and the one without a marker. A marker naming another
-  backend, such as `lock-service`, or one that cannot be read, makes `Change`
-  and `List` refuse with `queue_backend_unsupported`; they never fall back to
+  backend, such as `lock-service`, or one that cannot be read, makes a change
+  and `queue.List` refuse with `queue_backend_unsupported`; they never fall back to
   files. The marker never holds an address or a token.
 - Errors are Problems of type `failed`, with a reason (`queue.Reason…`): `queue_timeout` when the turn did not
   come within `Wait` (30s), `not_read_back` when the change ran but could not
@@ -642,7 +688,7 @@ context too, and must stop when it ends: a change may hold the turn for
   `queue_backend_unsupported` for a marker this build does not run,
   `change_too_long` past `Limit`. `queue_timeout` names the change that
   holds the turn: its ticket, pid, host and how long it has held it.
-- `List(ctx)` is what `<app> queue` shows: the tickets in order, which one's
+- `queue.List(ctx, folder, app, version)` is what `<app> queue` shows: the tickets in order, which one's
   change runs now and since when, and the files in `bad/`. Answered as kind
   `queue.ListKind` it meets contracts `mankit/v1/queue-list`; every ticket meets
   `mankit/v1/queue-ticket` (apiVersion `elderlygate/mankit/queue/v1`, kind `QueueTicket`, whose header
@@ -723,18 +769,18 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   stop this one. Another user's change to a key a mark holds is refused with
   `unfinished_change`, naming the user, the machine and `<app> store unfinished
   clear <thing>`; `Unfinished` lists the marks, with this user's journal file,
-  and this user's journals whose marks are gone (`Left`), and `Clear` removes
-  marks, for that command, which asks first (`Clear` is deprecated for `ClearShown`, which removes only the marks a person was shown).
-- `store.UnfinishedCommand(app, open)` is that command, which each app with a
-  store scope mounts under its own `store`, as it does `config queue` under
-  `config`, and `store.UnfinishedRoutes(open)` serves it: the app adds them to
+  and this user's journals whose marks are gone (`Left`), and `ClearShown`
+  removes only the marks a person was shown, for that command, which asks first.
+- `cli.UnfinishedCommand(app, open)` (package `store/cli`, above the store, so
+  the store imports neither serve nor ask) is that command, which each app with a
+  store scope mounts under its own `store`, and `cli.UnfinishedRoutes(open)` serves it: the app adds them to
   its `Site.Routes`. `store unfinished list [<thing>]` and `GET
   /api/store/unfinished[?thing=]` show every user's marks in the scope `open`
   opens (the folder's own turn, every thing's, and those the folder's marks and
   this user's journals name; a mark only in the turn of a thing that is gone
   shows with `list <thing>`, as the refusal names the thing), with this
   user's journal file, and this user's left journals (contracts mankit/v1
-  `StoreUnfinishedList`). `store unfinished clear <thing>` shows each change
+  `StoreUnfinishedList`). `store unfinished remove <thing>` shows each change
   holding the thing (user, machine, mark, journal, keys and, for this user's
   journal, what each write was to do, or that the journal cannot be read) and
   asks for the thing's name, a change to the system itself whatever the app's
@@ -799,14 +845,14 @@ go work init ./mankit ./gitman ./dcman ./checkman
 ```
 
 A merge to `main` releases mankit: the pipeline tags the next version. Then in
-each app `go get github.com/tugbayatilla/mankit/v3@vX.Y.Z && go mod tidy`. The
-module path is `github.com/tugbayatilla/mankit/v3` until a later migration moves
+each app `go get github.com/tugbayatilla/mankit/v4@vX.Y.Z && go mod tidy`. The
+module path is `github.com/tugbayatilla/mankit/v4` until a later migration moves
 it with the org rename; the repository itself lives at
 `github.com/ElderlyGate/mankit`.
 
 CI runs [gorelease](https://pkg.go.dev/golang.org/x/exp/cmd/gorelease) on every
 pull request: a change that breaks the public API fails it, unless the module
-path itself moves to the next major (`/v3`), which is how a major is declared.
+path itself moves to the next major (`/v4`), which is how a major is declared.
 
 ## Licence
 

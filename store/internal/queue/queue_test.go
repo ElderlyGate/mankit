@@ -19,9 +19,9 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/gofrs/flock"
 
-	"github.com/tugbayatilla/mankit/v3/queue"
-	"github.com/tugbayatilla/mankit/v3/serve"
-	"github.com/tugbayatilla/mankit/v3/settings"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
+	"github.com/tugbayatilla/mankit/v4/store/internal/queue"
 )
 
 // The environment that starts this test binary again as another process on the same queue: what it does, where, and with what.
@@ -204,8 +204,8 @@ func waitFor(t *testing.T, q queue.Queue, n int) queue.Listing {
 
 // code is the reason of a queue Problem, which is always of type failed; anything else is empty.
 func code(err error) string {
-	var e *serve.Problem
-	if errors.As(err, &e) && e.Type == serve.TypeFailed {
+	var e *problem.Problem
+	if errors.As(err, &e) && e.Type == problem.TypeFailed {
 		return e.Reason
 	}
 	return ""
@@ -560,7 +560,7 @@ func TestAChangeThatCannotBeReadBackIsNotDoneAndTheNextOneRuns(t *testing.T) {
 
 func TestAChangeThatFailsGivesItsOwnErrorAndTheNextOneRuns(t *testing.T) {
 	q, _ := newQueue(t)
-	own := serve.Fail(serve.TypeNotFound, "", "no such item")
+	own := problem.Fail(problem.TypeNotFound, "", "no such item")
 	readBack := false
 	err := q.Change(context.Background(), "remove item", func(context.Context) error { return own }, func(context.Context) error { readBack = true; return nil })
 	if !errors.Is(err, own) || readBack {
@@ -772,42 +772,6 @@ func TestAWaitThatTimesOutNamesTheHolderAndTheListSaysSinceWhen(t *testing.T) {
 	}
 	if err := release(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// Settings
-
-func TestTheWaitAndLimitComeFromTheAppsSettingsRows(t *testing.T) {
-	q, _ := newQueue(t)
-	set, err := q.Settings("45s", "5m")
-	if err != nil || set.Wait != 45*time.Second || set.Limit != 5*time.Minute {
-		t.Fatalf("got wait %s limit %s, %v; want 45s and 5m", set.Wait, set.Limit, err)
-	}
-	if kept, err := q.Settings("", ""); err != nil || kept.Wait != q.Wait || kept.Limit != q.Limit {
-		t.Fatalf("empty rows changed the waits: %+v, %v", kept, err)
-	}
-	for _, k := range []settings.Key{queue.WaitKey, queue.LimitKey} {
-		if k.Help == "" || !strings.HasPrefix(k.Name, "queue.") {
-			t.Errorf("%+v needs a queue. name and a purpose line", k)
-		}
-	}
-	if queue.WaitKey.Default != queue.DefaultWait.String() || queue.LimitKey.Default != queue.DefaultLimit.String() {
-		t.Errorf("the rows' defaults %s, %s are not the queue's", queue.WaitKey.Default, queue.LimitKey.Default)
-	}
-}
-
-func TestAWaitOrLimitThatIsNoDurationOrTooShortIsRefusedNamingTheRow(t *testing.T) {
-	q, _ := newQueue(t)
-	for _, c := range []struct{ wait, limit, row string }{
-		{"soon", "", "queue.wait"},
-		{"", "-1m", "queue.limit"},
-		{"1ms", "", "queue.wait"},
-		{"", "0s", "queue.limit"},
-	} {
-		_, err := q.Settings(c.wait, c.limit)
-		if code(err) != serve.ReasonConfigUnreadable || !strings.Contains(err.Error(), c.row) {
-			t.Errorf("%q %q: got %v, want %s naming %s", c.wait, c.limit, err, serve.ReasonConfigUnreadable, c.row)
-		}
 	}
 }
 

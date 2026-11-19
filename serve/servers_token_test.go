@@ -13,12 +13,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v3/ask"
-	"github.com/tugbayatilla/mankit/v3/home"
-	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
-// The servers token renew command: a new token, taken by the running servers without a restart.
+// The server token renew command: a new token, taken by the running servers without a restart.
 
 // Success
 
@@ -26,11 +27,11 @@ func TestServersTokenRenewReachesARunningServer(t *testing.T) {
 	machine(t)
 	rec := detached(t)
 	addr := addrOf(rec)
-	old := tokenOf(t, answer(t, linkSchema, "servers", "link", addr))
+	old := tokenOf(t, answer(t, linkSchema, "server", "link", addr))
 	if got := apiStatus(t, addr, old); got != http.StatusOK {
 		t.Fatalf("before the renew: status %d", got)
 	}
-	renewed := tokenOf(t, answer(t, linkSchema, "servers", "token", "renew", "--yes"))
+	renewed := tokenOf(t, answer(t, linkSchema, "server", "token", "renew", "--yes"))
 	if renewed == old {
 		t.Fatal("the token did not change")
 	}
@@ -40,10 +41,10 @@ func TestServersTokenRenewReachesARunningServer(t *testing.T) {
 	if got := apiStatus(t, addr, renewed); got != http.StatusOK {
 		t.Fatalf("the new token: status %d", got)
 	}
-	if got := tokenOf(t, answer(t, linkSchema, "servers", "link", addr)); got != renewed {
-		t.Fatal("servers link prints another token than the renewed one")
+	if got := tokenOf(t, answer(t, linkSchema, "server", "link", addr)); got != renewed {
+		t.Fatal("server link prints another token than the renewed one")
 	}
-	list := answer(t, listSchema, "servers").Data.([]any)
+	list := answer(t, listSchema, "server", "list").Data.([]any)
 	if len(list) != 1 || list[0].(map[string]any)["record"].(map[string]any)["metadata"].(map[string]any)["pid"] != rec["metadata"].(map[string]any)["pid"] {
 		t.Fatalf("the server was restarted: %v", list)
 	}
@@ -52,7 +53,7 @@ func TestServersTokenRenewReachesARunningServer(t *testing.T) {
 func TestServersTokenRenewKeepsTheTokenToTheUser(t *testing.T) {
 	dir := machine(t)
 	writeToken(t, dir, token)
-	if _, err := run(t, "servers", "token", "renew", "--yes"); err != nil {
+	if _, err := run(t, "server", "token", "renew", "--yes"); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Lstat(filepath.Join(dir, "token"))
@@ -83,7 +84,7 @@ func TestServersTokenRenewIsSafeAtOnce(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			out, err := run(t, "servers", "token", "renew", "--yes")
+			out, err := run(t, "server", "token", "renew", "--yes")
 			if err != nil {
 				t.Error(err)
 				return
@@ -137,9 +138,9 @@ func TestServersTokenLivesInTheAppsFolder(t *testing.T) {
 func TestServersTokenRenewRefusesAContractItDoesNotAnswerBeforeItRenews(t *testing.T) {
 	dir := machine(t)
 	writeToken(t, dir, token)
-	_, err := run(t, "servers", "token", "renew", "--yes", "-o", "json", "--contract", "v9")
-	var e *serve.Problem
-	if !errors.As(err, &e) || e.Type != serve.TypeUnsupportedContract {
+	_, err := run(t, "server", "token", "renew", "--yes", "-o", "json", "--contract", "v9")
+	var e *problem.Problem
+	if !errors.As(err, &e) || e.Type != problem.TypeUnsupportedContract {
 		t.Fatalf("got %v", err)
 	}
 	unchanged(t, dir)
@@ -150,7 +151,7 @@ func TestServersTokenRenewRefusesAContractItDoesNotAnswerBeforeItRenews(t *testi
 func TestServersTokenRenewIsRefusedWithoutATerminalOrYes(t *testing.T) {
 	dir := machine(t)
 	writeToken(t, dir, token)
-	if _, err := run(t, "servers", "token", "renew"); !errors.Is(err, ask.ErrRefused) {
+	if _, err := run(t, "server", "token", "renew"); !errors.Is(err, ask.ErrRefused) {
 		t.Fatalf("got %v, want a refusal", err)
 	}
 	unchanged(t, dir)
@@ -172,7 +173,7 @@ func TestServersTokenRenewAsksForTheName(t *testing.T) {
 	}
 	r.AddCommand(cmds...)
 	r.SetOut(&bytes.Buffer{})
-	r.SetArgs([]string{"servers", "token", "renew"})
+	r.SetArgs([]string{"server", "token", "renew"})
 	if err := r.Execute(); !errors.Is(err, ask.ErrRefused) {
 		t.Fatalf("got %v", err)
 	}
@@ -186,16 +187,16 @@ func TestServersTokenRenewAsksForTheName(t *testing.T) {
 
 func TestServersTokenRenewAnswersLikeHTTP(t *testing.T) {
 	machine(t)
-	sameAsHTTP(t, "", "servers", "token", "renew", "--yes")
+	sameAsHTTP(t, "", "server", "token", "renew", "--yes")
 }
 
 // Help
 
 func TestServersTokenRenewHelpSaysWhatItChanges(t *testing.T) {
-	out := help(t, "servers", "token", "renew")
-	for _, want := range []string{"next request", "servers link", "asks for the name", "--yes", "--output", "--contract"} {
+	out := help(t, "server", "token", "renew")
+	for _, want := range []string{"next request", "server link", "asks for the name", "--yes", "--output", "--contract"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("servers token renew --help has no %s:\n%s", want, out)
+			t.Errorf("server token renew --help has no %s:\n%s", want, out)
 		}
 	}
 }
