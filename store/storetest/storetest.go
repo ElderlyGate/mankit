@@ -1,0 +1,454 @@
+// Package storetest is the one conformance suite every adapter of mankit's store passes (ADR-S22): what a scope reads and writes, all or nothing, turns across processes, and a change stopped dead after any of its writes put back by the next one.
+package storetest
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"strconv"
+	"sync"
+	"testing"
+
+	"github.com/tugbayatilla/mankit/v3/serve"
+	"github.com/tugbayatilla/mankit/v3/store"
+)
+
+// Harness is how an adapter is handed to the suite.
+type Harness struct {
+	// New makes a new empty scope for one test and gives back how to open it; each call of open is another view of the same scope, as another process would have.
+	New func(t *testing.T) (open func() *store.Scope)
+	// Crash makes the adapter stop dead after its n-th write in the next change, leaving what a process killed there leaves; fired, called after that change, says whether it stopped and ends the crash either way.
+	Crash func(n int) (fired func() bool)
+}
+
+// Run runs the whole suite against h.
+func Run(t *testing.T, h Harness) {
+	tests := []struct {
+		name string
+		run  func(*testing.T, Harness)
+	}{
+		{"a thing put is read back with its sum", putThenGet},
+		{"a thing not there is not found", missing},
+		{"a write is made only if the thing holds what the writer read", wants},
+		{"a write naming no Want is refused", noWant},
+		{"a file and a folder are removed", removes},
+		{"a file and a folder are moved, never onto a taken name", moves},
+		{"a change whose fn fails writes nothing", fnFails},
+		{"a change refused half way writes nothing", refusedHalfWay},
+		{"a key that leaves the scope is refused", outsideKeys},
+		{"a change writes only inside its thing", insideThing},
+		{"changes from many processes at once are all kept", race},
+		{"the revision moves with a change and not with a read", revision},
+		{"list names every thing inside a prefix", list},
+		{"a change stopped dead after any write is put back by the next", crashes},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) { tc.run(t, h) })
+	}
+}
+
+var ctx = context.Background()
+
+func key(t *testing.T, s string) store.Key {
+	t.Helper()
+	k, err := store.ParseKey(s)
+	if err != nil {
+		t.Fatalf("ParseKey(%q): %v", s, err)
+	}
+	return k
+}
+
+// put writes body at k in k's thing's turn, taking whatever is there.
+func put(t *testing.T, s *store.Scope, k string, body string) {
+	t.Helper()
+	kk := key(t, k)
+	if err := s.Change(ctx, "", "put "+k, func(tx store.Tx) error { return tx.Put(kk, []byte(body), store.Anything()) }); err != nil {
+		t.Fatalf("put %s: %v", k, err)
+	}
+}
+
+// state is every thing in the scope with its body.
+func state(t *testing.T, s *store.Scope) map[string]string {
+	t.Helper()
+	keys, err := s.List("")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	out := map[string]string{}
+	for _, k := range keys {
+		item, there, err := s.Get(k)
+		if err != nil || !there {
+			t.Fatalf("Get(%s) = %v, %v", k, there, err)
+		}
+		out[string(k)] = string(item.Body)
+	}
+	return out
+}
+
+// reason is the store's reason in err, or empty when err is no Problem.
+func reason(err error) string {
+	var p *serve.Problem
+	if errors.As(err, &p) {
+		return p.Reason
+	}
+	return ""
+}
+
+func wantReason(t *testing.T, err error, want string) {
+	t.Helper()
+	if got := reason(err); got != want {
+		t.Fatalf("err = %v (reason %q), want reason %q", err, got, want)
+	}
+}
+
+func putThenGet(t *testing.T, h Harness) {
+	s := h.New(t)()
+	put(t, s, "shop/blocks/a.yml", "a: 1\n")
+	put(t, s, "shop/empty.yml", "")
+	item, there, err := s.Get(key(t, "shop/blocks/a.yml"))
+	if err != nil || !there || string(item.Body) != "a: 1\n" || item.Sum != store.SumOf([]byte("a: 1\n")) {
+		t.Fatalf("Get = %q %s %v %v", item.Body, item.Sum, there, err)
+	}
+	if item, there, err := s.Get(key(t, "shop/empty.yml")); err != nil || !there || len(item.Body) != 0 {
+		t.Fatalf("an empty file reads as %q %v %v, want there and empty", item.Body, there, err)
+	}
+	if got := store.SumOf([]byte("x")); got[:7] != "sha256:" || len(got) != 7+64 {
+		t.Fatalf("SumOf = %q, want sha256: and 64 hex", got)
+	}
+}
+
+func missing(t *testing.T, h Harness) {
+	s := h.New(t)()
+	if _, there, err := s.Get(key(t, "shop/none.yml")); there || err != nil {
+		t.Fatalf("Get of nothing = %v, %v", there, err)
+	}
+}
+
+func wants(t *testing.T, h Harness) {
+	s := h.New(t)()
+	k := key(t, "shop/a.yml")
+	change := func(body string, w store.Want) error {
+		return s.Change(ctx, "shop", "write", func(tx store.Tx) error { return tx.Put(k, []byte(body), w) })
+	}
+	if err := change("one", store.Absent()); err != nil {
+		t.Fatalf("Absent on nothing: %v", err)
+	}
+	wantReason(t, change("two", store.Absent()), store.ReasonChanged)
+	old := store.SumOf([]byte("one"))
+	if err := change("two", store.Holds(old)); err != nil {
+		t.Fatalf("Holds the sum read: %v", err)
+	}
+	wantReason(t, change("three", store.Holds(old)), store.ReasonChanged)
+	if err := change("three", store.Anything()); err != nil {
+		t.Fatalf("Anything: %v", err)
+	}
+	if got := state(t, s)["shop/a.yml"]; got != "three" {
+		t.Fatalf("holds %q, want three", got)
+	}
+}
+
+func noWant(t *testing.T, h Harness) {
+	s := h.New(t)()
+	err := s.Change(ctx, "shop", "write", func(tx store.Tx) error { return tx.Put(key(t, "shop/a.yml"), []byte("x"), store.Want{}) })
+	if err == nil {
+		t.Fatal("a write with no Want went through")
+	}
+}
+
+func removes(t *testing.T, h Harness) {
+	s := h.New(t)()
+	put(t, s, "shop/a.yml", "a")
+	put(t, s, "shop/blocks/b.yml", "b")
+	put(t, s, "shop/blocks/deep/c.yml", "c")
+	put(t, s, "keep.yml", "k")
+	wantReason(t, s.Change(ctx, "shop", "remove", func(tx store.Tx) error {
+		return tx.Remove(key(t, "shop/a.yml"), store.Holds(store.SumOf([]byte("other"))))
+	}), store.ReasonChanged)
+	err := s.Change(ctx, "shop", "remove", func(tx store.Tx) error {
+		if err := tx.Remove(key(t, "shop/a.yml"), store.Holds(store.SumOf([]byte("a")))); err != nil {
+			return err
+		}
+		return tx.Remove(key(t, "shop/blocks"), store.Anything())
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state(t, s); !maps.Equal(got, map[string]string{"keep.yml": "k"}) {
+		t.Fatalf("left %v", got)
+	}
+}
+
+func moves(t *testing.T, h Harness) {
+	s := h.New(t)()
+	put(t, s, "shop/a.yml", "a")
+	put(t, s, "shop/blocks/b.yml", "b")
+	put(t, s, "shop/taken.yml", "t")
+	err := s.Change(ctx, "shop", "move", func(tx store.Tx) error {
+		if err := tx.Move(key(t, "shop/a.yml"), key(t, "shop/moved/a.yml"), store.Holds(store.SumOf([]byte("a")))); err != nil {
+			return err
+		}
+		return tx.Move(key(t, "shop/blocks"), key(t, "shop/parts"), store.Anything())
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"shop/moved/a.yml": "a", "shop/parts/b.yml": "b", "shop/taken.yml": "t"}
+	if got := state(t, s); !maps.Equal(got, want) {
+		t.Fatalf("after the moves %v, want %v", got, want)
+	}
+	wantReason(t, s.Change(ctx, "shop", "move", func(tx store.Tx) error {
+		return tx.Move(key(t, "shop/moved/a.yml"), key(t, "shop/taken.yml"), store.Anything())
+	}), store.ReasonChanged)
+	if got := state(t, s); !maps.Equal(got, want) {
+		t.Fatalf("a refused move changed %v", got)
+	}
+}
+
+func fnFails(t *testing.T, h Harness) {
+	s := h.New(t)()
+	put(t, s, "shop/a.yml", "a")
+	boom := errors.New("boom")
+	err := s.Change(ctx, "shop", "fails", func(tx store.Tx) error {
+		_ = tx.Put(key(t, "shop/a.yml"), []byte("changed"), store.Anything())
+		_ = tx.Put(key(t, "shop/b.yml"), []byte("new"), store.Anything())
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want fn's own", err)
+	}
+	if got := state(t, s); !maps.Equal(got, map[string]string{"shop/a.yml": "a"}) {
+		t.Fatalf("left %v", got)
+	}
+	put(t, s, "shop/a.yml", "after")
+}
+
+func refusedHalfWay(t *testing.T, h Harness) {
+	s := h.New(t)()
+	put(t, s, "shop/a.yml", "a")
+	put(t, s, "shop/b.yml", "b")
+	before := state(t, s)
+	err := s.Change(ctx, "shop", "half", func(tx store.Tx) error {
+		if err := tx.Put(key(t, "shop/a.yml"), []byte("a2"), store.Anything()); err != nil {
+			return err
+		}
+		if err := tx.Put(key(t, "shop/new/c.yml"), []byte("c"), store.Absent()); err != nil {
+			return err
+		}
+		// Read before the change began, so this Want no longer holds once the first write is made.
+		return tx.Put(key(t, "shop/a.yml"), []byte("a3"), store.Holds(store.SumOf([]byte("a"))))
+	})
+	wantReason(t, err, store.ReasonChanged)
+	if got := state(t, s); !maps.Equal(got, before) {
+		t.Fatalf("a change refused half way left %v, want %v", got, before)
+	}
+}
+
+func outsideKeys(t *testing.T, h Harness) {
+	for _, s := range []string{"", "/etc/passwd", "../up", "a/../../up", "a\\b", "C:/x", "file:x", "a:b", "~/x", " x", "a/.queue/x", ".store/j", "a\x01b"} {
+		if _, err := store.ParseKey(s); reason(err) != store.ReasonOutside {
+			t.Errorf("ParseKey(%q) = %v, want outside", s, err)
+		}
+	}
+	for in, want := range map[string]string{"a//b/": "a/b", "./a/./b": "a/b", "a/b:c": "a/b:c", "1:x": "1:x"} {
+		if got, err := store.ParseKey(in); err != nil || string(got) != want {
+			t.Errorf("ParseKey(%q) = %q, %v, want %q", in, got, err, want)
+		}
+	}
+	s := h.New(t)()
+	if _, _, err := s.Get(store.Key("../up")); reason(err) != store.ReasonOutside {
+		t.Fatalf("Get of a key made by a conversion = %v, want outside", err)
+	}
+	wantReason(t, s.Change(ctx, "", "up", func(tx store.Tx) error {
+		return tx.Put(store.Key("a/../../up"), []byte("x"), store.Anything())
+	}), store.ReasonOutside)
+}
+
+func insideThing(t *testing.T, h Harness) {
+	s := h.New(t)()
+	wantReason(t, s.Change(ctx, "shop", "write", func(tx store.Tx) error {
+		return tx.Put(key(t, "other/a.yml"), []byte("x"), store.Anything())
+	}), store.ReasonOutside)
+	wantReason(t, s.Change(ctx, "shop/blocks", "write", func(tx store.Tx) error { return nil }), store.ReasonOutside)
+}
+
+func race(t *testing.T, h Harness) {
+	open := h.New(t)
+	views := []*store.Scope{open(), open()}
+	k := key(t, "count/n")
+	put(t, views[0], "count/n", "0")
+	const each = 10
+	var wg sync.WaitGroup
+	errs := make(chan error, each*len(views))
+	for _, s := range views {
+		for range each {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				errs <- s.Change(ctx, "count", "add one", func(tx store.Tx) error {
+					item, _, err := tx.Get(k)
+					if err != nil {
+						return err
+					}
+					n, err := strconv.Atoi(string(item.Body))
+					if err != nil {
+						return err
+					}
+					return tx.Put(k, []byte(strconv.Itoa(n+1)), store.Holds(item.Sum))
+				})
+			}()
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := state(t, views[0])["count/n"]; got != strconv.Itoa(each*len(views)) {
+		t.Fatalf("count is %s, want %d", got, each*len(views))
+	}
+}
+
+func revision(t *testing.T, h Harness) {
+	s := h.New(t)()
+	put(t, s, "shop/a.yml", "a")
+	r1, err := s.Revision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _ = s.Get(key(t, "shop/a.yml"))
+	if r2, _ := s.Revision(); r2 != r1 {
+		t.Fatalf("a read moved the revision: %s to %s", r1, r2)
+	}
+	put(t, s, "shop/b.yml", "b")
+	if r3, _ := s.Revision(); r3 == r1 {
+		t.Fatal("a change left the revision where it was")
+	}
+}
+
+func list(t *testing.T, h Harness) {
+	s := h.New(t)()
+	put(t, s, "shop/b.yml", "b")
+	put(t, s, "shop/a/x.yml", "x")
+	put(t, s, "other.yml", "o")
+	got, err := s.List(key(t, "shop"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(got) != "[shop/a/x.yml shop/b.yml]" {
+		t.Fatalf("List(shop) = %v", got)
+	}
+	if got, err := s.List(key(t, "none")); err != nil || len(got) != 0 {
+		t.Fatalf("List(none) = %v, %v", got, err)
+	}
+	if got, err := s.List(key(t, "other.yml")); err != nil || fmt.Sprint(got) != "[other.yml]" {
+		t.Fatalf("List(other.yml) = %v, %v", got, err)
+	}
+}
+
+// crashCase is one change the crash test stops after each of its writes in turn.
+type crashCase struct {
+	name   string
+	thing  string
+	before map[string]string
+	change func(t *testing.T, tx store.Tx) error
+}
+
+var crashCases = []crashCase{
+	{"a new file", "shop", map[string]string{"keep.yml": "k"}, func(t *testing.T, tx store.Tx) error {
+		return tx.Put(key(t, "shop/a.yml"), []byte("a"), store.Absent())
+	}},
+	{"a file replaced", "shop", map[string]string{"shop/a.yml": "a"}, func(t *testing.T, tx store.Tx) error {
+		return tx.Put(key(t, "shop/a.yml"), []byte("a2"), store.Anything())
+	}},
+	{"files written into new folders", "shop", map[string]string{"shop/a.yml": "a"}, func(t *testing.T, tx store.Tx) error {
+		if err := tx.Put(key(t, "shop/a.yml"), []byte("a2"), store.Anything()); err != nil {
+			return err
+		}
+		return tx.Put(key(t, "shop/x/y/b.yml"), []byte("b"), store.Absent())
+	}},
+	{"a file removed beside a write", "shop", map[string]string{"shop/a.yml": "a", "shop/b.yml": "b"}, func(t *testing.T, tx store.Tx) error {
+		if err := tx.Remove(key(t, "shop/a.yml"), store.Anything()); err != nil {
+			return err
+		}
+		return tx.Put(key(t, "shop/b.yml"), []byte("b2"), store.Anything())
+	}},
+	{"a folder removed", "shop", map[string]string{"shop/a.yml": "a", "shop/f/b.yml": "b", "shop/f/g/c.yml": "c"}, func(t *testing.T, tx store.Tx) error {
+		return tx.Remove(key(t, "shop/f"), store.Anything())
+	}},
+	{"a file moved", "shop", map[string]string{"shop/a.yml": "a"}, func(t *testing.T, tx store.Tx) error {
+		return tx.Move(key(t, "shop/a.yml"), key(t, "shop/n/a.yml"), store.Anything())
+	}},
+	{"a folder moved and written into", "shop", map[string]string{"shop/f/b.yml": "b"}, func(t *testing.T, tx store.Tx) error {
+		if err := tx.Move(key(t, "shop/f"), key(t, "shop/g"), store.Anything()); err != nil {
+			return err
+		}
+		return tx.Put(key(t, "shop/g/c.yml"), []byte("c"), store.Absent())
+	}},
+	{"a thing moved in the folder's turn", "", map[string]string{"shop/a.yml": "a", "other.yml": "o"}, func(t *testing.T, tx store.Tx) error {
+		if err := tx.Move(key(t, "shop"), key(t, "store"), store.Anything()); err != nil {
+			return err
+		}
+		return tx.Put(key(t, "other.yml"), []byte("o2"), store.Anything())
+	}},
+}
+
+// crashes stops each case after its first write, then its second, and so on until the change finishes, and checks every time that the next change finds the scope all before or all after, with nothing left unfinished.
+func crashes(t *testing.T, h Harness) {
+	for _, c := range crashCases {
+		t.Run(c.name, func(t *testing.T) {
+			var after map[string]string
+			{
+				s := h.New(t)()
+				seed(t, s, c.before)
+				if err := s.Change(ctx, store.Key(c.thing), c.name, func(tx store.Tx) error { return c.change(t, tx) }); err != nil {
+					t.Fatalf("the change itself: %v", err)
+				}
+				after = state(t, s)
+			}
+			for n := 1; ; n++ {
+				open := h.New(t)
+				s := open()
+				seed(t, s, c.before)
+				fired := h.Crash(n)
+				err := s.Change(ctx, store.Key(c.thing), c.name, func(tx store.Tx) error { return c.change(t, tx) })
+				if !fired() {
+					if err != nil {
+						t.Fatalf("not stopped after write %d, yet: %v", n, err)
+					}
+					if n == 1 {
+						t.Fatal("the change made no write the crash could stop after")
+					}
+					t.Logf("stopped after each of %d writes", n-1)
+					return
+				}
+				next := open()
+				// The next change of the thing puts back what the one stopped dead left, before it runs.
+				if err := next.Change(ctx, store.Key(c.thing), "after the crash", func(store.Tx) error { return nil }); err != nil {
+					t.Fatalf("after write %d: the next change: %v", n, err)
+				}
+				got := state(t, next)
+				if !maps.Equal(got, c.before) && !maps.Equal(got, after) {
+					t.Fatalf("after write %d the scope holds %v, neither before %v nor after %v", n, got, c.before, after)
+				}
+				for _, thing := range []string{"", "shop", "store"} {
+					left, err := next.Unfinished(store.Key(thing))
+					if err != nil || len(left) != 0 {
+						t.Fatalf("after write %d: unfinished in %q: %v, %v", n, thing, left, err)
+					}
+				}
+				put(t, next, "shop/later.yml", "later")
+			}
+		})
+	}
+}
+
+// seed writes things, each in its own change.
+func seed(t *testing.T, s *store.Scope, things map[string]string) {
+	t.Helper()
+	for k, v := range things {
+		put(t, s, k, v)
+	}
+}

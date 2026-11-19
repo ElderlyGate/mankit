@@ -29,6 +29,7 @@ three, instead of being made three times.
 | `features` | An app's list of switchable features: each starts on or off and names the values it needs; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
 | `queue` | The change queue: every change to one served thing waits its turn in `<served folder>/<app folder>/.queue/`, one at a time across processes, done once written and read back (see [Change queue](#change-queue)) |
+| `store` | The one storage port (ADR-S22): a scope names its things by keys, reading never waits, every change takes the thing's turn and is made all or nothing, then read back; `store/storetest` is the conformance suite every adapter passes (see [Store](#store)) |
 
 ## Settings
 
@@ -656,6 +657,102 @@ What it holds for:
   the turn back, and the next change must not find half a file.
 - 0700 keeps the folder to this user on Linux and macOS; Windows has no such
   mode.
+
+## Store
+
+`store` is the one port every app keeps what it writes through (ADR-S22). An
+app opens a scope once and names a thing by a key, a slash path inside it,
+never a machine path:
+
+```go
+app := store.App{ID: "designer", Version: version, Features: list}
+s, err := store.Served(app, filepath.Join(repo, ".designer"), func(thing store.Key) string {
+	if thing == "" {
+		return filepath.Join(repo, ".designer", ".queue", "root") // the folder's own turn
+	}
+	return filepath.Join(repo, ".designer", ".queue", "design", string(thing))
+})
+cfg, err := store.Config(app) // ~/.config/elderlygate/<app>, made private; store.Data likewise
+defer s.Close()
+
+item, there, err := s.Get(key)              // never waits; Item{Body, Sum "sha256:…"}
+err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
+	return tx.Put(key, body, store.Holds(item.Sum)) // or store.Absent(), store.Anything()
+})
+```
+
+- `ParseKey` gives a key in its one form (contracts `mankit/v1` `storeKey`); a
+  `..` step, a backslash, a machine path's start are refused as `outside`, and
+  so is a step named `.queue` or `.store`, the store's own folders: stricter
+  than `storeKey`, which allows them.
+- A thing is a key's first step. `Change(ctx, thing, what, fn)` takes the
+  thing's turn in the change queue (ADR-S14), and the folder's own turn first
+  when the thing is not there yet; `Change(ctx, "", …)` is a change to the
+  scope itself, which takes the folder's turn and the turn of each thing it
+  writes as it writes it. `Config` and `Data` have one turn, in `<scope>/.queue/`.
+  There is no separate lock.
+- `fn` stages `Put`, `Remove` and `Move`; nothing is written unless it returns
+  nil. `Tx.Get` reads the change as it stands: what was there, with what `fn`
+  has staged on top. Each write's `Want` is checked as it is staged, against
+  that, and again at commit against the disk, for a writer outside the store;
+  either refuses with `changed`. `fn` must not call `Change` on the same scope:
+  it would wait for ever for the turn its own change holds.
+- One write alone is whole by itself. More are all or nothing: the change's
+  mark goes into the `.queue/` of every turn it holds, its journal into this
+  user's data folder (`<data>/<app>/.store/<machine>/`, 0700, one per machine),
+  then the writes, the read-back, the journal removed, the marks last. The
+  shapes and their lifetime are contracts `mankit/v1` `store-journal`,
+  `store-journal-change` and `store-unfinished`.
+- Putting a change back removes the core's temporary files, named
+  `.<file>.~disk-<random>`, beside each file it puts back and inside each
+  folder it takes away.
+- The change queue's folders are private by user id, so users who share a
+  served folder share it as one uid (as workspace containers do); the store
+  tells them apart by user name and machine.
+- Past the queue's limit (`App.Limit`) a change stops before its next write,
+  is put back and fails with `change_too_long`; one already made and read back
+  when the limit passes is done, and that it overran is said on the app's log.
+- A change cut short is put back by the next change of the same user on the
+  same machine, once its writer no longer runs: its process id no longer runs
+  there (a pid reused by another process meanwhile counts as running; where
+  the system cannot be asked, outside Linux and macOS, it always does). A cut
+  short change of another thing that cannot be put back is said and does not
+  stop this one. Another user's change to a key a mark holds is refused with
+  `unfinished_change`, naming the user, the machine and `<app> store unfinished
+  clear <thing>`; `Unfinished` lists the marks, with this user's journal file,
+  and this user's journals whose marks are gone (`Left`), and `Clear` removes
+  marks, for that command, which asks first.
+- A machine is known by its host name, so a product's container needs a fixed
+  `--hostname` (such as `<product>-<project>`): a container made anew under
+  another name would never find its own journals to put back.
+- The safety rules live once, in `internal/disk`, which the queue writes
+  through too: every call inside one open folder (`os.Root`), regular files
+  only, opened without waiting on a pipe, written whole. No link is followed,
+  one leading inside the scope included: a key with a link on its way is
+  refused as `outside`. The app's own scopes and the journals are private:
+  when the folder itself is open to others, it is made 0700 and what this user
+  owns inside it loses what others may do, each said on the app's log, and
+  what another user owns inside is said and left as it is; a private folder is
+  not walked. An own folder that is another user's, or is itself a link (as a
+  dotfiles manager such as stow makes), is refused as `not_owned`, as every
+  link is. A served file keeps the mode of the file it
+  replaces, a moved file its own, and a new one gets 0644 whatever the umask
+  says. Putting a change back in the process that made it gives a removed
+  file its mode back. After a crash, a removed file is put back 0644 in a
+  served folder and 0600 in the own scopes, as the journal holds no mode; the
+  mode comes with the next store contract version.
+- `Revision` moves whenever a thing changes; a reader polls it, or a server's
+  live events watch it (ADR-E3).
+- The adapter is picked in one place, through the app's feature list
+  (G-CODE-7): files, always on, unless an enterprise adapter's feature is on
+  (ADR-E9); a feature that is on but cannot run refuses the scope and never
+  falls back to files. No other adapter is built yet.
+- Problems are ADR-S21's, with `at[].file` the key: `outside`, `changed`,
+  `not_owned`, `unfinished_change` (`store.Reason…`), and the queue's reasons.
+
+`storetest.Run(t, harness)` is the conformance suite any adapter runs, with a
+crash after each write of every kind of change. `store/testdata/twouser.sh`
+runs two users on two machines (containers) sharing one served folder.
 
 ## Why textinput is vendored
 

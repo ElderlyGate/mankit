@@ -44,6 +44,10 @@ jobs:
       - name: test
         if: steps.scope.outputs.code == 'true'
         run: go test ./...
+      # Two users on two machines share one served folder: the store refuses one the other's unfinished change (ADR-S22).
+      - name: store, two users
+        if: steps.scope.outputs.code == 'true'
+        run: ./store/testdata/twouser.sh
       # A break in the public API fails, unless the module path moved to a new major (/vN): that is how a major is declared.
       - name: gorelease
         if: steps.scope.outputs.code == 'true'
