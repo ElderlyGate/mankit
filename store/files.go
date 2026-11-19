@@ -577,7 +577,7 @@ func (f *files) stuck(left []line, err error, journal string) error {
 	return fail(serve.TypeFailed, ReasonUnfinished, string(last), fmt.Sprintf("putting the change back stopped at %s, which was changed since, so it and what came before it were left as they are; what was there before is kept in %s", last, journal))
 }
 
-// readBack checks the disk holds what the lines left, each key as its last line says.
+// readBack checks the disk holds what the lines left, each key where and as the last line touching it leaves it: a folder moved takes what was written inside it along, and what was there under its new name before is gone.
 func (f *files) readBack(lines []line) error {
 	type end struct {
 		there, dir bool
@@ -585,8 +585,10 @@ func (f *files) readBack(lines []line) error {
 	}
 	ends := map[Key]end{}
 	var order []Key
+	listed := map[Key]bool{}
 	set := func(k Key, e end) {
-		if _, seen := ends[k]; !seen {
+		if !listed[k] {
+			listed[k] = true
 			order = append(order, k)
 		}
 		ends[k] = e
@@ -594,8 +596,21 @@ func (f *files) readBack(lines []line) error {
 	for _, l := range lines {
 		switch {
 		case l.From != "":
+			moved := map[Key]end{}
+			for k, e := range ends {
+				switch {
+				case k.within(l.Key):
+					delete(ends, k)
+				case k.within(l.From):
+					delete(ends, k)
+					moved[k.rebase(l.From, l.Key)] = e
+				}
+			}
 			set(l.From, end{})
 			set(l.Key, end{there: true, dir: true})
+			for k, e := range moved {
+				set(k, e)
+			}
 		case l.Dir:
 			set(l.Key, end{there: !l.Gone, dir: true})
 		case l.After != nil:
@@ -605,7 +620,11 @@ func (f *files) readBack(lines []line) error {
 		}
 	}
 	for _, k := range order {
-		e := ends[k]
+		e, kept := ends[k]
+		if !kept {
+			// Moved away with its folder, or under a name a folder was moved onto.
+			continue
+		}
 		info, err := f.r.Lstat(slash(k))
 		ok := false
 		switch {

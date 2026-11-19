@@ -35,6 +35,7 @@ func Run(t *testing.T, h Harness) {
 		{"a write naming no Want is refused", noWant},
 		{"a file and a folder are removed", removes},
 		{"a file and a folder are moved, never onto a taken name", moves},
+		{"writes and moves in one change end where the last one leaves them", writesThenMoves},
 		{"a change whose fn fails writes nothing", fnFails},
 		{"a change refused half way writes nothing", refusedHalfWay},
 		{"a key that leaves the scope is refused", outsideKeys},
@@ -204,6 +205,65 @@ func moves(t *testing.T, h Harness) {
 	}), store.ReasonChanged)
 	if got := state(t, s); !maps.Equal(got, want) {
 		t.Fatalf("a refused move changed %v", got)
+	}
+}
+
+func writesThenMoves(t *testing.T, h Harness) {
+	steps := func(ops ...func(store.Tx) error) func(store.Tx) error {
+		return func(tx store.Tx) error {
+			for _, op := range ops {
+				if err := op(tx); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+	put := func(k, body string) func(store.Tx) error {
+		return func(tx store.Tx) error { return tx.Put(key(t, k), []byte(body), store.Anything()) }
+	}
+	move := func(from, to string) func(store.Tx) error {
+		return func(tx store.Tx) error { return tx.Move(key(t, from), key(t, to), store.Anything()) }
+	}
+	remove := func(k string) func(store.Tx) error {
+		return func(tx store.Tx) error { return tx.Remove(key(t, k), store.Anything()) }
+	}
+	cases := []struct {
+		name   string
+		before map[string]string
+		change func(store.Tx) error
+		want   map[string]string
+	}{
+		{"a file put, then its folder moved", map[string]string{"shop/a/old.yml": "o"},
+			steps(put("shop/a/x.yml", "x"), move("shop/a", "shop/b")),
+			map[string]string{"shop/b/old.yml": "o", "shop/b/x.yml": "x"}},
+		{"a file put, then moved", map[string]string{"shop/keep.yml": "k"},
+			steps(put("shop/a/x.yml", "x"), move("shop/a/x.yml", "shop/b/x.yml")),
+			map[string]string{"shop/keep.yml": "k", "shop/b/x.yml": "x"}},
+		{"a folder moved, then a file put into it", map[string]string{"shop/a/old.yml": "o"},
+			steps(move("shop/a", "shop/b"), put("shop/b/x.yml", "x")),
+			map[string]string{"shop/b/old.yml": "o", "shop/b/x.yml": "x"}},
+		{"a file put, its folder moved and moved back", map[string]string{"shop/a/old.yml": "o"},
+			steps(put("shop/a/x.yml", "x"), move("shop/a", "shop/b"), move("shop/b", "shop/a")),
+			map[string]string{"shop/a/old.yml": "o", "shop/a/x.yml": "x"}},
+		{"a folder removed, then another moved to its name", map[string]string{"shop/a/x.yml": "new", "shop/b/x.yml": "old"},
+			steps(remove("shop/b"), move("shop/a", "shop/b")),
+			map[string]string{"shop/b/x.yml": "new"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := h.New(t)()
+			seed(t, s, c.before)
+			if err := s.Change(ctx, "shop", c.name, c.change); err != nil {
+				t.Fatal(err)
+			}
+			if got := state(t, s); !maps.Equal(got, c.want) {
+				t.Fatalf("after the change %v, want %v", got, c.want)
+			}
+			if left, err := s.Unfinished(key(t, "shop")); err != nil || len(left) != 0 {
+				t.Fatalf("unfinished after the change: %v, %v", left, err)
+			}
+		})
 	}
 }
 
@@ -501,6 +561,12 @@ var crashCases = []crashCase{
 			return err
 		}
 		return tx.Put(key(t, "shop/g/c.yml"), []byte("c"), store.Absent())
+	}},
+	{"a file written, then its folder moved", "shop", map[string]string{"shop/f/b.yml": "b"}, func(t *testing.T, tx store.Tx) error {
+		if err := tx.Put(key(t, "shop/f/c.yml"), []byte("c"), store.Absent()); err != nil {
+			return err
+		}
+		return tx.Move(key(t, "shop/f"), key(t, "shop/g"), store.Anything())
 	}},
 	{"a thing moved in the folder's turn", "", map[string]string{"shop/a.yml": "a", "other.yml": "o"}, func(t *testing.T, tx store.Tx) error {
 		if err := tx.Move(key(t, "shop"), key(t, "store"), store.Anything()); err != nil {
