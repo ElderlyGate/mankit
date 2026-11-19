@@ -36,7 +36,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 // Command is one entry of the commands file.
@@ -78,43 +78,59 @@ func Migrate(path string) (string, error) {
 	if path == "" || filepath.Base(path) != "config.yaml" {
 		return "", nil
 	}
-	old := filepath.Join(filepath.Dir(path), oldFile)
-	b, err := os.ReadFile(old)
-	if errors.Is(err, os.ErrNotExist) {
+	dir := filepath.Dir(path)
+	old := filepath.Join(dir, oldFile)
+	// Nothing to move opens nothing, so a read-only command makes no folder.
+	if _, err := os.Lstat(old); errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
+	var did string
+	// The move, the merge and the rename are one change in the folder's turn, all or nothing (ADR-S22).
+	err := ownChange(dir, "move "+oldFile+" into config.yaml", func(tx store.Tx) error {
+		b, there, err := tx.Get(oldFile)
+		if err != nil || !there {
+			return err
+		}
+		cur, curThere, err := tx.Get("config.yaml")
+		if err != nil {
+			return err
+		}
+		if !curThere {
+			did = fmt.Sprintf("moved %s to %s", old, path)
+			return tx.Move(oldFile, "config.yaml", store.Holds(b.Sum))
+		}
+		var f file
+		if err := yaml.Unmarshal(cur.Body, &f); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		if len(f.Commands) > 0 {
+			return nil // config.yaml already has its own commands
+		}
+		if bytes.Contains(cur.Body, []byte("\ncommands:")) || bytes.HasPrefix(cur.Body, []byte("commands:")) {
+			return nil // an empty commands: key; leave both files to the user
+		}
+		merged := append(bytes.TrimRight(cur.Body, "\n"), '\n', '\n')
+		merged = append(merged, b.Body...)
+		if err := tx.Put("config.yaml", merged, store.Holds(cur.Sum)); err != nil {
+			return err
+		}
+		did = fmt.Sprintf("added the commands of %s to %s (the old file is %s.migrated)", old, path, oldFile)
+		return tx.Move(oldFile, oldFile+".migrated", store.Holds(b.Sum))
+	})
 	if err != nil {
 		return "", err
 	}
-	cur, err := os.ReadFile(path)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		if err := disk.Rename(old, path); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("moved %s to %s", old, path), nil
-	case err != nil:
-		return "", err
+	return did, nil
+}
+
+// ownChange runs fn in one change of dir opened as an own folder (store.Own).
+func ownChange(dir, what string, fn func(store.Tx) error) error {
+	s, err := store.Own(store.App{ID: filepath.Base(dir)}, dir)
+	if err != nil {
+		return err
 	}
-	var f file
-	if err := yaml.Unmarshal(cur, &f); err != nil {
-		return "", fmt.Errorf("%s: %w", path, err)
-	}
-	if len(f.Commands) > 0 {
-		return "", nil // config.yaml already has its own commands
-	}
-	if bytes.Contains(cur, []byte("\ncommands:")) || bytes.HasPrefix(cur, []byte("commands:")) {
-		return "", nil // an empty commands: key; leave both files to the user
-	}
-	merged := append(bytes.TrimRight(cur, "\n"), '\n', '\n')
-	merged = append(merged, b...)
-	if err := disk.Replace(path, merged, 0o644); err != nil {
-		return "", err
-	}
-	if err := disk.Rename(old, old+".migrated"); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("added the commands of %s to %s (the old file is %s.migrated)", old, path, oldFile), nil
+	defer s.Close()
+	return s.Change(context.Background(), "", what, fn)
 }
 
 // Spec is what an app accepts: its view names and its placeholders.
@@ -351,16 +367,33 @@ func Init(path string, starter []byte, force bool) (wrote bool, backup string, e
 	if _, err := Migrate(path); err != nil {
 		return false, "", err
 	}
-	if _, err := os.Stat(path); err == nil {
-		if !force {
-			return false, "", nil
+	name := filepath.Base(path)
+	// Keeping yours as .bak and writing the starter are one change in the folder's turn (ADR-S22).
+	err = ownChange(filepath.Dir(path), "write the starter "+name, func(tx store.Tx) error {
+		_, there, err := tx.Get(store.Key(name))
+		if err != nil {
+			return err
 		}
-		backup = path + ".bak"
-		if err := disk.Rename(path, backup); err != nil {
-			return false, "", err
+		if there {
+			if !force {
+				return nil
+			}
+			bak := store.Key(name + ".bak")
+			if err := tx.Remove(bak, store.Anything()); err != nil {
+				return err
+			}
+			if err := tx.Move(store.Key(name), bak, store.Anything()); err != nil {
+				return err
+			}
+			backup = path + ".bak"
 		}
+		wrote = true
+		return tx.Put(store.Key(name), withThemeLines(starter), store.Absent())
+	})
+	if err != nil {
+		return false, "", err
 	}
-	return true, backup, disk.Replace(path, withThemeLines(starter), 0o644)
+	return wrote, backup, nil
 }
 
 // withThemeLines puts themeLines after the starter's first comment block

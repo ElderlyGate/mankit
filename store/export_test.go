@@ -2,11 +2,6 @@ package store
 
 import (
 	"os"
-
-	"github.com/spf13/cobra"
-
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/store/internal/asking"
 )
 
 // CrashAfter stops the next change dead after its n-th write; fired says whether it did, and ends the crash either way.
@@ -29,11 +24,4 @@ func ExitAfter(n int) {
 func BeforeReadBack(t interface{ Cleanup(func()) }, fn func()) {
 	beforeReadBack = fn
 	t.Cleanup(func() { beforeReadBack = nil })
-}
-
-// AskWith stands in fn for the name question store unfinished remove asks, until the test ends.
-func AskWith(t interface{ Cleanup(func()) }, fn func(*cobra.Command, ask.Action) error) {
-	was := asking.Name
-	asking.Name = fn
-	t.Cleanup(func() { asking.Name = was })
 }

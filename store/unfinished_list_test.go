@@ -21,6 +21,7 @@ import (
 	"github.com/tugbayatilla/mankit/v4/serve"
 	"github.com/tugbayatilla/mankit/v4/store"
 	storecli "github.com/tugbayatilla/mankit/v4/store/cli"
+	"github.com/tugbayatilla/mankit/v4/store/internal/asking"
 )
 
 // The tests of <app> store unfinished list, in ADR-S19's six parts; the helpers are shared with the remove tests.
@@ -210,7 +211,7 @@ func TestUnfinishedListRefusesWhatItCannotList(t *testing.T) {
 func TestUnfinishedListNeverAsks(t *testing.T) {
 	dir := fresh(t)
 	served(t, dir)
-	store.AskWith(t, func(*cobra.Command, ask.Action) error { return errors.New("list asked") })
+	asking.With(t, func(*cobra.Command, ask.Action) error { return errors.New("list asked") })
 	if _, code, err := unfinishedRun(t, dir, "list"); code != 0 || err != nil {
 		t.Fatalf("list = %d, %v", code, err)
 	}

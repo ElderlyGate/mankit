@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/logs"
 )
 
 // The child of serve --detach is told what it is by the environment, never by a flag a user could type.
@@ -21,12 +20,9 @@ const (
 )
 
 // spawn starts exe args detached in dir and waits until it serves and wrote its record, so an address in use fails here, with what the child said.
-func spawn(exe string, args []string, dir, recordDir, addr string) (record, error) {
-	if _, err := disk.Private(recordDir); err != nil {
-		return record{}, err
-	}
-	logPath := filepath.Join(recordDir, logName(addr))
-	logFile, err := disk.Log(logPath)
+// The child logs to logPath, in the app's logs folder (G-STACK-8); what it says before it logs, such as a crash, lands there too.
+func spawn(exe string, args []string, dir, recordDir, logPath string) (record, error) {
+	logFile, err := logs.Open(logPath)
 	if err != nil {
 		return record{}, fmt.Errorf("cannot open %s: %w", logPath, err)
 	}
@@ -34,7 +30,7 @@ func spawn(exe string, args []string, dir, recordDir, addr string) (record, erro
 
 	cmd := exec.Command(exe, args...)
 	cmd.Dir = dir
-	cmd.Stdout, cmd.Stderr, cmd.Stdin = logFile, logFile, nil
+	cmd.Stdout, cmd.Stderr, cmd.Stdin = logFile.OS(), logFile.OS(), nil
 	cmd.Env = append(os.Environ(), detachedEnv+"=1", logEnv+"="+logPath)
 	cmd.SysProcAttr = detachAttrs()
 	if err := cmd.Start(); err != nil {
@@ -104,7 +100,7 @@ func (a App) stop(dir string, r record) (stopped, error) {
 	p := a.probe(r.Metadata.Addr, probeWait)
 	if p.refused {
 		out.Stale = true
-		return out, removeRecord(dir, r.Metadata.Addr)
+		return out, a.removeRecord(dir, r.Metadata.Addr)
 	}
 	if !p.answering {
 		return out, fmt.Errorf("%s is held by something that does not answer as %s; this will not signal a process it cannot name (recorded pid %d)",
@@ -128,5 +124,5 @@ func (a App) stop(dir string, r record) (stopped, error) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	out.Stopped = true
-	return out, removeRecord(dir, r.Metadata.Addr)
+	return out, a.removeRecord(dir, r.Metadata.Addr)
 }

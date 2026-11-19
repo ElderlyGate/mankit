@@ -19,8 +19,8 @@ import (
 	"sync/atomic"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
 	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
 	"github.com/tugbayatilla/mankit/v4/store/internal/queue"
 )
 
@@ -202,7 +202,7 @@ func (f *files) plan(o op) ([]line, error) {
 		if err != nil {
 			return nil, err
 		}
-		return append(made, line{Key: o.key, Before: content(cur), After: content(o.body), mode: f.modeFor(o.key)}), nil
+		return append(made, line{Key: o.key, Before: content(cur), After: content(o.body), mode: f.modeFor(o.key), exec: o.exec}), nil
 	case opRemove:
 		info, err := f.r.Lstat(slash(o.key))
 		if errors.Is(err, fs.ErrNotExist) {
@@ -362,10 +362,15 @@ func (f *files) apply(l line, synced bool) ([]string, error) {
 
 // fileMode is the mode a line's file is written with: the one it recorded, or as modeFor says.
 func (f *files) fileMode(l line) fs.FileMode {
+	m := f.modeFor(l.Key)
 	if l.mode != 0 && !f.s.private {
-		return l.mode
+		m = l.mode
 	}
-	return f.modeFor(l.Key)
+	if l.exec {
+		// The run bit wherever the file may be read: 0600 becomes 0700, 0644 becomes 0755.
+		m |= (m & 0o444) >> 2
+	}
+	return m
 }
 
 // syncAll syncs each folder once; one that is gone since has nothing to sync.

@@ -1,4 +1,4 @@
-// Package disk is the one safety core every writer in mankit shares, the store, the change queue and the writers below the store alike: inside an open folder it follows no link, reads and writes regular files only, never waits on a pipe, writes a file whole (G-CODE-5) and keeps an app's own folders private. Replace alone follows a link, on purpose: a config file a person edits may be a link to their own copy.
+// Package disk is the store's safety core, which its change queue writes through too: inside an open folder it follows no link, reads and writes regular files only, never waits on a pipe, writes a file whole (G-CODE-5) and keeps an app's own folders private. It sits inside the store, so no package outside it writes past the port (ADR-S22).
 package disk
 
 import (
@@ -181,6 +181,35 @@ func WriteWhole(dir, path string, data []byte) error {
 // Private makes dir and the folders above it that are new only this user's, syncing each folder a new one was made in, and tightens to 0700 a dir this user owns that others could read or write; it says what it tightened.
 // A dir that is a link, not a folder, or another user's is refused with ErrNotOwned, since what is kept there is acted on as this user.
 func Private(dir string) (tightened []string, err error) {
+	f, err := mine(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		if err := f.Chmod(0o700); err != nil {
+			return nil, err
+		}
+		tightened = append(tightened, dir)
+	}
+	return tightened, nil
+}
+
+// Mine is Private without the tightening: dir is made 0700 when missing, with its missing parents, and must be a folder of this user's, never a link; a folder that is there keeps its mode.
+func Mine(dir string) error {
+	f, err := mine(dir)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// mine makes dir when missing and opens it, refusing a link and another user's folder.
+func mine(dir string) (*os.File, error) {
 	var made []string
 	for p := filepath.Clean(dir); ; p = filepath.Dir(p) {
 		if _, err := os.Lstat(p); err == nil || filepath.Dir(p) == p {
@@ -204,21 +233,16 @@ func Private(dir string) (tightened []string, err error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
+		f.Close()
 		return nil, err
 	}
 	if !info.IsDir() || !Owned(info) {
+		f.Close()
 		return nil, &fs.PathError{Op: "use", Path: dir, Err: ErrNotOwned}
 	}
-	if info.Mode().Perm()&0o077 != 0 {
-		if err := f.Chmod(0o700); err != nil {
-			return nil, err
-		}
-		tightened = append(tightened, dir)
-	}
-	return tightened, nil
+	return f, nil
 }
 
 // Tighten takes from every folder and file inside dir that this user owns what others may do with it, so it is this user's alone, and says which; each is changed through a handle opened never through a link. One another user owns is left as it is and said in skipped, with what is inside it.

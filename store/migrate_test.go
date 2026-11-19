@@ -1,11 +1,14 @@
 package store_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tugbayatilla/mankit/v4/home"
+	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/store"
 )
 
@@ -134,9 +137,6 @@ func TestCopyOnceCopiesAFileAndKeepsTheOld(t *testing.T) {
 func TestCopyOnceCopiesAFolder(t *testing.T) {
 	dir := t.TempDir()
 	tree(t, dir, map[string]string{"old/github.json": "{}", "old/cache/a": "1"})
-	if err := os.Symlink("github.json", filepath.Join(dir, "old", "link")); err != nil {
-		t.Fatal(err)
-	}
 	to := filepath.Join(dir, "new", "control-room")
 	if err := store.CopyOnce(filepath.Join(dir, "old"), to); err != nil {
 		t.Fatal(err)
@@ -144,14 +144,32 @@ func TestCopyOnceCopiesAFolder(t *testing.T) {
 	if read(t, filepath.Join(to, "github.json")) != "{}" || read(t, filepath.Join(to, "cache", "a")) != "1" {
 		t.Fatal("the folder was not copied whole")
 	}
-	if link, err := os.Readlink(filepath.Join(to, "link")); err != nil || link != "github.json" {
-		t.Errorf("link = %q, %v", link, err)
-	}
 	if read(t, filepath.Join(dir, "old", "cache", "a")) != "1" {
 		t.Error("the old folder changed")
 	}
+	if _, err := os.Stat(filepath.Join(to, ".queue")); !os.IsNotExist(err) {
+		t.Error("the copy holds the store's .queue")
+	}
+	// The copy took the turn of its own folder, so nothing is beside it.
 	if entries, _ := os.ReadDir(filepath.Join(dir, "new")); len(entries) != 1 {
 		t.Errorf("left %d entries beside the copy, want none", len(entries)-1)
+	}
+}
+
+// The store writes no link (ADR-S22), so a folder holding one is not copied at all, and says which.
+func TestCopyOnceRefusesAFolderHoldingALink(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old/github.json": "{}"})
+	if err := os.Symlink("github.json", filepath.Join(dir, "old", "link")); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(dir, "new", "control-room")
+	var p *problem.Problem
+	if err := store.CopyOnce(filepath.Join(dir, "old"), to); !errors.As(err, &p) || p.Reason != store.ReasonOutside || !strings.Contains(p.Detail, "link") {
+		t.Fatalf("a folder with a link = %v, want refused outside", err)
+	}
+	if _, err := os.Lstat(to); !os.IsNotExist(err) {
+		t.Fatal("part of the folder was copied")
 	}
 }
 
@@ -201,5 +219,57 @@ func TestCurrentReadsTheOldFileInPlaceUntilMigrateCopiedIt(t *testing.T) {
 	}
 	if got, _ := home.Current("gitman", "config.yaml"); got != path {
 		t.Fatalf("a deleted new file brings back the old one: %q", got)
+	}
+}
+
+// A copied file that may be run stays so (a sample's script, say).
+func TestCopyOnceKeepsTheRunBit(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old/run.sh": "#!/bin/sh\n", "old/data.yml": "a: 1\n"})
+	if err := os.Chmod(filepath.Join(dir, "old", "run.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(dir, "new", "sample")
+	if err := store.CopyOnce(filepath.Join(dir, "old"), to); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(filepath.Join(to, "run.sh")); info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("run.sh is %v, want it to run", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(filepath.Join(to, "data.yml")); info.Mode().Perm()&0o111 != 0 {
+		t.Errorf("data.yml is %v, want no run bit", info.Mode().Perm())
+	}
+	one := filepath.Join(dir, "one", "run.sh")
+	if err := store.CopyOnce(filepath.Join(dir, "old", "run.sh"), one); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(one); info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("a single file copied is %v, want it to run", info.Mode().Perm())
+	}
+}
+
+// A copy touches nothing beside its target: the folder it goes into and what is there keep their modes.
+func TestCopyOnceLeavesTheFolderAroundItAsItIs(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, map[string]string{"old/a.json": "{}", "data/other/keep.txt": "k"})
+	parent := filepath.Join(dir, "data")
+	for _, p := range []string{parent, filepath.Join(parent, "other")} {
+		if err := os.Chmod(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(parent, "other", "keep.txt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CopyOnce(filepath.Join(dir, "old"), filepath.Join(parent, "control-room")); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]os.FileMode{parent: 0o755, filepath.Join(parent, "other"): 0o755, filepath.Join(parent, "other", "keep.txt"): 0o644} {
+		if info, _ := os.Stat(p); info.Mode().Perm() != want {
+			t.Errorf("%s is %v, want %v as it was", p, info.Mode().Perm(), want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(parent, ".queue")); !os.IsNotExist(err) {
+		t.Error("a .queue was made beside the copy")
 	}
 }

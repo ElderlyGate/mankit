@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -17,8 +18,9 @@ import (
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/internal/encode"
 	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 // A record is a claim a detached server leaves, never proof: a process can die without removing it, and a pid is reused.
@@ -97,21 +99,35 @@ func fileName(addr string) string {
 
 func logName(addr string) string { return strings.TrimSuffix(fileName(addr), ".json") + ".log" }
 
-func (r record) save(dir string) error {
-	if _, err := disk.Private(dir); err != nil {
-		return err
-	}
-	data, err := disk.JSON(r)
+func (a App) save(dir string, r record) error {
+	data, err := encode.JSON(r)
 	if err != nil {
 		return err
 	}
-	return disk.WriteFile(filepath.Join(dir, fileName(r.Metadata.Addr)), data, 0o600)
+	return a.serversChange(dir, "record "+r.Metadata.Addr, func(tx store.Tx) error {
+		return tx.Put(serversKey(dir, fileName(r.Metadata.Addr)), data, store.Anything())
+	})
 }
 
 // removeRecord drops the record for addr; one already gone is not an error, as two commands tidying one dead server are both right.
-func removeRecord(dir, addr string) error {
-	return disk.Remove(filepath.Join(dir, fileName(addr)))
+func (a App) removeRecord(dir, addr string) error {
+	return a.serversChange(dir, "forget "+addr, func(tx store.Tx) error {
+		return tx.Remove(serversKey(dir, fileName(addr)), store.Anything())
+	})
 }
+
+// serversChange runs fn in one change of the app's data folder, the folder dir is in, opened as an own folder of the store, so a record and the token go through the store like every write (ADR-S22).
+func (a App) serversChange(dir, what string, fn func(store.Tx) error) error {
+	s, err := store.Own(store.App{ID: a.folder(), Command: a.command(), Version: a.Version}, filepath.Dir(dir))
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.Change(context.Background(), "", what, fn)
+}
+
+// serversKey is name in dir as a key of the folder dir is in.
+func serversKey(dir, name string) store.Key { return store.Key(filepath.Base(dir) + "/" + name) }
 
 // readRecords is every record in dir, unprobed; a file it cannot read or understand is an error naming it (G-CODE-6).
 func readRecords(dir string) ([]record, error) {
@@ -156,7 +172,7 @@ func (a App) live(dir string) ([]status, error) {
 	for _, r := range all {
 		p := a.probe(r.Metadata.Addr, probeWait)
 		if p.refused {
-			_ = disk.Remove(r.file)
+			_ = a.removeRecord(dir, r.Metadata.Addr)
 			continue
 		}
 		if p.version != "" {
@@ -255,15 +271,16 @@ func (a App) ensureToken(dir string) (string, error) {
 	if t, err := a.readToken(dir); !errors.Is(err, errNoToken) {
 		return t, err
 	}
-	if _, err := disk.Private(dir); err != nil {
-		return "", err
-	}
 	token, err := newToken()
 	if err != nil {
 		return "", err
 	}
-	// Written once, never replaced: two servers starting at once both keep the one that landed first.
-	if err := disk.WriteOnce(filepath.Join(dir, tokenName), []byte(token+"\n"), 0o600); err != nil {
+	// Written once, never replaced: two servers starting at once both keep the one that landed first, as the other's is refused as changed.
+	err = a.serversChange(dir, "make the token", func(tx store.Tx) error {
+		return tx.Put(serversKey(dir, tokenName), []byte(token+"\n"), store.Absent())
+	})
+	var p *problem.Problem
+	if err != nil && !(errors.As(err, &p) && p.Reason == store.ReasonChanged) {
 		return "", err
 	}
 	return a.readToken(dir)
@@ -279,21 +296,15 @@ func newToken() (string, error) {
 
 // renewToken replaces the token whole with a new one and reads it back; every running server refuses the old one from its next request.
 func (a App) renewToken(dir string) (string, error) {
-	if _, err := disk.Private(dir); err != nil {
-		return "", err
-	}
-	// One renew at a time, so the token each prints is the one in the file when it prints it.
-	lock := disk.Lock(filepath.Join(dir, ".token.lock"))
-	if err := lock.Lock(); err != nil {
-		return "", err
-	}
-	defer lock.Unlock()
 	token, err := newToken()
 	if err != nil {
 		return "", err
 	}
-	// The temporary file is the user's alone (0600), so the rename never leaves a token others could read.
-	if err := disk.WriteFile(filepath.Join(dir, tokenName), []byte(token+"\n"), 0o600); err != nil {
+	// One renew at a time, each in the data folder's turn, so the token each prints is the one in the file when it prints it.
+	err = a.serversChange(dir, "renew the token", func(tx store.Tx) error {
+		return tx.Put(serversKey(dir, tokenName), []byte(token+"\n"), store.Anything())
+	})
+	if err != nil {
 		return "", err
 	}
 	got, err := a.readToken(dir)
