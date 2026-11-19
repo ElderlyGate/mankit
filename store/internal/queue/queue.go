@@ -1,5 +1,5 @@
 // Package queue is the change queue every app shares (ADR-S14): one change at a time per served thing, across processes, done once written and read back.
-// It is the store's own: only the store takes a turn in it (ADR-S22), and the package queue above shows it and sets its waits.
+// It is the store's own: only the store takes a turn in it (ADR-S22), and store/queue, beside it, shows the line and sets its waits; Go's internal rule keeps every package outside the store from it.
 package queue
 
 import (

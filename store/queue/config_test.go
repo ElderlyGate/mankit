@@ -14,9 +14,9 @@ import (
 
 	"github.com/tugbayatilla/mankit/v4/ask"
 	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/queue"
 	"github.com/tugbayatilla/mankit/v4/serve"
 	"github.com/tugbayatilla/mankit/v4/settings"
+	"github.com/tugbayatilla/mankit/v4/store/queue"
 )
 
 // configRun runs `config queue` words under a config of its own, as an app mounts it, against the config.yaml at path.

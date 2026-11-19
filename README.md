@@ -28,7 +28,7 @@ three, instead of being made three times.
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link`, `servers token renew` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: each starts on or off and names the values it needs; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
-| `queue` | Shows the change queue and sets its waits: the tickets in a line, `queue.wait` and `queue.limit`, `<app> config queue`. The turns are the store's own (see [Change queue](#change-queue)) |
+| `store/queue` | Shows the change queue and sets its waits: the tickets in a line, `queue.wait` and `queue.limit`, `<app> config queue`. The turns are the store's own (see [Change queue](#change-queue)) |
 | `problem` | A Problem (contracts problem/v1) and its types, below everything that makes one: the store and serve say what went wrong the same way |
 | `store` | The one storage port (ADR-S22): a scope names its things by keys, reading never waits, every change takes the thing's turn and is made all or nothing, then read back; `store.Migrate` and `store.CopyOnce` bring old files along; `store/cli` is `<app> store unfinished`; `store/storetest` is the conformance suite every adapter passes (see [Store](#store)) |
 
@@ -577,9 +577,9 @@ rules every app sharing a queue follows on disk are fixed in contracts
 each folder has its own line, so a change in one never waits for another.
 
 The queue is the store's own (ADR-S22): a change takes its turn through
-`store.Scope.Change`, and no app takes a turn itself. The package `queue` shows
-the line and sets its waits; the turns live in `internal/queue`, where only the
-store takes one.
+`store.Scope.Change`, and no app takes a turn itself. The package `store/queue`
+shows the line and sets its waits; the turns live in `store/internal/queue`,
+which Go keeps every package outside the store from.
 
 ```go
 rowWait, rowLimit, err := queue.Waits(configPath) // the app's rows queue.wait and queue.limit

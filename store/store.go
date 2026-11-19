@@ -21,8 +21,8 @@ import (
 	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/internal/disk"
-	"github.com/tugbayatilla/mankit/v4/internal/queue"
 	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store/internal/queue"
 )
 
 // The reasons of the store's Problems (contracts problem/v1); a program decides by type and reason, never by the detail (G-STACK-15).

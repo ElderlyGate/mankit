@@ -84,6 +84,9 @@ func shown(u Unfinished) Unfinished {
 // Doing is what u's journal on this machine says its change was making, one write a line, read through the safety core as the store reads it; a change with no File has nothing to say here.
 func (u Unfinished) Doing() ([]string, error) {
 	file := u.File
+	if file == "" {
+		return nil, nil
+	}
 	r, err := os.OpenRoot(filepath.Dir(file))
 	if err != nil {
 		return nil, fmt.Errorf("cannot be read: %v", err)

@@ -10,8 +10,8 @@ import (
 	"github.com/tugbayatilla/mankit/v4/events"
 	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/queue"
 	"github.com/tugbayatilla/mankit/v4/serve"
+	"github.com/tugbayatilla/mankit/v4/store/queue"
 )
 
 // A contract still on envelope/v1 keeps the bytes mankit v2.0.0 wrote (CT-RULE-1): testdata/v1-golden holds what v2.0.0 wrote for each refusal.

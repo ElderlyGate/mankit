@@ -1,4 +1,4 @@
-// Package queue shows the change queue (ADR-S14) and sets its waits: the tickets waiting in a line, the rows queue.wait and queue.limit, and <app> config queue.
+// Package queue, the store's, shows the change queue (ADR-S14) and sets its waits: the tickets waiting in a line, the rows queue.wait and queue.limit, and <app> config queue.
 // The turns themselves are the store's own (ADR-S22): a change takes one through store.Scope.Change, never here.
 package queue
 
@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"time"
 
-	engine "github.com/tugbayatilla/mankit/v4/internal/queue"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/serve"
 	"github.com/tugbayatilla/mankit/v4/settings"
+	engine "github.com/tugbayatilla/mankit/v4/store/internal/queue"
 )
 
 // The reasons of the queue's Problems, each with the type failed; a program decides by type and reason, never by the detail (G-STACK-15).

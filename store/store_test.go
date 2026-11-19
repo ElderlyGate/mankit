@@ -21,8 +21,8 @@ import (
 	"github.com/ElderlyGate/contracts"
 
 	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/queue"
 	"github.com/tugbayatilla/mankit/v4/store"
+	"github.com/tugbayatilla/mankit/v4/store/queue"
 	"github.com/tugbayatilla/mankit/v4/store/storetest"
 )
 
@@ -940,5 +940,12 @@ func TestAWriteLostBeforeItsReadBackFailsAndLeavesTheScopeAsItWas(t *testing.T) 
 				t.Fatalf("unfinished: %v, %v", left, err)
 			}
 		})
+	}
+}
+
+// A change cut short whose journal is not on this machine has nothing to say of what it was doing, and that is no error.
+func TestAChangeWithNoJournalHereSaysNothingOfWhatItWasDoing(t *testing.T) {
+	if doing, err := (store.Unfinished{ID: "17000000000000000001", User: "alice"}).Doing(); doing != nil || err != nil {
+		t.Fatalf("Doing = %v, %v; want nothing and no error", doing, err)
 	}
 }

@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/queue"
 	"github.com/tugbayatilla/mankit/v4/settings"
 	"github.com/tugbayatilla/mankit/v4/store"
+	"github.com/tugbayatilla/mankit/v4/store/queue"
 	"github.com/tugbayatilla/mankit/v4/theme"
 )
 
