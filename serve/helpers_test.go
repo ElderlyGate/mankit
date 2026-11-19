@@ -253,7 +253,7 @@ func detached(t *testing.T) map[string]any {
 		t.Fatalf("not a contracts server record: %v\n%s", err, raw)
 	}
 	rec := e.Data.(map[string]any)
-	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+	t.Cleanup(func() { _, _ = run(t, "server", "stop", "--all", "--yes") })
 	return rec
 }
 

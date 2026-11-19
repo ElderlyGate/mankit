@@ -1,4 +1,4 @@
-// Package serve is the server every app shares: the guard, the contract, the answers, asking before a change, and serve --detach with servers, servers stop and servers link.
+// Package serve is the server every app shares: the guard, the contract, the answers, asking before a change, and serve --detach with server list, server stop and server link.
 package serve
 
 import (

@@ -1,4 +1,4 @@
-// Package queue, the store's, shows the change queue (ADR-S14) and sets its waits: the tickets waiting in a line, the rows queue.wait and queue.limit, and <app> config queue.
+// Package queue, the store's, shows the change queue (ADR-S14) and sets its waits: the tickets waiting in a line, the rows queue.wait and queue.limit, and the thing <app> queue.
 // The turns themselves are the store's own (ADR-S22): a change takes one through store.Scope.Change, never here.
 package queue
 

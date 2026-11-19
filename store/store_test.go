@@ -352,7 +352,7 @@ func TestAnotherUsersUnfinishedChangeHoldsItsKeysUntilCleared(t *testing.T) {
 	if !errors.As(err, &p) || p.Reason != store.ReasonUnfinished || p.Type != problem.TypeRefused {
 		t.Fatalf("a change to a held key = %v, want refused unfinished_change", err)
 	}
-	for _, says := range []string{"alice", "elsewhere", "storetest store unfinished clear shop"} {
+	for _, says := range []string{"alice", "elsewhere", "storetest store unfinished remove shop"} {
 		if !strings.Contains(p.Detail, says) {
 			t.Errorf("the refusal %q does not name %q", p.Detail, says)
 		}

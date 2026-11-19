@@ -23,7 +23,7 @@ import (
 	storecli "github.com/tugbayatilla/mankit/v4/store/cli"
 )
 
-// The tests of <app> store unfinished list, in ADR-S19's six parts; the helpers are shared with the clear tests.
+// The tests of <app> store unfinished list, in ADR-S19's six parts; the helpers are shared with the remove tests.
 
 // serving is the app as its server and its CLI name it.
 var serving = serve.App{ID: app.ID, Version: app.Version, Contracts: []serve.Contract{{Version: "v1"}}}

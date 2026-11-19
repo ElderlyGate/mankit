@@ -149,7 +149,7 @@ func TestServeTakesARenewedTokenWithoutARestart(t *testing.T) {
 	if got := get(token, ""); got != http.StatusOK {
 		t.Fatalf("before the renew: status %d", got)
 	}
-	link, err := url.Parse(answer(t, linkSchema, "servers", "token", "renew", "--yes").Data.(map[string]any)["url"].(string))
+	link, err := url.Parse(answer(t, linkSchema, "server", "token", "renew", "--yes").Data.(map[string]any)["url"].(string))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,15 +175,15 @@ func TestServeTakesARenewedTokenWithoutARestart(t *testing.T) {
 	}
 	page, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(string(page), "e-designer servers link") {
+	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(string(page), "e-designer server link") {
 		t.Fatalf("the page with no cookie: %d %s", resp.StatusCode, page)
 	}
 }
 
 func TestServeRefusesEveryEarlierTokenAfterRenewsBackToBack(t *testing.T) {
 	h := handler(t, nil)
-	first := tokenOf(t, answer(t, linkSchema, "servers", "token", "renew", "--yes"))
-	second := tokenOf(t, answer(t, linkSchema, "servers", "token", "renew", "--yes"))
+	first := tokenOf(t, answer(t, linkSchema, "server", "token", "renew", "--yes"))
+	second := tokenOf(t, answer(t, linkSchema, "server", "token", "renew", "--yes"))
 	for _, old := range []string{token, first} {
 		refusal(t, call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer " + old}), http.StatusUnauthorized, problem.TypeRefused, serve.ReasonToken)
 	}
@@ -500,7 +500,7 @@ func TestServeShowsThePageWithoutTheCookieOnlyWhereItsLinkIs(t *testing.T) {
 	for _, target := range []string{"/", "/?token=guess"} {
 		w := httptest.NewRecorder()
 		handler(t, nil).ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1:7480"+target, nil))
-		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "e-designer servers link") || len(w.Result().Cookies()) != 0 {
+		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "e-designer server link") || len(w.Result().Cookies()) != 0 {
 			t.Fatalf("%s: %d %q", target, w.Code, w.Body)
 		}
 	}

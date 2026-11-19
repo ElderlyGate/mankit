@@ -1,4 +1,4 @@
-// Package cli is `<app> get config` and `<app> set config <key> <value>`, to see and change an app's config.yaml.
+// Package cli is `<app> config list` and `<app> config set <key> <value>`, to see and change an app's config.yaml.
 package cli
 
 import (
@@ -13,53 +13,49 @@ import (
 	"github.com/tugbayatilla/mankit/v4/settings"
 )
 
-// AddTo is AddToE that never fails (keeps an existing `config`, drops a taken -o); call it after the app defines its flags.
+// AddTo is AddToE that never fails (keeps an existing `config list` or `config set`, drops a taken -o); call it after the app defines its flags.
 func AddTo(root *cobra.Command, keys []settings.Key, path func() string) {
 	_ = add(root, keys, path, false)
 }
 
-// AddToE adds `get config` and `set config` under root's get and set (made when missing), after the app's flags; a clash adds nothing.
+// AddToE adds `config list` and `config set` under root's config (made when missing), after the app's flags; a clash adds nothing.
 func AddToE(root *cobra.Command, keys []settings.Key, path func() string) error {
 	return add(root, keys, path, true)
 }
 
-// add puts the config commands under get and set; strict refuses clashes, else it works around them.
+// add puts list and set under the thing config, each with its old form for one release (G-STACK-5); strict refuses clashes, else it works around them.
 func add(root *cobra.Command, keys []settings.Key, path func() string, strict bool) error {
 	verbs := []struct {
-		name, short string
-		build       func([]settings.Key, func() string, string) *cobra.Command
-	}{{"get", "Show a setting", getConfig}, {"set", "Change a setting", setConfig}}
-	shorthands := make([]string, len(verbs))
-	for i, v := range verbs {
-		parent := child(root, v.name)
-		if parent != nil && child(parent, "config") != nil {
-			if strict {
-				return fmt.Errorf("%s %s config already exists", root.Name(), v.name)
-			}
-			shorthands[i] = "-" // kept as it is
-			continue
-		}
-		if parent == nil {
-			parent = root
-		}
-		shorthands[i] = "o"
-		if inheritsO(parent) {
-			if strict {
-				return fmt.Errorf("%s %s: -o is already another flag", root.Name(), v.name)
-			}
-			shorthands[i] = ""
-		}
+		name, old string
+		build     func([]settings.Key, func() string, string) *cobra.Command
+	}{{"list", "get config", listConfig}, {"set", "set config", setConfig}}
+	config := child(root, "config")
+	parent := config
+	if parent == nil {
+		parent = root
 	}
-	for i, v := range verbs {
-		if shorthands[i] == "-" {
-			continue
+	shorthand := "o"
+	if inheritsO(parent) {
+		if strict {
+			return fmt.Errorf("%s config: -o is already another flag", root.Name())
 		}
-		parent := child(root, v.name)
-		if parent == nil {
-			parent = &cobra.Command{Use: v.name, Short: v.short, Args: cobra.NoArgs}
-			root.AddCommand(parent)
+		shorthand = ""
+	}
+	if config != nil {
+		for _, v := range verbs {
+			if child(config, v.name) != nil && strict {
+				return fmt.Errorf("%s config %s already exists", root.Name(), v.name)
+			}
 		}
-		parent.AddCommand(v.build(keys, path, shorthands[i]))
+	} else {
+		config = &cobra.Command{Use: "config", Short: "The settings in config.yaml"}
+		root.AddCommand(config)
+	}
+	for _, v := range verbs {
+		if child(config, v.name) != nil {
+			continue // kept as it is
+		}
+		config.AddCommand(helpout.Old(v.build(keys, path, shorthand), v.old))
 	}
 	return nil
 }
@@ -84,11 +80,11 @@ func inheritsO(c *cobra.Command) bool {
 	return false
 }
 
-// getConfig is `get config`; short is the -o shorthand, "" for none.
-func getConfig(keys []settings.Key, path func() string, short string) *cobra.Command {
+// listConfig is `config list`; short is the -o shorthand, "" for none.
+func listConfig(keys []settings.Key, path func() string, short string) *cobra.Command {
 	var format string
 	c := &cobra.Command{
-		Use:   "config",
+		Use:   "list",
 		Short: "Show every key of config.yaml, its value and whether it is set or the default",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -104,11 +100,11 @@ func getConfig(keys []settings.Key, path func() string, short string) *cobra.Com
 	return c
 }
 
-// setConfig is `set config <key> <value>`; short is the -o shorthand, "" for none.
+// setConfig is `config set <key> <value>`; short is the -o shorthand, "" for none.
 func setConfig(keys []settings.Key, path func() string, short string) *cobra.Command {
 	var format string
 	c := &cobra.Command{
-		Use:   "config <key> <value>",
+		Use:   "set <key> <value>",
 		Short: `Change a key of config.yaml; "" puts it back to its default`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -19,16 +19,16 @@ three, instead of being made three times.
 | `confirm` | Asking before acting: `y` or `enter` says yes, any other key cancels |
 | `list` | The left-hand list: the highlighted row wraps to show its whole text, with scrolling and mouse clicks that account for it |
 | `split` | The border between the list and the pane: `[` widens the pane, `]` the list, `=` resets, or drag the border; the list keeps its width when the window grows, saved in `<app folder>/split` |
-| `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> get config` and `<app> set config <key> <value>` |
-| `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
-| `helpout` | The one layout for `<app> help`, `<app> --help` and a usage mistake: what the app is, how to start it, its commands, the repository |
+| `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> config list` and `<app> config set <key> <value>` |
+| `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. `usercmd/cli` is `<app> command path`, `create`, `check` and `edit`. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
+| `helpout` | The one layout for `<app> help`, `<app> --help`, `<app> <thing> help` and a usage mistake: what the app is, how to start it, its commands, the repository; and the old forms of renamed commands, for one release |
 | `home` | Where the org's apps keep their files: the org's config and data folders and a folder per product; it names paths and writes nothing |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
-| `prefs` | What every app adds beside `settings/cli`: `<app> get confirm`, `<app> get locations`, `set config confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
-| `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `servers`, `servers stop`, `servers link`, `servers token renew` (see [Serve](#serve)) |
+| `prefs` | What every app adds beside `settings/cli`: `<app> confirm list`, `<app> location list`, `config set confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
+| `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `server list`, `server stop`, `server link`, `server token renew` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: each starts on or off and names the values it needs; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
-| `store/queue` | Shows the change queue and sets its waits: the tickets in a line, `queue.wait` and `queue.limit`, `<app> config queue`. The turns are the store's own (see [Change queue](#change-queue)) |
+| `store/queue` | Shows the change queue and sets its waits: the tickets in a line, `queue.wait` and `queue.limit`, `<app> queue show`, `set` and `unset`. The turns are the store's own (see [Change queue](#change-queue)) |
 | `problem` | A Problem (contracts problem/v1) and its types, below everything that makes one: the store and serve say what went wrong the same way |
 | `store` | The one storage port (ADR-S22): a scope names its things by keys, reading never waits, every change takes the thing's turn and is made all or nothing, then read back; `store.Migrate` and `store.CopyOnce` bring old files along; `store/cli` is `<app> store unfinished`; `store/storetest` is the conformance suite every adapter passes (see [Store](#store)) |
 
@@ -48,14 +48,14 @@ cli.AddTo(root, keys, func() string { return settings.Path("hubman", "") })
 ```
 
 ```sh
-hubman get config            # KEY VALUE SOURCE HELP; -o json or -o yaml
-hubman set config theme nord
-hubman set config theme ""   # back to the default
+hubman config list            # KEY VALUE SOURCE HELP; -o json or -o yaml
+hubman config set theme nord
+hubman config set theme ""   # back to the default
 ```
 
 `settings.Path(app, dir)` is `<dir>/<app>/config.yaml`, the app folder
 (`home.File(app, "config.yaml")`) when `dir` is empty; `theme.ResolveIn(path, flag, set)` reads the colours from
-any path, and `usercmd/cli.CommandAt` serves `<app> commands` for any path.
+any path, and `usercmd/cli.CommandAt` serves `<app> command` for any path.
 `cli.AddToE` reports a clash with an existing `config` command or `-o` flag
 instead of working around it. `settings.Next` is the value after the current one, for a dashboard
 that changes a key with `enter`.
@@ -229,7 +229,7 @@ Each type has a **style**:
 The style lives in the app's own config only, as `confirm: {delete: name, move: never}`.
 `ask.Load(path)` reads it, `ask.Set(path, type, style)` writes one type (`""`
 puts it back to its default) and `ask.Remember(path, type)` saves `never` after
-"Remember my answer"; each keeps the rest of the file. `<app> set config
+"Remember my answer"; each keeps the rest of the file. `<app> config set
 confirm.delete never` does the same from the command line and refuses a style
 that is not one of the three.
 
@@ -306,22 +306,22 @@ app archive 7 < /dev/null; echo $?   # refused: archive card 7; pass --yes to ma
 
 `prefs.Asker` is the example above, done once: it resolves the style from the
 app's config, asks with `ask.Change`, and saves `never` when the user asks to
-stop asking. `prefs.AddTo` (after `settings/cli`) adds `get confirm` (each
-type's style and whether it is the app's or the default), `get locations`
+stop asking. `prefs.AddTo` (after `settings/cli`) adds `confirm list` (each
+type's style and whether it is the app's or the default), `location list`
 (the app's config, its data and the app's `Extra` places) and makes
-`set config` ask first and take `confirm.<type>`.
+`config set` ask first and take `confirm.<type>`.
 
 Nothing is copied or written before the yes. Until the first change the styles
-are read from `Read`, the old file in place (`home.Current`), so `get confirm`
+are read from `Read`, the old file in place (`home.Current`), so `confirm list`
 shows the style in use; a no, or no terminal without `--yes`, writes nothing.
 `Migrate` runs only after the yes, before the change is made.
 `Options.System` names the types some verb of which changes the system
-itself (`System: true`, such as `delete` for an uninstall): `get confirm` then
+itself (`System: true`, such as `delete` for an uninstall): `confirm list` then
 says how that change asks where the type's style does not hold for it, e.g.
 `never — a change to the system itself still asks for the name`.
 
 A command run with `--dry-run` asks nothing and writes nothing: no copy, no
-mark, no remembered answer, and `set config` only says what it would change.
+mark, no remembered answer, and `config set` only says what it would change.
 
 ```go
 read := func() string { p, _ := home.Current("gitman", "config.yaml"); return p }
@@ -433,13 +433,13 @@ What serve does for every app:
   no switch.
 
 Each error has a code (`serve.Code…`); a program decides by the code, never by
-the message. `<app> serve --help` and `<app> servers --help` are the reference
+the message. `<app> serve --help` and `<app> server help` are the reference
 for the commands. Every server, detached or in the foreground, leaves a record
 in `<data folder>/<folder>/servers/`, in the shape of contracts `mankit/v1`;
-`servers` lists them and says which is detached. The link that carries the
+`server list` lists them and says which is detached. The link that carries the
 token is printed only when asked for: by `serve` (to a terminal only, since a
-running server's output may be its log), `serve --detach`, `servers link` and
-`servers token renew`; never into a server's log.
+running server's output may be its log), `serve --detach`, `server link` and
+`server token renew`; never into a server's log.
 
 `<folder>` is `App.Folder`, else `App.ID`: an app whose folders are named apart
 from its ID until the rename (e-designer answers as `designer`) sets it, and the
@@ -448,7 +448,7 @@ ID still names its answers, cookie and command.
 The token is the machine's, one per app, in `<data folder>/<folder>/servers/token`
 (only the user's, 0600), and it stays there: `Handler` reads it itself, an app
 never holds or stores one, and every page and client gets in through the link
-`servers link` prints. `servers token renew` replaces it whole; every running
+`server link` prints. `server token renew` replaces it whole; every running
 server checks the file on each request and refuses the old token from the next
 one on, with no restart. A token file that cannot be read, is empty, or is open
 to other users lets nobody in.
@@ -642,15 +642,16 @@ written and shown. Each bounds only this process's own waiting and holding, so a
 sharing a queue may set them apart. `queue.Waits(path)` reads the two rows from
 the app's config.yaml for `queue.Settings`.
 
-`queue.ConfigCommand(app, path, confirm)` is `<app> config queue`, which each
-app mounts under its own `config` as it does `config confirm`: it shows both
-rows with the value in effect, the default and whether the config sets it
-(`-o json` answers contracts mankit/v1 `QueueSettings`), and `config queue wait
-45s` or `config queue limit 3m` sets one after the app's confirm asks, written
-as `d.String()` gives it; an argument the queue would refuse is refused with
-ADR-S21's reasons (`refused` with `wrong_type`, `out_of_range` or `empty`), a
-value edited by hand into the file is reported as `config_unreadable`, and
-`default` puts the default back. It prints through
+`queue.Command(app, path, confirm)` is the thing `<app> queue`, which each app
+mounts at its root: `queue show` shows both rows with the value in effect, the
+default and whether the config sets it (`-o json` answers contracts mankit/v1
+`QueueSettings`), `queue set wait 45s` or `queue set limit 3m` sets one after
+the app's confirm asks, written as `d.String()` gives it, and `queue unset wait`
+puts the default back. An argument the queue would refuse is refused with
+ADR-S21's reasons (`refused` with `wrong_type`, `out_of_range`, `empty` or
+`unknown_key`), and a value edited by hand into the file is reported as
+`config_unreadable`. An app with a queue of its own adds its verbs, such as
+`list`, to the thing. It prints through
 `serve.App.Printer`, which another package's command uses to answer as serve's
 own commands do.
 
@@ -772,15 +773,14 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   removes only the marks a person was shown, for that command, which asks first.
 - `cli.UnfinishedCommand(app, open)` (package `store/cli`, above the store, so
   the store imports neither serve nor ask) is that command, which each app with a
-  store scope mounts under its own `store`, as it does `config queue` under
-  `config`, and `cli.UnfinishedRoutes(open)` serves it: the app adds them to
+  store scope mounts under its own `store`, and `cli.UnfinishedRoutes(open)` serves it: the app adds them to
   its `Site.Routes`. `store unfinished list [<thing>]` and `GET
   /api/store/unfinished[?thing=]` show every user's marks in the scope `open`
   opens (the folder's own turn, every thing's, and those the folder's marks and
   this user's journals name; a mark only in the turn of a thing that is gone
   shows with `list <thing>`, as the refusal names the thing), with this
   user's journal file, and this user's left journals (contracts mankit/v1
-  `StoreUnfinishedList`). `store unfinished clear <thing>` shows each change
+  `StoreUnfinishedList`). `store unfinished remove <thing>` shows each change
   holding the thing (user, machine, mark, journal, keys and, for this user's
   journal, what each write was to do, or that the journal cannot be read) and
   asks for the thing's name, a change to the system itself whatever the app's

@@ -96,7 +96,7 @@ func TestServersFindsTheAppInEitherEnvelope(t *testing.T) {
 			}
 			defer func() { _ = sleeper.Process.Kill(); _ = sleeper.Wait() }()
 			writeRecord(t, dir, srv.Listener.Addr().String(), sleeper.Process.Pid)
-			e := answer(t, listSchema, "servers")
+			e := answer(t, listSchema, "server", "list")
 			list, _ := e.Data.([]any)
 			if len(list) != 1 || list[0].(map[string]any)["answering"] != true {
 				t.Fatalf("listed %v", e.Data)

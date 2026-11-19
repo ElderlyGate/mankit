@@ -31,7 +31,7 @@ func BeforeReadBack(t interface{ Cleanup(func()) }, fn func()) {
 	t.Cleanup(func() { beforeReadBack = nil })
 }
 
-// AskWith stands in fn for the name question store unfinished clear asks, until the test ends.
+// AskWith stands in fn for the name question store unfinished remove asks, until the test ends.
 func AskWith(t interface{ Cleanup(func()) }, fn func(*cobra.Command, ask.Action) error) {
 	was := asking.Name
 	asking.Name = fn

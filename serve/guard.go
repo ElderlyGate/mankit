@@ -18,7 +18,7 @@ import (
 // Another site the user visits can send requests to a port on this machine; the guard takes only the page's own.
 // The token is never in a page: the link serve prints carries it once, and the guard swaps it for a cookie.
 
-// tokenParam is the query key of the link that opens the page; servers link prints one.
+// tokenParam is the query key of the link that opens the page; server link prints one.
 const tokenParam = "token"
 
 // cookieName is the token's cookie for the server at host, <product>-token-<port>: a browser sends one host's cookies to every port.
@@ -134,7 +134,7 @@ func (a App) guard(dir string, hosts []string, name string, next http.Handler) h
 		}
 		if !valid(t) {
 			refuse(w, r, http.StatusUnauthorized, problem.Fail(problem.TypeRefused, ReasonToken, fmt.Sprintf(
-				"%s takes an API request only with its token, as Authorization: Bearer <token> or in the cookie the page's link left; `%s servers link` prints the link",
+				"%s takes an API request only with its token, as Authorization: Bearer <token> or in the cookie the page's link left; `%s server link` prints the link",
 				a.command(), a.command())))
 			return
 		}
@@ -172,7 +172,7 @@ func writeOnward(w http.ResponseWriter, path string) {
 // writeLinkPage tells a browser without a valid cookie, after a renew too, where its link is, and holds no secret.
 func (a App) writeLinkPage(w http.ResponseWriter) {
 	c := a.command()
-	writePage(w, http.StatusUnauthorized, c, "Open this page from its link: run "+c+" servers link and open the link it prints.")
+	writePage(w, http.StatusUnauthorized, c, "Open this page from its link: run "+c+" server link and open the link it prints.")
 }
 
 func writePage(w http.ResponseWriter, status int, title, text string) {

@@ -55,7 +55,7 @@ var (
 
 // Commands is the commands: block of the loaded file, shown as a count.
 func Commands(app string) Key {
-	return Key{Name: "commands", Help: "edit with `" + app + " commands edit`", ReadOnly: true}
+	return Key{Name: "commands", Help: "edit with `" + app + " command edit`", ReadOnly: true}
 }
 
 // Keys is mankit's keys, then the app's own, each with its own copy of Values.
