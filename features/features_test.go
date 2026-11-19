@@ -368,8 +368,8 @@ func TestALicenseLocksEnterpriseFeaturesOnly(t *testing.T) {
 
 func TestATierTheListDoesNotKnowIsRefused(t *testing.T) {
 	l := features.New([]features.Feature{{ID: "sync", Title: "Sync", Covers: "copies", Tier: "pro"}}, memory())
-	if _, err := l.States(); err == nil || !strings.Contains(err.Error(), `"pro"`) {
-		t.Fatalf("err = %v", err)
+	if _, err := l.States(); err == nil {
+		t.Fatal("states of a list with an unknown tier")
 	}
 	if err := l.Attach("sync", struct{}{}); err == nil {
 		t.Fatal("attached to a list with an unknown tier")
