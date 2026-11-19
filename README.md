@@ -76,6 +76,8 @@ line. A relative `XDG_*` value is ignored, as the XDG rules say.
 
 `home.File(id, name)` is `<app folder>/<name>`, a path and nothing more: it
 never copies or makes a file, so a read-only verb changes nothing.
+`home.Config(id, dir)` is `<dir>/<id>/config.yaml`, the app folder's
+`config.yaml` when `dir` is empty.
 
 `home.Migrate(id, names...)` brings each named file the app kept before in the
 system's config folder (`~/.config/<app>/` on Linux,
@@ -753,6 +755,40 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
 `storetest.Run(t, harness)` is the conformance suite any adapter runs, with a
 crash after each write of every kind of change. `store/testdata/twouser.sh`
 runs two users on two machines (containers) sharing one served folder.
+
+## Storage wall
+
+An app writes no file outside the store, and encodes YAML or JSON only in the
+store and in `helpout` (ADR-S22). `cmd/storewall` is the CI check that fails a
+pull request that does: a call that writes, removes, moves, makes, locks or
+changes the mode of a file (`os.WriteFile`, `os.Create`, `os.OpenFile` with a
+write flag, `os.Rename`, `os.Remove*`, `os.Mkdir*`, `os.Chmod`,
+`os.CreateTemp`, an `os.Root` or `syscall` write, `flock.New`, …), or a
+`json`/`yaml` `Marshal` or `NewEncoder`. The forbidden calls live once, in
+`internal/storewall`; mankit's `store` and `internal/disk` are the only places
+allowed to write, and `helpout.Encode` prints `-o json` and `-o yaml`.
+
+An app turns it on with one step in its CI, at the mankit version it builds
+with:
+
+```yaml
+- name: storewall
+  run: go run github.com/tugbayatilla/mankit/v3/cmd/storewall@$(go list -m -f '{{.Version}}' github.com/tugbayatilla/mankit/v3) ./...
+```
+
+Its exceptions (what it installs or exports for the user, its tests' temporary
+folders) go in `.storewall` beside its `go.mod`, one a line, each with why; a
+line without why is refused:
+
+```text
+# what the package may do, the package (a path inside the module; a/... is a
+# and below, ... is all; :tests is its _test.go files only), and why.
+write   internal/install  installs the app's binary where the user asked
+write   ...:tests         tests make the files they read in t.TempDir()
+```
+
+mankit's own [`.storewall`](.storewall) lists its tests and its HTTP door
+(`serve`, `events`), whose answers and events go out as JSON.
 
 ## Why textinput is vendored
 

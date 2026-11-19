@@ -44,6 +44,10 @@ jobs:
       - name: test
         if: steps.scope.outputs.code == 'true'
         run: go test ./...
+      # No file written, and no YAML or JSON encoded, outside the store; .storewall lists the exceptions (ADR-S22).
+      - name: storewall
+        if: steps.scope.outputs.code == 'true'
+        run: go run ./cmd/storewall ./...
       # Two users on two machines share one served folder: the store refuses one the other's unfinished change (ADR-S22).
       - name: store, two users
         if: steps.scope.outputs.code == 'true'
