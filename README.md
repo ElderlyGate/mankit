@@ -522,29 +522,25 @@ list := features.New(all, store, c.Closer(all))
 root.AddCommand(cli.Command(app, c, list, asker.Ask))
 ```
 
-- A license file holds the signed payload's bytes as they were signed and the
-  Ed25519 signature over them. `licenses.License` is its one Go type: whom it
-  is for, its kind (`org`, `product`, `trial`), the enterprise feature ids per
-  product id (none for a trial key, which opens every one), its first and
-  last day (UTC dates) and the key id. `licenses.Sign(l, signer)` writes one,
+- A license file is the payload's bytes as they were signed and the Ed25519
+  signature over them. Its one Go type is `licenses.License`
+  (`Kind`, `For`, `Products`, `Issued`, `Until`, `KeyID`); what each field
+  means is in contracts mankit/v1. `licenses.Sign(l, signer)` writes one,
   `licenses.Verify(raw, trust)` reads one.
 - A release takes licenses signed by a prod key only, any other build by a dev
   key only. A file it cannot read or verify is refused with its file and a
-  reason (`signature`, `untrusted_key`, `other_build`, `unreadable`, and
-  `wrong_type` for a license kept in the place of another kind), never taken
-  for no license.
-- `Checker.Read` reads `<config folder>/license`, the org's, and
-  `<app folder>/license`, the app's own, anew on every call. `Found.Has` and
-  `Found.From` say whether and from where a feature is open; the closer
-  (`By: features.License`) locks every enterprise feature no running license
-  or trial key opens, so an ended one locks its features again (ADR-L3).
-  `Taken.DaysLeft` and `Ended` are all it says about time; when to warn is a
-  threshold's (ADR-S23).
+  Problem reason (`licenses.Reason…`, meanings in contracts problem/v1), never
+  taken for no license. A link is followed, as fleet puts the files in.
+- `Checker.Read` reads the org's `<config folder>/license` and the app's
+  `<app folder>/license` anew on every call. `Found.Has` and `Found.From` say
+  whether and from where a feature is open; `Checker.Closer` is the license
+  closer of the feature list. `Taken.DaysLeft` and `Ended` are all it says
+  about time; when to warn is a threshold's (ADR-S23).
 - `<app> license show` answers contracts mankit/v1 `LicenseShow`
   (`Checker.Show`, the same for a Settings page). `<app> license add <file>`
   keeps a product license or trial key for the app, `--org` an org license for
-  every app: it checks the file first, asks, and writes it whole through the
-  store.
+  every app: it checks the file, asks, naming the license it replaces, and
+  writes it whole through the store.
 
 ## Events
 
