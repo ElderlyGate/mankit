@@ -147,3 +147,11 @@ func TestATrialKeysLengthIsItsDays(t *testing.T) {
 		t.Fatalf("days = %d, want 14", got)
 	}
 }
+
+func TestAKeyThatIsNoEd25519KeyIsAnErrorNotAPanic(t *testing.T) {
+	k, release, _ := signer(t)
+	release.Prod["prod-2026"] = ed25519.PublicKey("short")
+	if _, err := licenses.Verify(sign(t, k, orgLicense), release); err == nil {
+		t.Fatal("verified with a malformed key")
+	}
+}

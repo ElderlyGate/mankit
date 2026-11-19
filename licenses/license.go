@@ -118,6 +118,9 @@ func Sign(l License, s Signer) ([]byte, error) {
 
 // Verify is the license raw holds once its signature over the payload's stored bytes checks against a key t trusts for this build; otherwise a Problem refused with the reason why.
 func Verify(raw []byte, t Trust) (License, error) {
+	if err := t.check(); err != nil {
+		return License{}, err
+	}
 	var f file
 	if err := strict(raw, &f); err != nil || len(f.Payload) == 0 || len(f.Signature) == 0 {
 		return License{}, refused(ReasonUnreadable, "it is not a license file")
