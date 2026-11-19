@@ -13,36 +13,36 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/helpout/helptest"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/serve"
 	"github.com/tugbayatilla/mankit/v4/settings"
 	"github.com/tugbayatilla/mankit/v4/store/queue"
 )
 
-// configRun runs `config queue` words under a config of its own, as an app mounts it, against the config.yaml at path.
+// configRun runs `queue` words, the thing an app mounts at its root, against the config.yaml at path.
 func configRun(t *testing.T, path string, words ...string) (string, error) {
 	t.Helper()
 	app := serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 	root := &cobra.Command{Use: "e-designer", SilenceUsage: true, SilenceErrors: true}
-	config := &cobra.Command{Use: "config"}
 	asked := func(c *cobra.Command, a ask.Action) error {
 		if f := c.Flags().Lookup("yes"); f == nil || f.Value.String() != "true" {
 			t.Fatalf("%v asked without --yes", words)
 		}
 		return nil
 	}
-	config.AddCommand(queue.ConfigCommand(app, func() string { return path }, asked))
-	root.AddCommand(config)
+	root.AddCommand(queue.Command(app, func() string { return path }, asked))
 	var out bytes.Buffer
 	root.SetOut(&out)
-	root.SetArgs(append([]string{"config", "queue"}, words...))
+	root.SetArgs(append([]string{"queue"}, words...))
 	err := root.Execute()
 	return out.String(), err
 }
 
-func TestConfigQueueShowsBothSettingsAndTheirDefaults(t *testing.T) {
+func TestQueueShowsBothSettingsAndTheirDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	out, err := configRun(t, path, "-o", "json")
+	out, err := configRun(t, path, "show", "-o", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,18 +52,18 @@ func TestConfigQueueShowsBothSettingsAndTheirDefaults(t *testing.T) {
 	if !strings.Contains(out, `"value": "30s"`) || !strings.Contains(out, `"value": "2m0s"`) || strings.Contains(out, `"set": true`) {
 		t.Fatalf("not the defaults:\n%s", out)
 	}
-	table, err := configRun(t, path)
+	table, err := configRun(t, path, "show")
 	if err != nil || !strings.Contains(table, "queue.wait") || !strings.Contains(table, "queue.limit") {
 		t.Fatalf("table %q, %v", table, err)
 	}
 }
 
-func TestConfigQueueSetsAWaitAndPutsTheDefaultBack(t *testing.T) {
+func TestQueueSetsAWaitAndPutsTheDefaultBack(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("# mine\ntheme: dark\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := configRun(t, path, "wait", "45s", "--yes"); err != nil {
+	if _, err := configRun(t, path, "set", "wait", "45s", "--yes"); err != nil {
 		t.Fatal(err)
 	}
 	wait, limit, err := queue.Waits(path)
@@ -73,23 +73,23 @@ func TestConfigQueueSetsAWaitAndPutsTheDefaultBack(t *testing.T) {
 	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), "# mine") || !strings.Contains(string(raw), "theme: dark") {
 		t.Fatalf("the rest of the file was not kept:\n%s", raw)
 	}
-	out, err := configRun(t, path, "-o", "json")
+	out, err := configRun(t, path, "show", "-o", "json")
 	if err != nil || !strings.Contains(out, `"value": "45s"`) {
 		t.Fatalf("%s, %v", out, err)
 	}
-	if _, err := configRun(t, path, "wait", "default", "--yes"); err != nil {
+	if _, err := configRun(t, path, "unset", "wait", "--yes"); err != nil {
 		t.Fatal(err)
 	}
 	if wait, _, _ := queue.Waits(path); wait != "" {
-		t.Fatalf("wait %q after default", wait)
+		t.Fatalf("wait %q after unset", wait)
 	}
 }
 
 // A value the queue would refuse is never written, and is refused with ADR-S21's reasons: no duration, nothing, or one under a second or not in whole seconds.
-func TestConfigQueueRefusesWhatTheQueueWouldRefuse(t *testing.T) {
+func TestQueueRefusesWhatTheQueueWouldRefuse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	for value, reason := range map[string]string{"1ms": "out_of_range", "1500ms": "out_of_range", "soon": "wrong_type", "": "empty"} {
-		_, err := configRun(t, path, "limit", value, "--yes")
+		_, err := configRun(t, path, "set", "limit", value, "--yes")
 		var p *problem.Problem
 		if !errors.As(err, &p) || p.Type != problem.TypeRefused || p.Reason != reason || !strings.Contains(p.Detail, "queue.limit") {
 			t.Fatalf("%q: got %v, want refused %s", value, err, reason)
@@ -101,18 +101,18 @@ func TestConfigQueueRefusesWhatTheQueueWouldRefuse(t *testing.T) {
 }
 
 // A value is written as d.String() gives it, the form the contract's pattern takes.
-func TestConfigQueueWritesTheCanonicalForm(t *testing.T) {
+func TestQueueWritesTheCanonicalForm(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if _, err := configRun(t, path, "wait", "+45s", "--yes"); err != nil {
+	if _, err := configRun(t, path, "set", "wait", "+45s", "--yes"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := configRun(t, path, "limit", "120s", "--yes"); err != nil {
+	if _, err := configRun(t, path, "set", "limit", "120s", "--yes"); err != nil {
 		t.Fatal(err)
 	}
 	if wait, limit, err := queue.Waits(path); err != nil || wait != "45s" || limit != "2m0s" {
 		t.Fatalf("waits %q %q, %v", wait, limit, err)
 	}
-	out, err := configRun(t, path, "-o", "json")
+	out, err := configRun(t, path, "show", "-o", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestAHandEditedValueTheQueueRefusesIsReported(t *testing.T) {
 	if err := os.WriteFile(path, []byte("queue.wait: 1500ms\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, words := range [][]string{{"-o", "json"}, {}} {
+	for _, words := range [][]string{{"show", "-o", "json"}, {"show"}} {
 		_, err := configRun(t, path, words...)
 		var p *problem.Problem
 		if !errors.As(err, &p) || p.Type != problem.TypeFailed || p.Reason != serve.ReasonConfigUnreadable || !strings.Contains(p.Detail, "queue.wait") {
@@ -140,17 +140,15 @@ func TestAHandEditedValueTheQueueRefusesIsReported(t *testing.T) {
 }
 
 // A change the user does not confirm writes nothing.
-func TestConfigQueueWritesNothingWithoutAYes(t *testing.T) {
+func TestQueueWritesNothingWithoutAYes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	app := serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 	root := &cobra.Command{Use: "e-designer", SilenceUsage: true, SilenceErrors: true}
-	config := &cobra.Command{Use: "config"}
-	config.AddCommand(queue.ConfigCommand(app, func() string { return path }, func(*cobra.Command, ask.Action) error {
+	root.AddCommand(queue.Command(app, func() string { return path }, func(*cobra.Command, ask.Action) error {
 		return problem.Fail(problem.TypeRefused, serve.ReasonUnconfirmed, "nothing was changed")
 	}))
-	root.AddCommand(config)
 	root.SetOut(&bytes.Buffer{})
-	root.SetArgs([]string{"config", "queue", "wait", "45s"})
+	root.SetArgs([]string{"queue", "set", "wait", "45s"})
 	if err := root.Execute(); err == nil {
 		t.Fatal("a change without its yes was made")
 	}
@@ -190,4 +188,29 @@ func TestAWaitOrLimitThatIsNoDurationOrTooShortIsRefusedNamingTheRow(t *testing.
 			t.Errorf("%q %q: got %v, want %s naming %s", c.wait, c.limit, err, serve.ReasonConfigUnreadable, c.row)
 		}
 	}
+}
+
+// default is no duration: unset puts the default back, and set says so.
+func TestQueueSetRefusesDefaultAndNamesUnset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	_, err := configRun(t, path, "set", "wait", "default", "--yes")
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Type != problem.TypeRefused || p.Reason != "wrong_type" || !strings.Contains(p.Detail, "queue unset wait") {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := configRun(t, path, "set", "nap", "45s", "--yes"); !errors.As(err, &p) || p.Reason != "unknown_key" {
+		t.Fatalf("an unknown setting: %v", err)
+	}
+}
+
+// The old forms under config queue still run, for one release, as their full forms do (G-STACK-5).
+func TestTheOldConfigQueueFormsRunTheirFullForms(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	app := serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
+	helptest.Check(t, func() *cobra.Command {
+		root := &cobra.Command{Use: "e-designer"}
+		root.AddCommand(&cobra.Command{Use: "config", Short: "The settings"}, queue.Command(app, func() string { return path }, nil))
+		helpout.Apply(root, helpout.Info{What: "a test app"})
+		return root
+	})
 }

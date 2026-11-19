@@ -365,7 +365,7 @@ func (s *Scope) Unfinished(thing Key) ([]Unfinished, error) {
 
 // ClearShown removes the marks of the changes cut short in thing's turn whose ids a person was shown, each in its turns, and says which, with this user's journal when it is on this machine (File); it puts nothing back, and a journal stays in its user's data folder, shown as Left by Unfinished.
 // Each is checked again once its turns are taken, so a mark put back, cleared or new meanwhile is left as it is, and what it says is what was removed; no id clears nothing.
-// It is for store unfinished clear, which shows the change and asks first (G-STACK-13), once a person is sure the change was put back or given up; nothing clears a mark unasked.
+// It is for store unfinished remove, which shows the change and asks first (G-STACK-13), once a person is sure the change was put back or given up; nothing clears a mark unasked.
 func (s *Scope) ClearShown(ctx context.Context, thing Key, ids []string) ([]Unfinished, error) {
 	if thing != "" {
 		if err := thing.check(); err != nil {

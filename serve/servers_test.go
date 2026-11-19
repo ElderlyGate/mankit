@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
+	"github.com/tugbayatilla/mankit/v4/helpout"
+	"github.com/tugbayatilla/mankit/v4/helpout/helptest"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/serve"
 )
@@ -20,7 +24,7 @@ const listSchema = "mankit/v1/server-list.schema.json"
 func TestServersListsADetachedServer(t *testing.T) {
 	machine(t)
 	addr := addrOf(detached(t))
-	e := answer(t, listSchema, "servers")
+	e := answer(t, listSchema, "server", "list")
 	list, _ := e.Data.([]any)
 	if e.Kind != serve.ServerListKind || len(list) != 1 {
 		t.Fatalf("kind %q, data %v", e.Kind, e.Data)
@@ -29,7 +33,7 @@ func TestServersListsADetachedServer(t *testing.T) {
 	if s["answering"] != true || addrOf(s["record"].(map[string]any)) != addr {
 		t.Fatalf("listed %v", s)
 	}
-	out, err := run(t, "servers")
+	out, err := run(t, "server", "list")
 	if err != nil || !strings.Contains(out, addr) || !strings.Contains(out, "shop") || !strings.Contains(out, "DETACHED") {
 		t.Fatalf("table %q, %v", out, err)
 	}
@@ -41,8 +45,8 @@ func TestServersFindsAServerOnEveryAddressAnswering(t *testing.T) {
 		t.Run(every, func(t *testing.T) {
 			machine(t)
 			e := answer(t, "", "serve", "--detach", "--addr", net.JoinHostPort(every, "0"), "--allow-remote")
-			t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
-			list, _ := answer(t, listSchema, "servers").Data.([]any)
+			t.Cleanup(func() { _, _ = run(t, "server", "stop", "--all", "--yes") })
+			list, _ := answer(t, listSchema, "server", "list").Data.([]any)
 			if len(list) != 1 || list[0].(map[string]any)["answering"] != true {
 				t.Fatalf("started %v, listed %v", e.Data, list)
 			}
@@ -55,7 +59,7 @@ func TestServersRemovesAnEveryAddressRecordWhoseServerIsGone(t *testing.T) {
 	dir := machine(t)
 	_, port, _ := net.SplitHostPort(goneAddr(t))
 	writeRecord(t, dir, net.JoinHostPort("0.0.0.0", port), 999999)
-	if list, _ := answer(t, listSchema, "servers").Data.([]any); len(list) != 0 {
+	if list, _ := answer(t, listSchema, "server", "list").Data.([]any); len(list) != 0 {
 		t.Fatalf("listed %v", list)
 	}
 }
@@ -63,14 +67,14 @@ func TestServersRemovesAnEveryAddressRecordWhoseServerIsGone(t *testing.T) {
 func TestServersRemovesARecordWhoseServerIsGone(t *testing.T) {
 	dir := machine(t)
 	writeRecord(t, dir, goneAddr(t), 999999)
-	if list, _ := answer(t, listSchema, "servers").Data.([]any); len(list) != 0 {
+	if list, _ := answer(t, listSchema, "server", "list").Data.([]any); len(list) != 0 {
 		t.Fatalf("listed %v", list)
 	}
 }
 
 func TestServersPrintsYAMLWithTheSameNames(t *testing.T) {
 	machine(t)
-	out, err := run(t, "servers", "-o", "yaml")
+	out, err := run(t, "server", "list", "-o", "yaml")
 	if err != nil || !strings.Contains(out, "apiVersion: "+apiVersion) || !strings.Contains(out, "kind: ServerList") {
 		t.Fatalf("%q, %v", out, err)
 	}
@@ -80,14 +84,14 @@ func TestServersPrintsYAMLWithTheSameNames(t *testing.T) {
 
 func TestServersAnswersTheContractAskedFor(t *testing.T) {
 	machine(t)
-	if e := answer(t, listSchema, "servers", "--contract", "v1"); e.Source.Contract != "v1" || e.APIVersion != apiVersion {
+	if e := answer(t, listSchema, "server", "list", "--contract", "v1"); e.Source.Contract != "v1" || e.APIVersion != apiVersion {
 		t.Fatalf("got %+v", e)
 	}
 }
 
 func TestServersRefusesAContractItDoesNotAnswer(t *testing.T) {
 	machine(t)
-	_, err := run(t, "servers", "-o", "json", "--contract", "v9")
+	_, err := run(t, "server", "list", "-o", "json", "--contract", "v9")
 	var e *problem.Problem
 	if !errors.As(err, &e) || e.Type != problem.TypeUnsupportedContract || !strings.Contains(e.Detail, "it answers v1") {
 		t.Fatalf("got %v", err)
@@ -102,7 +106,7 @@ func TestServersSaysWhichRecordItCannotRead(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			bad := writeRecord(t, dir, "127.0.0.1:1", pid)
 			defer os.Remove(bad)
-			if _, err := run(t, "servers"); err == nil || !strings.Contains(err.Error(), bad) {
+			if _, err := run(t, "server", "list"); err == nil || !strings.Contains(err.Error(), bad) {
 				t.Fatalf("got %v", err)
 			}
 			if _, err := os.Stat(bad); err != nil {
@@ -114,7 +118,7 @@ func TestServersSaysWhichRecordItCannotRead(t *testing.T) {
 
 func TestServersRefusesAnUnknownOutput(t *testing.T) {
 	machine(t)
-	if _, err := run(t, "servers", "-o", "xml"); err == nil {
+	if _, err := run(t, "server", "list", "-o", "xml"); err == nil {
 		t.Fatal("taken")
 	}
 }
@@ -123,7 +127,7 @@ func TestServersRefusesAnUnknownOutput(t *testing.T) {
 
 func TestServersNeverAsks(t *testing.T) {
 	machine(t)
-	if _, err := run(t, "servers"); err != nil {
+	if _, err := run(t, "server", "list"); err != nil {
 		t.Fatalf("reading asked: %v", err)
 	}
 }
@@ -133,16 +137,32 @@ func TestServersNeverAsks(t *testing.T) {
 func TestServersAnswersLikeHTTP(t *testing.T) {
 	machine(t)
 	detached(t)
-	sameAsHTTP(t, "", "servers")
+	sameAsHTTP(t, "", "server", "list")
 }
 
 // Help
 
 func TestServersHelpNamesItsCommands(t *testing.T) {
-	out := help(t, "servers")
-	for _, want := range []string{"stop", "link", "--output", "--contract", "foreground"} {
+	out := help(t, "server")
+	for _, want := range []string{"list", "stop", "link", "token"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("servers --help has no %s:\n%s", want, out)
+			t.Errorf("server --help has no %s:\n%s", want, out)
 		}
 	}
+	out = help(t, "server", "list")
+	for _, want := range []string{"--output", "--contract", "foreground"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("server list --help has no %s:\n%s", want, out)
+		}
+	}
+}
+
+// The old forms under servers still run, for one release, as the full forms under server do (G-STACK-5).
+func TestTheOldServersFormsRunTheirFullForms(t *testing.T) {
+	machine(t)
+	helptest.Check(t, func() *cobra.Command {
+		r := root(nil)
+		helpout.Apply(r, helpout.Info{What: "a test app"})
+		return r
+	})
 }

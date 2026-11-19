@@ -150,7 +150,7 @@ func TestSetRefusesBadKeysAndValues(t *testing.T) {
 		{"colour", "x", "have: theme, background, prefix, github"},
 		{"background", "dim", "auto, dark, light"},
 		{"theme", "pink", "nord"},
-		{"commands", "x", "app commands edit"},
+		{"commands", "x", "app command edit"},
 		{"prefix", "a\nb", "control"},
 	} {
 		err := settings.Set(path, keys, c.key, c.value)

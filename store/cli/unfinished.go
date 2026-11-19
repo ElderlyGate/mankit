@@ -30,14 +30,14 @@ type UnfinishedData struct {
 	Changes []store.Unfinished `json:"changes"`
 }
 
-// ClearedData is the data of store unfinished clear: the thing, and the changes whose marks were removed.
+// ClearedData is the data of store unfinished remove: the thing, and the changes whose marks were removed.
 type ClearedData struct {
 	Thing   store.Key          `json:"thing"`
 	Cleared []store.Unfinished `json:"cleared"`
 }
 
 // UnfinishedCommand is `unfinished`, which every app with a store scope mounts under its own store command, as it does config queue, and serves through UnfinishedRoutes:
-// `list [<thing>]` shows the changes cut short in the scope open opens, and `clear <thing>` shows those holding thing and, once the person types its name, removes the marks it showed (G-STACK-13).
+// `list [<thing>]` shows the changes cut short in the scope open opens, and `remove <thing>` shows those holding thing and, once the person types its name, removes the marks it showed (G-STACK-13).
 // It prints through serve's Printer, so every app shows and answers it the same way, and the unfinished_change refusal names it.
 func UnfinishedCommand(a serve.App, open func() (*store.Scope, error)) *cobra.Command {
 	cmd := &cobra.Command{
@@ -47,7 +47,7 @@ func UnfinishedCommand(a serve.App, open func() (*store.Scope, error)) *cobra.Co
 			"its keys until its user's next run on the same machine puts it back. Until\n" +
 			"then another user's change to those keys is refused. `unfinished list` shows\n" +
 			"each one: whose it is, the machine, its journal and the keys it holds.\n" +
-			"`unfinished clear <thing>` removes the marks once you are sure the change was\n" +
+			"`unfinished remove <thing>` removes the marks once you are sure the change was\n" +
 			"put back or given up: it puts nothing back, and the journal stays.",
 		Args: cobra.NoArgs,
 	}
@@ -102,7 +102,7 @@ func listCommand(a serve.App, open func() (*store.Scope, error)) *cobra.Command 
 
 func clearCommand(a serve.App, open func() (*store.Scope, error)) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "clear <thing>",
+		Use:   "remove <thing>",
 		Short: "Remove the marks of the changes cut short that hold a thing",
 		Long: "Remove the marks of every change cut short that holds thing, so changes to its\n" +
 			"keys are made again. Only once you are sure the change was put back or given\n" +

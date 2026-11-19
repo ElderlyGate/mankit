@@ -65,14 +65,14 @@ func TestServeInTheForegroundLeavesARecordUntilItStops(t *testing.T) {
 	if strings.Contains(out.String(), token) || strings.Contains(out.String(), "?token=") {
 		t.Fatalf("the link went to a stream that is not a terminal: %q", out.String())
 	}
-	if !strings.Contains(out.String(), "e-designer servers link "+addr) {
+	if !strings.Contains(out.String(), "e-designer server link "+addr) {
 		t.Fatalf("it does not say where the link is: %q", out.String())
 	}
-	list, _ := answer(t, "mankit/v1/server-list.schema.json", "servers").Data.([]any)
+	list, _ := answer(t, "mankit/v1/server-list.schema.json", "server", "list").Data.([]any)
 	if len(list) != 1 || list[0].(map[string]any)["record"].(map[string]any)["spec"].(map[string]any)["detached"] != false {
 		t.Fatalf("servers lists %v", list)
 	}
-	link := answer(t, "", "servers", "link", addr).Data.(map[string]any)["url"].(string)
+	link := answer(t, "", "server", "link", addr).Data.(map[string]any)["url"].(string)
 	resp, err := http.Get(link)
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func TestServeEndsALongAnswerWhenItStops(t *testing.T) {
 			addr, _, _ = strings.Cut(line, "\n")
 		}
 	}
-	link, err := url.Parse(answer(t, "", "servers", "link", addr).Data.(map[string]any)["url"].(string))
+	link, err := url.Parse(answer(t, "", "server", "link", addr).Data.(map[string]any)["url"].(string))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestServeEndsALongAnswerWhenItStops(t *testing.T) {
 func TestServeDetachAnswersTheContractAskedFor(t *testing.T) {
 	machine(t)
 	e := answer(t, "", "serve", "--detach", "--contract", "v1")
-	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+	t.Cleanup(func() { _, _ = run(t, "server", "stop", "--all", "--yes") })
 	if e.Source.Contract != "v1" || e.APIVersion != apiVersion {
 		t.Fatalf("got %+v", e)
 	}
@@ -276,7 +276,7 @@ func TestServeRefusesATokenOthersCanReach(t *testing.T) {
 			}
 			path := filepath.Join(dir, "token")
 			plant(t, path)
-			for _, args := range [][]string{{"serve"}, {"servers", "link"}} {
+			for _, args := range [][]string{{"serve"}, {"server", "link"}} {
 				if _, err := run(t, args...); err == nil || !strings.Contains(err.Error(), path) {
 					t.Errorf("%v: got %v, want a refusal naming %s", args, err, path)
 				}
@@ -303,7 +303,7 @@ func TestServeNeverAsks(t *testing.T) {
 	if _, err := run(t, "serve", "--detach"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+	t.Cleanup(func() { _, _ = run(t, "server", "stop", "--all", "--yes") })
 }
 
 // CLI and HTTP parity
@@ -314,7 +314,7 @@ func TestServeDetachAnswersLikeHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = run(t, "servers", "stop", "--all", "--yes") })
+	t.Cleanup(func() { _, _ = run(t, "server", "stop", "--all", "--yes") })
 	var e serve.Envelope
 	if err := json.Unmarshal([]byte(out), &e); err != nil {
 		t.Fatal(err)

@@ -919,7 +919,7 @@ func (f *files) blocked(t *turns, key Key) error {
 func (f *files) refuse(m mark, what string) error {
 	app, thing := f.s.app.command(), m.Spec.Keys[0].thing()
 	p := problem.FailAt(problem.TypeRefused, ReasonUnfinished, string(m.Spec.Keys[0]), fmt.Sprintf(
-		"%s is not changed: a change %s made on %s was cut short and waits to be put back; %s's next run of %s on %s puts it back, and once sure it was put back or given up, `%s store unfinished clear %s` clears it",
+		"%s is not changed: a change %s made on %s was cut short and waits to be put back; %s's next run of %s on %s puts it back, and once sure it was put back or given up, `%s store unfinished remove %s` clears it",
 		what, m.Spec.User, m.Spec.Host, m.Spec.User, app, m.Spec.Host, app, thing))
 	return p
 }
