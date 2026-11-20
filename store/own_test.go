@@ -45,6 +45,19 @@ func TestEditFileTouchesOnlyTheFileItWrites(t *testing.T) {
 	}
 }
 
+// Own refuses a folder that is a link, and the refusal names the folder's path, not the app's.
+func TestOwnRefusesALinkedFolderNamingItsPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Symlink(t.TempDir(), dir); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.Own(store.App{ID: "acme"}, dir)
+	var p *problem.Problem
+	if !errors.As(err, &p) || !strings.Contains(p.Detail, "the folder "+dir) || strings.Contains(p.Detail, "acme") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 // settings.Set and the like called inside a change that holds the folder's turn join that change, made with it, instead of waiting for the turn it holds.
 func TestEditFileInsideAChangeOfItsFolderJoinsIt(t *testing.T) {
 	dir := t.TempDir()

@@ -20,7 +20,7 @@ func Own(app App, dir string) (*Scope, error) {
 		return nil, problem.FailAt(problem.TypeFailed, "", "", fmt.Sprintf("the folder %s cannot be found: %v", dir, err))
 	}
 	if err := disk.Mine(abs); err != nil {
-		return nil, diskFail(err, "", fmt.Sprintf("%s's folder %s", app.ID, abs))
+		return nil, diskFail(err, "", fmt.Sprintf("the folder %s", abs))
 	}
 	return open(app, abs, true, func(Key) string { return abs })
 }
