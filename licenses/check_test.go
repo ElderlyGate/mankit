@@ -181,8 +181,8 @@ func TestAddKeepsTheOrgLicenseInAFolderPrivateToTheUser(t *testing.T) {
 	}
 }
 
-// A linked org folder is refused on write, and the refusal names it as the org's folder.
-func TestAddRefusesALinkedOrgFolderAsTheOrgs(t *testing.T) {
+// A linked org folder is refused on write, and the refusal names the org folder's path.
+func TestAddRefusesALinkedOrgFolderNamingItsPath(t *testing.T) {
 	dir := org(t)
 	if err := os.Symlink(t.TempDir(), dir); err != nil {
 		t.Fatal(err)
@@ -190,7 +190,7 @@ func TestAddRefusesALinkedOrgFolderAsTheOrgs(t *testing.T) {
 	k, release, _ := signer(t)
 	_, err := checker(t, release, "2026-11-19").Add(context.Background(), sign(t, k, orgLicense), true)
 	var p *problem.Problem
-	if !errors.As(err, &p) || !strings.Contains(p.Detail, home.Org+"'s folder") {
+	if !errors.As(err, &p) || !strings.Contains(p.Detail, "the folder "+dir) {
 		t.Fatalf("err = %v", err)
 	}
 }
