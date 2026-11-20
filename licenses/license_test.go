@@ -149,20 +149,69 @@ func TestWhatIsNoLicenseFileIsUnreadable(t *testing.T) {
 	}
 }
 
-// A license no app takes is never signed: a trial that names features, a product license naming two products, an org license naming none.
-func TestALicenseNoAppTakesIsNotSigned(t *testing.T) {
+// counted is a signer that counts what it is asked to sign, so a test sees Sign refuse before it reaches a key.
+type counted struct {
+	keys
+	asked int
+}
+
+func (c *counted) Sign(id string, message []byte) ([]byte, error) {
+	c.asked++
+	return c.keys.Sign(id, message)
+}
+
+// Check and Sign refuse the same licenses, one table for both: Sign refuses each before it asks its signer, and takes what Check takes.
+func TestCheckRefusesExactlyWhatSignRefuses(t *testing.T) {
 	k, _, _ := signer(t)
-	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
-	two := orgLicense
-	two.Kind, two.Products = licenses.Product, map[string][]string{"designer": {"events"}, "kanban": {"sync"}}
-	none := orgLicense
-	none.Products = nil
-	backwards := orgLicense
-	backwards.Until = day("2026-01-01")
-	for _, l := range []licenses.License{trial, two, none, backwards} {
-		if _, err := licenses.Sign(l, k); err == nil {
-			t.Errorf("signed %+v", l)
-		}
+	with := func(change func(*licenses.License)) licenses.License {
+		l := orgLicense
+		l.Products = map[string][]string{"designer": {"events"}}
+		change(&l)
+		return l
+	}
+	trial := with(func(l *licenses.License) { l.Kind, l.For, l.Products = licenses.Trial, "ada@acme.example", nil })
+	for _, tc := range []struct {
+		name  string
+		l     licenses.License
+		taken bool
+	}{
+		{"an org license", orgLicense, true},
+		{"a product license", with(func(l *licenses.License) { l.Kind = licenses.Product }), true},
+		{"a trial key", trial, true},
+		{"a one-day license", with(func(l *licenses.License) { l.Until = l.Issued }), true},
+		{"an unknown kind", with(func(l *licenses.License) { l.Kind = "site" }), false},
+		{"no id", with(func(l *licenses.License) { l.ID = "" }), false},
+		{"an id with a space", with(func(l *licenses.License) { l.ID = "acme 2026" }), false},
+		{"nobody named", with(func(l *licenses.License) { l.For = "  " }), false},
+		{"no key", with(func(l *licenses.License) { l.KeyID = "" }), false},
+		{"a last day before its first", with(func(l *licenses.License) { l.Until = day("2026-01-01") }), false},
+		{"a trial that names features", with(func(l *licenses.License) { l.Kind = licenses.Trial }), false},
+		{"a product license naming two products", with(func(l *licenses.License) {
+			l.Kind, l.Products = licenses.Product, map[string][]string{"designer": {"events"}, "kanban": {"sync"}}
+		}), false},
+		{"a product license naming none", with(func(l *licenses.License) { l.Kind, l.Products = licenses.Product, nil }), false},
+		{"an org license naming none", with(func(l *licenses.License) { l.Products = nil }), false},
+		{"a product with no id", with(func(l *licenses.License) { l.Products = map[string][]string{"": {"events"}} }), false},
+		{"a product naming no feature", with(func(l *licenses.License) { l.Products = map[string][]string{"designer": {}} }), false},
+		{"a product naming an empty feature", with(func(l *licenses.License) { l.Products = map[string][]string{"designer": {"events", ""}} }), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &counted{keys: k}
+			checkErr := tc.l.Check()
+			_, signErr := licenses.Sign(tc.l, s)
+			if tc.taken {
+				if checkErr != nil || signErr != nil {
+					t.Fatalf("check = %v, sign = %v; want both taken", checkErr, signErr)
+				}
+				return
+			}
+			if !errors.Is(checkErr, licenses.ErrNotTaken) || !errors.Is(signErr, licenses.ErrNotTaken) {
+				t.Fatalf("check = %v, sign = %v; want both ErrNotTaken", checkErr, signErr)
+			}
+			if s.asked != 0 {
+				t.Fatalf("Sign asked its signer %d times for a license Check refuses", s.asked)
+			}
+		})
 	}
 }
 
