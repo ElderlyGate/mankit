@@ -19,15 +19,16 @@ import (
 )
 
 // The words of a request: the header a reader asks a contract with, and the query that carries the user's yes to a change.
-// The yes over HTTP is confirm=<id>, the Question's one-time id, with remember=yes to stop asking for its type.
-// confirm=yes and confirm=remember are old forms, still taken in v4 and gone at the next major: a browser sends the cookie by itself and another port on this machine counts as the same site, so a page from elsewhere could send them. The CLI keeps --yes, which no page can reach.
+// A person's yes on the page is confirm=<id>, the Question's one-time id, with remember=yes to stop asking for its type: the id makes the yes count for exactly the change they were shown.
+// A program's yes in one call is confirm=yes with its token in Authorization: Bearer, as a script or curl sends it, HTTP's --yes.
+// From the page's cookie, confirm=yes and confirm=remember are old forms, still taken in v4 and gone at the next major once every page sends the id. The guard already refuses a request from another page (Origin, Sec-Fetch-Site); the id is defence in depth.
 const (
 	ContractHeader  = "Accept-Contract"
 	ConfirmParam    = "confirm"
 	RememberParam   = "remember"
 	RememberYes     = "yes"
-	ConfirmYes      = "yes"      // an old form, see above
-	ConfirmRemember = "remember" // an old form of confirm=<id>&remember=yes, see above
+	ConfirmYes      = "yes"      // with Bearer, for good; from the cookie, an old form
+	ConfirmRemember = "remember" // an old form of confirm=<id>&remember=yes
 )
 
 // QuestionKind and QuestionAPIVersion are the kind and the one form of the answer to a change waiting for a yes, the same for every app and every contract version (contracts question/v1).
@@ -327,7 +328,7 @@ func told(h http.HandlerFunc, rt Route, list *features.List, parts []part, log i
 	}
 }
 
-// gate answers 428 with a Question to a change that asks and came without the user's yes, unless the user picked never for its type; the yes is confirm=<id> for the Question asked, once (confirm=yes and remember are old forms).
+// gate answers 428 with a Question to a change that asks and came without the user's yes, unless the user picked never for its type; the yes is confirm=<id> for the Question asked, once, or a program's confirm=yes with Bearer.
 func (a App) gate(site Site, rt Route, parts []part, questions *ask.Questions) http.Handler {
 	if !writing[rt.method()] {
 		return rt.Handler
@@ -362,6 +363,12 @@ func (a App) gate(site Site, rt Route, parts []part, questions *ask.Questions) h
 		confirm := r.URL.Query().Get(ConfirmParam)
 		switch confirm {
 		case ConfirmYes:
+			if bearer(r) != "" {
+				// A program's yes in one call, its token in the header the guard checked.
+				rt.Handler(w, r)
+				return
+			}
+			// The old form from the page's cookie, taken in v4 only.
 			rt.Handler(w, r)
 			return
 		case ConfirmRemember:

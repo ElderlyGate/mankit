@@ -1102,3 +1102,27 @@ func TestAnOversizeBodyOnARouteThatAsksIsTooLarge(t *testing.T) {
 		refusal(t, call(t, handler(t, nil), "POST", target, big, nil), http.StatusRequestEntityTooLarge, problem.TypeRefused, serve.ReasonTooLarge)
 	}
 }
+
+// confirm=yes with the token in Authorization: Bearer is a program's yes in one call, for good; from the page's cookie it still runs in v4, an old form the next major removes.
+func TestConfirmYesWithBearerStaysAndFromTheCookieIsAnOldForm(t *testing.T) {
+	h := handler(t, nil)
+	if w := call(t, h, "POST", "/api/greeting?confirm=yes", `{"text":"hi"}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("with Bearer: %d %s", w.Code, w.Body)
+	}
+	// The cookie the page's link leaves.
+	link := httptest.NewRequest("GET", "http://127.0.0.1:7480/?token="+token, nil)
+	lw := httptest.NewRecorder()
+	h.ServeHTTP(lw, link)
+	cookies := lw.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("the link left %d cookies", len(cookies))
+	}
+	req := httptest.NewRequest("POST", "http://127.0.0.1:7480/api/greeting?confirm=yes", strings.NewReader(`{"text":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookies[0])
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("from the cookie, the old form: %d %s", w.Code, w.Body)
+	}
+}

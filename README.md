@@ -447,11 +447,13 @@ What serve does for every app:
   sends the same request with `confirm=<id>`: it runs once, within five
   minutes, and any other id asks again (`ask.Questions` keeps them, one per
   server). `confirm=<id>&remember=yes` also stops asking for the type
-  (`Site.Remember`). `confirm=yes` and `confirm=remember` are old forms, still
-  taken in v4 and gone at the next major: a browser sends the cookie by itself
-  and another port on this machine counts as the same site, so a page from
-  elsewhere could send them. A script uses the Question's id too; the CLI
-  keeps `--yes`, which no page can reach. Every change route names its action type; `Handler`
+  (`Site.Remember`). A program's yes in one call is `confirm=yes` with its token
+  in `Authorization: Bearer`, as a script or `curl` sends it, HTTP's `--yes`.
+  From the page's cookie, `confirm=yes` and `confirm=remember` are old forms,
+  still taken in v4 and gone at the next major once every page sends the id.
+  The guard already refuses a request from another page (`Origin`,
+  `Sec-Fetch-Site`); the id is defence in depth, and makes a person's yes count
+  for exactly the change they were shown. Every change route names its action type; `Handler`
   refuses one that does not. `Route.ActionFor`, when set, says what one
   request changes and whether it asks at all: a request that only follows a
   yes already given, rehearses, or changes nothing the person is asked about
