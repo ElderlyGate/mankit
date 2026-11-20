@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -681,24 +682,48 @@ func TestAWriteThatFinishedPastTheLimitButCannotBeReadBackIsNotReadBack(t *testi
 	}
 }
 
+// A turn passes on quickly: the next change never waits the long pause a ticket further back waits. The median gap between one change ending and the next starting stays under half of it.
+// It is not held to the first-in-line pause itself (20ms): with every CPU busy, the median gap passed it (22ms), as the machine's other work stretches every gap a little.
+// It is the hand-over that is measured, not the whole run, whose time that work stretches far more; the median keeps one late gap from deciding.
 func TestChangesHandTheTurnOnQuickly(t *testing.T) {
 	q, _ := newQueue(t)
-	began := time.Now()
-	var wg sync.WaitGroup
+	type span struct{ began, ended time.Time }
+	var (
+		mu    sync.Mutex
+		spans []span
+		wg    sync.WaitGroup
+	)
 	for range 10 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for range 2 {
-				if err := q.Change(context.Background(), "quick", func(context.Context) error { time.Sleep(time.Millisecond); return nil }, nothing); err != nil {
+				if err := q.Change(context.Background(), "quick", func(context.Context) error {
+					s := span{began: time.Now()}
+					time.Sleep(time.Millisecond)
+					s.ended = time.Now()
+					mu.Lock()
+					spans = append(spans, s)
+					mu.Unlock()
+					return nil
+				}, nothing); err != nil {
 					t.Error(err)
 				}
 			}
 		}()
 	}
 	wg.Wait()
-	if took := time.Since(began); took > time.Second {
-		t.Fatalf("20 changes of 1ms took %s, want well under a second", took)
+	if len(spans) < 2 {
+		t.Fatalf("%d changes ran, want 20: there is no hand-over to measure", len(spans))
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].began.Before(spans[j].began) })
+	gaps := make([]time.Duration, 0, len(spans)-1)
+	for i := 1; i < len(spans); i++ {
+		gaps = append(gaps, spans[i].began.Sub(spans[i-1].ended))
+	}
+	sort.Slice(gaps, func(i, j int) bool { return gaps[i] < gaps[j] })
+	if median := gaps[len(gaps)/2]; median > queue.LastPause()/2 {
+		t.Fatalf("the median hand-over took %s, want well under the long pause of %s; every gap: %v", median, queue.LastPause(), gaps)
 	}
 }
 
