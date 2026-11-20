@@ -438,17 +438,29 @@ What serve does for every app:
   the one version answer (contracts `version/v1`, on envelope/v1 for good),
   listing the contracts the app answers in `data.supportedContracts`, in the
   contract asked for when served, else the newest;
-- answers a change (POST, PUT, PATCH, DELETE) with 428 `refused`, reason `unconfirmed`, until it
-  comes with `confirm=yes`, unless the user picked `never` for its type.
-  `confirm=remember` is a yes that also stops asking for the type
-  (`Site.Remember`). Every change route names its action type; `Handler`
+- answers a change (POST, PUT, PATCH, DELETE) that asks with 428 and a
+  Question answer (contracts `question/v1`, its wrapper in the asked
+  contract), unless the user picked `never` for its type. The Question holds a
+  one-time id bound to the request (method, path, query, body and type), the
+  change's type, whether it changes the system itself, how it asks
+  (`type_name` or `yes_no`) and what will change. A person's yes on the page
+  sends the same request with `confirm=<id>`: it runs once, within five
+  minutes, and any other id asks again (`ask.Questions` keeps them, one per
+  server). `confirm=<id>&remember=yes` also stops asking for the type
+  (`Site.Remember`). A program's yes in one call is `confirm=yes` with its token
+  in `Authorization: Bearer`, as a script or `curl` sends it, HTTP's `--yes`.
+  From the page's cookie, `confirm=yes` and `confirm=remember` are old forms,
+  still taken in v4 and gone at the next major once every page sends the id.
+  The guard already refuses a request from another page (`Origin`,
+  `Sec-Fetch-Site`); the id is defence in depth, and makes a person's yes count
+  for exactly the change they were shown. Every change route names its action type; `Handler`
   refuses one that does not. `Route.ActionFor`, when set, says what one
   request changes and whether it asks at all: a request that only follows a
   yes already given, rehearses, or changes nothing the person is asked about
   goes through unasked, and one may ask as the type it says. ActionFor reads a
   copy of the body, read once within the size cap (413 `refused`, reason
   `too_large`, past it), so the handler still gets it whole; a request that
-  does not ask remembers nothing on `confirm=remember`; an ActionFor that
+  does not ask remembers nothing; an ActionFor that
   fails is logged and answered 500 `failed`. A change to the system itself
   always asks. The question is for the person, never a guard:
   the token is the guard.

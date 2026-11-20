@@ -19,11 +19,22 @@ import (
 )
 
 // The words of a request: the header a reader asks a contract with, and the query that carries the user's yes to a change.
+// A person's yes on the page is confirm=<id>, the Question's one-time id, with remember=yes to stop asking for its type: the id makes the yes count for exactly the change they were shown.
+// A program's yes in one call is confirm=yes with its token in Authorization: Bearer, as a script or curl sends it, HTTP's --yes.
+// From the page's cookie, confirm=yes and confirm=remember are old forms, still taken in v4 and gone at the next major once every page sends the id. The guard already refuses a request from another page (Origin, Sec-Fetch-Site); the id is defence in depth.
 const (
 	ContractHeader  = "Accept-Contract"
 	ConfirmParam    = "confirm"
-	ConfirmYes      = "yes"
-	ConfirmRemember = "remember"
+	RememberParam   = "remember"
+	RememberYes     = "yes"
+	ConfirmYes      = "yes"      // with Bearer, for good; from the cookie, an old form
+	ConfirmRemember = "remember" // an old form of confirm=<id>&remember=yes
+)
+
+// QuestionKind and QuestionAPIVersion are the kind and the one form of the answer to a change waiting for a yes, the same for every app and every contract version (contracts question/v1).
+const (
+	QuestionKind       = "Question"
+	QuestionAPIVersion = "elderlygate/contracts/question/v1"
 )
 
 // VersionKind is the kind of the GET /api/version answer.
@@ -131,8 +142,9 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 		mux.Handle(rt.Pattern, h)
 		return nil
 	}
+	questions := ask.NewQuestions()
 	for _, rt := range site.Routes {
-		if err := add(rt, a.gate(site, rt, parts)); err != nil {
+		if err := add(rt, a.gate(site, rt, parts, questions)); err != nil {
 			return nil, err
 		}
 	}
@@ -142,7 +154,7 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 			return nil, fmt.Errorf("serve: feature %s: %w", p.id, err)
 		}
 		for _, rt := range routes {
-			if err := add(rt, a.feature(site.Features, p.id, a.gate(site, rt, nil))); err != nil {
+			if err := add(rt, a.feature(site.Features, p.id, a.gate(site, rt, nil, questions))); err != nil {
 				return nil, err
 			}
 		}
@@ -316,8 +328,8 @@ func told(h http.HandlerFunc, rt Route, list *features.List, parts []part, log i
 	}
 }
 
-// gate answers 428 to a change that came without the user's yes (confirm=yes, or remember to stop asking), unless the user picked never for its type.
-func (a App) gate(site Site, rt Route, parts []part) http.Handler {
+// gate answers 428 with a Question to a change that asks and came without the user's yes, unless the user picked never for its type; the yes is confirm=<id> for the Question asked, once, or a program's confirm=yes with Bearer.
+func (a App) gate(site Site, rt Route, parts []part, questions *ask.Questions) http.Handler {
 	if !writing[rt.method()] {
 		return rt.Handler
 	}
@@ -326,35 +338,59 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 		log = os.Stderr
 	}
 	rt.Handler = told(rt.Handler, rt, site.Features, parts, log)
+	remember := func(w http.ResponseWriter, r *http.Request, action ask.Action) bool {
+		// A change to the system itself is never remembered (G-STACK-6); without Site.Remember the app keeps no answer, so remember is a yes.
+		if site.Remember == nil || action.System {
+			return true
+		}
+		if err := site.Remember(action.Type); err != nil {
+			WriteError(w, r, http.StatusInternalServerError, problem.Fail(problem.TypeFailed, ReasonConfigUnreadable, fmt.Sprintf(
+				"nothing was changed: the answer for %s could not be saved: %v; send the request again and answer its question", action.Type, err)))
+			return false
+		}
+		return true
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		action, asks, err := rt.actionOf(r, log)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if p, ok := err.(*problem.Problem); ok && p.Reason == ReasonTooLarge {
-				status = http.StatusRequestEntityTooLarge
-			}
-			WriteError(w, r, status, err)
+			writeBodyError(w, r, err)
 			return
 		}
 		if !asks {
 			rt.Handler(w, r)
 			return
 		}
-		switch r.URL.Query().Get(ConfirmParam) {
+		confirm := r.URL.Query().Get(ConfirmParam)
+		switch confirm {
 		case ConfirmYes:
+			if bearer(r) != "" {
+				// A program's yes in one call, its token in the header the guard checked.
+				rt.Handler(w, r)
+				return
+			}
+			// The old form from the page's cookie, taken in v4 only.
 			rt.Handler(w, r)
 			return
 		case ConfirmRemember:
-			// A change to the system itself is never remembered (G-STACK-6); without Site.Remember the app keeps no answer, so remember is a yes.
-			if site.Remember != nil && !action.System {
-				if err := site.Remember(action.Type); err != nil {
-					WriteError(w, r, http.StatusInternalServerError, problem.Fail(problem.TypeFailed, ReasonConfigUnreadable, fmt.Sprintf(
-						"nothing was changed: the answer for %s could not be saved: %v; send it again with %s=%s", action.Type, err, ConfirmParam, ConfirmYes)))
+			if remember(w, r, action) {
+				rt.Handler(w, r)
+			}
+			return
+		}
+		// The yes to the Question asked: taken once, for the same request; any other id asks again, as the token, not the id, is the guard.
+		if confirm != "" {
+			req, err := requestOf(r)
+			if err != nil {
+				writeBodyError(w, r, err)
+				return
+			}
+			if asked, ok := questions.Take(confirm, req); ok {
+				if r.URL.Query().Get(RememberParam) == RememberYes && !remember(w, r, asked) {
 					return
 				}
+				rt.Handler(w, r)
+				return
 			}
-			rt.Handler(w, r)
-			return
 		}
 		styles := map[ask.Type]ask.Style{}
 		if site.Styles != nil {
@@ -366,17 +402,56 @@ func (a App) gate(site Site, rt Route, parts []part) http.Handler {
 			styles = read
 		}
 		// G-STACK-13: the user may pick "not at all" for a type; Resolve never gives that for a change to the system itself.
-		if style, _ := ask.Resolve(action, styles); style != ask.Never {
-			what := string(action.Type)
-			if action.What != "" {
-				what = action.What
-			}
-			WriteError(w, r, http.StatusPreconditionRequired, problem.Fail(problem.TypeRefused, ReasonUnconfirmed, fmt.Sprintf(
-				"nothing was changed: %s asks first; send it again with %s=%s once the user said yes", what, ConfirmParam, ConfirmYes)))
+		style, _ := ask.Resolve(action, styles)
+		if style == ask.Never {
+			rt.Handler(w, r)
 			return
 		}
-		rt.Handler(w, r)
+		req, err := requestOf(r)
+		if err != nil {
+			writeBodyError(w, r, err)
+			return
+		}
+		s := answering(r, "")
+		e := s.app.Answer(s.name, s.contract, QuestionKind, questions.Ask(action, style, req))
+		e.APIVersion = QuestionAPIVersion
+		writeEnvelope(w, http.StatusPreconditionRequired, e)
 	})
+}
+
+// readBody is r's body, read once within serve's cap and handed on whole; one past the cap is too_large.
+func readBody(r *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return nil, problem.Fail(problem.TypeRefused, ReasonTooLarge, fmt.Sprintf("the request body is larger than the %d bytes serve takes", tooLarge.Limit))
+		}
+		return nil, problem.Fail(problem.TypeFailed, "", "nothing was changed: the request body could not be read: "+err.Error())
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	return body, nil
+}
+
+// writeBodyError answers a body readBody could not take: 413 for one too large, 500 for one that could not be read.
+func writeBodyError(w http.ResponseWriter, r *http.Request, err error) {
+	status := http.StatusInternalServerError
+	if p, ok := err.(*problem.Problem); ok && p.Reason == ReasonTooLarge {
+		status = http.StatusRequestEntityTooLarge
+	}
+	WriteError(w, r, status, err)
+}
+
+// requestOf is what a yes to r binds to: its method, path, query without the answer's own words, body and type.
+func requestOf(r *http.Request) (ask.Request, error) {
+	body, err := readBody(r)
+	if err != nil {
+		return ask.Request{}, err
+	}
+	q := r.URL.Query()
+	q.Del(ConfirmParam)
+	q.Del(RememberParam)
+	return ask.Request{Method: r.Method, Path: r.URL.Path, Query: q, Body: body, ContentType: r.Header.Get("Content-Type")}, nil
 }
 
 // actionOf is the change the request r makes on rt, and whether it asks: ActionFor's when set, with rt's type for one it does not know, and never lowered from a change to the system itself.
@@ -385,15 +460,10 @@ func (rt Route) actionOf(r *http.Request, log io.Writer) (a ask.Action, asks boo
 	if rt.ActionFor == nil {
 		return rt.Action, true, nil
 	}
-	body, err := io.ReadAll(r.Body)
+	body, err := readBody(r)
 	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			return ask.Action{}, false, problem.Fail(problem.TypeRefused, ReasonTooLarge, fmt.Sprintf("the request body is larger than the %d bytes serve takes", tooLarge.Limit))
-		}
-		return ask.Action{}, false, problem.Fail(problem.TypeFailed, "", "nothing was changed: the request body could not be read: "+err.Error())
+		return ask.Action{}, false, err
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
 	read := r.Clone(r.Context())
 	read.Body = io.NopCloser(bytes.NewReader(body))
 	defer func() {
