@@ -682,8 +682,9 @@ func TestAWriteThatFinishedPastTheLimitButCannotBeReadBackIsNotReadBack(t *testi
 	}
 }
 
-// A turn passes on quickly: the gap between one change ending and the next starting is a short pause, never the long one a ticket further back waits.
-// It is the hand-over that is measured, not the whole run, whose time the machine's other work stretches; the median keeps one late gap under load from deciding.
+// A turn passes on quickly: the next change never waits the long pause a ticket further back waits. The median gap between one change ending and the next starting stays under half of it.
+// It is not held to the first-in-line pause itself (20ms): with every CPU busy, the median gap passed it (22ms), as the machine's other work stretches every gap a little.
+// It is the hand-over that is measured, not the whole run, whose time that work stretches far more; the median keeps one late gap from deciding.
 func TestChangesHandTheTurnOnQuickly(t *testing.T) {
 	q, _ := newQueue(t)
 	type span struct{ began, ended time.Time }
@@ -712,6 +713,9 @@ func TestChangesHandTheTurnOnQuickly(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	if len(spans) < 2 {
+		t.Fatalf("%d changes ran, want 20: there is no hand-over to measure", len(spans))
+	}
 	sort.Slice(spans, func(i, j int) bool { return spans[i].began.Before(spans[j].began) })
 	gaps := make([]time.Duration, 0, len(spans)-1)
 	for i := 1; i < len(spans); i++ {
