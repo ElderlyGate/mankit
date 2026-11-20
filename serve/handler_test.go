@@ -556,9 +556,9 @@ func TestHandlerRefusesARouteItCannotGuard(t *testing.T) {
 // Asking
 
 func TestServeRefusesAChangeWithoutTheUsersYes(t *testing.T) {
-	e := refusal(t, call(t, handler(t, nil), "POST", "/api/greeting", `{"text":"hi"}`, nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
-	if !strings.Contains(e.Detail, "change the greeting") {
-		t.Fatalf("the refusal does not say what it would change: %q", e.Detail)
+	q := asked(t, call(t, handler(t, nil), "POST", "/api/greeting", `{"text":"hi"}`, nil))
+	if !strings.Contains(q.Detail, "change the greeting") {
+		t.Fatalf("the question does not say what it would change: %q", q.Detail)
 	}
 }
 
@@ -580,7 +580,7 @@ func TestServeTakesAChangeTheUserNeverWantsToBeAskedAbout(t *testing.T) {
 		t.Fatalf("edit set to never: %d %s", w.Code, w.Body)
 	}
 	// A change to the system itself still asks, whatever was remembered.
-	refusal(t, call(t, h, "DELETE", "/api/greeting", "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
+	asked(t, call(t, h, "DELETE", "/api/greeting", "", nil))
 }
 
 func TestServeSaysWhichConfigItCannotRead(t *testing.T) {
@@ -628,9 +628,9 @@ func TestARequestThatDoesNotAskNeedsNoYes(t *testing.T) {
 		t.Fatalf("a request that follows a yes was asked: %d %s", w.Code, w.Body)
 	}
 	*changed = false
-	e := refusal(t, call(t, h, "POST", "/api/x", "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
-	if *changed || !strings.Contains(e.Detail, "move asks first") {
-		t.Fatalf("any other request was not asked as its route's type: %q", e.Detail)
+	q := asked(t, call(t, h, "POST", "/api/x", "", nil))
+	if *changed || q.Action != ask.Move {
+		t.Fatalf("any other request was not asked as its route's type: %+v", q)
 	}
 }
 
@@ -641,9 +641,8 @@ func TestARequestAsksAsTheTypeItSays(t *testing.T) {
 	if w := call(t, h, "POST", "/api/x", "", nil); w.Code != http.StatusOK {
 		t.Fatalf("the route's type set to never still asked: %d %s", w.Code, w.Body)
 	}
-	e := refusal(t, call(t, h, "POST", "/api/x?as=create", "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
-	if !strings.Contains(e.Detail, "create asks first") {
-		t.Fatalf("not asked as create: %q", e.Detail)
+	if q := asked(t, call(t, h, "POST", "/api/x?as=create", "", nil)); q.Action != ask.Create {
+		t.Fatalf("not asked as create: %+v", q)
 	}
 	// A type serve does not know is asked as the route's.
 	if w := call(t, h, "POST", "/api/x?as=launch", "", nil); w.Code != http.StatusOK {
@@ -655,7 +654,9 @@ func TestAChangeToTheSystemItselfAlwaysAsks(t *testing.T) {
 	never := func() (map[ask.Type]ask.Style, error) { return map[ask.Type]ask.Style{ask.Move: ask.Never}, nil }
 	h, changed := actionFor(t, never, true)
 	for _, path := range []string{"/api/x?follows=1", "/api/x?system=0"} {
-		refusal(t, call(t, h, "POST", path, "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
+		if q := asked(t, call(t, h, "POST", path, "", nil)); !q.System {
+			t.Fatalf("%s: a change to the system itself is not marked so: %+v", path, q)
+		}
 	}
 	if *changed {
 		t.Fatal("a change to the system itself went through unasked")
@@ -722,7 +723,7 @@ func TestAnActionForThatFailsChangesNothingAndIsSaid(t *testing.T) {
 func TestAChangeActionForMarksAsTheSystemsAlwaysAsks(t *testing.T) {
 	never := func() (map[ask.Type]ask.Style, error) { return map[ask.Type]ask.Style{ask.Move: ask.Never}, nil }
 	h, changed := actionFor(t, never, false)
-	refusal(t, call(t, h, "POST", "/api/x?system=1&follows=1", "", nil), http.StatusPreconditionRequired, problem.TypeRefused, serve.ReasonUnconfirmed)
+	asked(t, call(t, h, "POST", "/api/x?system=1&follows=1", "", nil))
 	if *changed {
 		t.Fatal("a change ActionFor marked as the system's went through unasked")
 	}
@@ -1036,5 +1037,68 @@ func TestHandlerRefusesAModuleItCannotUse(t *testing.T) {
 	}
 	if _, err := serveHandler(t, app, serve.Site{Features: list}, nil); err == nil {
 		t.Fatal("a module that is not a serve.Part was taken")
+	}
+}
+
+// A person answers the Question on the page with its id: the change runs once, for the request it was asked about.
+func TestAQuestionsIDRunsTheChangeOnce(t *testing.T) {
+	h := handler(t, nil)
+	q := asked(t, call(t, h, "POST", "/api/greeting", `{"text":"hi"}`, nil))
+	if q.Action != ask.Edit || q.Style != ask.QuestionYesNo || q.System {
+		t.Fatalf("question %+v", q)
+	}
+	if w := call(t, h, "POST", "/api/greeting?confirm="+q.ID, `{"text":"hi"}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("the yes with the id: %d %s", w.Code, w.Body)
+	}
+	// Taken once: the same id asks again, with a new one.
+	again := asked(t, call(t, h, "POST", "/api/greeting?confirm="+q.ID, `{"text":"hi"}`, nil))
+	if again.ID == q.ID {
+		t.Fatal("a used id was asked again as itself")
+	}
+	// An id binds to its request: another body asks again.
+	asked(t, call(t, h, "POST", "/api/greeting?confirm="+again.ID, `{"text":"other"}`, nil))
+	// An id this server never gave asks too; the token, not the id, is the guard.
+	asked(t, call(t, h, "POST", "/api/greeting?confirm=AAAAAAAAAAAAAAAAAAAAAA", `{"text":"hi"}`, nil))
+}
+
+// confirm=<id>&remember=yes runs the change and stops asking for its type; confirm=remember, the old form, still does for one release.
+func TestRememberWithAQuestionsIDSavesTheType(t *testing.T) {
+	var saved []ask.Type
+	s := site(nil)
+	s.Remember = func(t ask.Type) error { saved = append(saved, t); return nil }
+	h, err := serveHandler(t, app, s, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := asked(t, call(t, h, "POST", "/api/greeting", `{"text":"hi"}`, nil))
+	if w := call(t, h, "POST", "/api/greeting?confirm="+q.ID+"&remember=yes", `{"text":"hi"}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("remember with the id: %d %s", w.Code, w.Body)
+	}
+	if w := call(t, h, "POST", "/api/greeting?confirm=remember", `{"text":"hi"}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("the old form: %d %s", w.Code, w.Body)
+	}
+	if len(saved) != 2 || saved[0] != ask.Edit || saved[1] != ask.Edit {
+		t.Fatalf("saved %v, want edit twice", saved)
+	}
+}
+
+// The Question is in the contract the reader asked for: ran on envelope/v1, source on envelope/v2.
+func TestTheQuestionFollowsTheAskedContract(t *testing.T) {
+	h := movedHandler(t)
+	for _, contract := range []string{"v1", "v2"} {
+		w := call(t, h, "DELETE", "/api/greeting", "", map[string]string{serve.ContractHeader: contract})
+		asked(t, w)
+		key := map[string]string{"v1": `"ran"`, "v2": `"source"`}[contract]
+		if !strings.Contains(w.Body.String(), key) {
+			t.Errorf("%s: the Question is not in its envelope:\n%s", contract, w.Body)
+		}
+	}
+}
+
+// A body past serve's cap on a route that asks, with no ActionFor, is 413 too_large, as before the Question.
+func TestAnOversizeBodyOnARouteThatAsksIsTooLarge(t *testing.T) {
+	big := `{"text":"` + strings.Repeat("x", 1<<20) + `"}`
+	for _, target := range []string{"/api/greeting", "/api/greeting?confirm=AAAAAAAAAAAAAAAAAAAAAA"} {
+		refusal(t, call(t, handler(t, nil), "POST", target, big, nil), http.StatusRequestEntityTooLarge, problem.TypeRefused, serve.ReasonTooLarge)
 	}
 }

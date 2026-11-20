@@ -135,6 +135,22 @@ func refusal(t *testing.T, w *httptest.ResponseRecorder, status int, typ, reason
 	return e.Errors[0]
 }
 
+// asked checks w is the 428 Question answer (contracts question/v1) and returns its data.
+func asked(t *testing.T, w *httptest.ResponseRecorder) ask.Question {
+	t.Helper()
+	if w.Code != http.StatusPreconditionRequired {
+		t.Fatalf("status %d, want 428: %s", w.Code, w.Body)
+	}
+	if err := contracts.Validate("question/v1/question.schema.json", w.Body.Bytes()); err != nil {
+		t.Fatalf("not a Question answer: %v\n%s", err, w.Body)
+	}
+	var e struct{ Data ask.Question }
+	if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil {
+		t.Fatal(err)
+	}
+	return e.Data
+}
+
 // root is an app's root with serve and servers, answering the asking question yes-no.
 func root(open func(*cobra.Command) (serve.Site, error)) *cobra.Command {
 	r := &cobra.Command{Use: "e-designer", SilenceUsage: true, SilenceErrors: true}
