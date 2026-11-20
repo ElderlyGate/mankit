@@ -2,14 +2,18 @@ package licenses_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/licenses"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 var all = []features.Feature{
@@ -154,6 +158,40 @@ func TestAddKeepsTheOrgLicenseForEveryAppAndTheProductOneForItsApp(t *testing.T)
 	}
 	if got := on(t, list(c)); !slices.Equal(got, []string{"edit", "events", "sync"}) {
 		t.Fatalf("on = %v", got)
+	}
+}
+
+// The org license lands in a folder private to the user, made by the store when it is missing.
+func TestAddKeepsTheOrgLicenseInAFolderPrivateToTheUser(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	k, release, _ := signer(t)
+	if _, err := checker(t, release, "2026-11-19").Add(context.Background(), sign(t, k, orgLicense), true); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(os.Getenv("HOME"), ".config", home.Org)
+	for path, want := range map[string]os.FileMode{dir: 0o700, filepath.Join(dir, "license"): 0o600} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Fatalf("%s is %v, want %v", path, got, want)
+		}
+	}
+}
+
+// A linked org folder is refused on write, and the refusal names the org folder's path.
+func TestAddRefusesALinkedOrgFolderNamingItsPath(t *testing.T) {
+	dir := org(t)
+	if err := os.Symlink(t.TempDir(), dir); err != nil {
+		t.Fatal(err)
+	}
+	k, release, _ := signer(t)
+	_, err := checker(t, release, "2026-11-19").Add(context.Background(), sign(t, k, orgLicense), true)
+	var p *problem.Problem
+	if !errors.As(err, &p) || !strings.Contains(p.Detail, "the folder "+dir) {
+		t.Fatalf("err = %v", err)
 	}
 }
 
