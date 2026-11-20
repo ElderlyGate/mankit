@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/licenses"
 )
 
@@ -154,6 +155,26 @@ func TestAddKeepsTheOrgLicenseForEveryAppAndTheProductOneForItsApp(t *testing.T)
 	}
 	if got := on(t, list(c)); !slices.Equal(got, []string{"edit", "events", "sync"}) {
 		t.Fatalf("on = %v", got)
+	}
+}
+
+// The org license lands in a folder private to the user, made by the store when it is missing.
+func TestAddKeepsTheOrgLicenseInAFolderPrivateToTheUser(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	k, release, _ := signer(t)
+	if _, err := checker(t, release, "2026-11-19").Add(context.Background(), sign(t, k, orgLicense), true); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(os.Getenv("HOME"), ".config", home.Org)
+	for path, want := range map[string]os.FileMode{dir: 0o700, filepath.Join(dir, "license"): 0o600} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Fatalf("%s is %v, want %v", path, got, want)
+		}
 	}
 }
 
