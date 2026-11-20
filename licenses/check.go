@@ -134,7 +134,7 @@ func (c *Checker) Add(ctx context.Context, raw []byte, org bool) (Taken, error) 
 	return t, err
 }
 
-// scope is the store scope the license is kept in: the app's own config folder, or the org's, opened with store.Own as a folder private to this user.
+// scope is the store scope the license is kept in: the app's own config folder, or the org's, opened with store.Own as a folder private to this user and named as the org's.
 func (c *Checker) scope(org bool) (*store.Scope, error) {
 	app := store.App{ID: c.c.Folder}
 	if !org {
@@ -144,7 +144,7 @@ func (c *Checker) scope(org bool) (*store.Scope, error) {
 	if err != nil {
 		return nil, err
 	}
-	return store.Own(app, dir)
+	return store.Own(store.App{ID: home.Org, Command: c.c.Folder}, dir)
 }
 
 // take verifies raw and refuses a license that does not belong where it is: an org license outside the org's place, a product license or trial key in it, or another product's license.

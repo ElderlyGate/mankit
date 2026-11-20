@@ -2,15 +2,18 @@ package licenses_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/licenses"
+	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
 var all = []features.Feature{
@@ -175,6 +178,20 @@ func TestAddKeepsTheOrgLicenseInAFolderPrivateToTheUser(t *testing.T) {
 		if got := info.Mode().Perm(); got != want {
 			t.Fatalf("%s is %v, want %v", path, got, want)
 		}
+	}
+}
+
+// A linked org folder is refused on write, and the refusal names it as the org's folder.
+func TestAddRefusesALinkedOrgFolderAsTheOrgs(t *testing.T) {
+	dir := org(t)
+	if err := os.Symlink(t.TempDir(), dir); err != nil {
+		t.Fatal(err)
+	}
+	k, release, _ := signer(t)
+	_, err := checker(t, release, "2026-11-19").Add(context.Background(), sign(t, k, orgLicense), true)
+	var p *problem.Problem
+	if !errors.As(err, &p) || !strings.Contains(p.Detail, home.Org+"'s folder") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
