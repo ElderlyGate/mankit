@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -113,9 +114,9 @@ type payload struct {
 
 const day = "2006-01-02"
 
-// Sign is the license file of l, signed by s with the key l.KeyID; a license that says something no app takes is refused before anything is signed.
+// Sign is the license file of l, signed by s with the key l.KeyID; a license Check refuses is refused before anything is signed.
 func Sign(l License, s Signer) ([]byte, error) {
-	if err := l.check(); err != nil {
+	if err := l.Check(); err != nil {
 		return nil, err
 	}
 	body, err := json.Marshal(payload{ID: l.ID, Kind: l.Kind, For: l.For, Products: l.Products, Issued: l.Issued.UTC().Format(day), Until: l.Until.UTC().Format(day), KeyID: l.KeyID})
@@ -174,7 +175,7 @@ func Verify(raw []byte, t Trust) (License, error) {
 		return License{}, refused(ReasonUnreadable, "its days are not dates")
 	}
 	l := License{ID: p.ID, Kind: p.Kind, For: p.For, Products: p.Products, Issued: issued, Until: until, KeyID: p.KeyID}
-	if err := l.check(); err != nil {
+	if err := l.Check(); err != nil {
 		return License{}, refused(ReasonUnreadable, err.Error())
 	}
 	return l, nil
@@ -195,29 +196,32 @@ func (t Trust) key(id string) (ed25519.PublicKey, error) {
 	return nil, refused(ReasonUntrustedKey, fmt.Sprintf("it is signed with the key %q, which this build does not trust", id))
 }
 
-// check refuses a license no app takes: no id or one with a space, an unknown kind, nobody named, no key, a last day before its first, a trial that names features, or a license that names none.
-func (l License) check() error {
+// ErrNotTaken is the code of every error Check gives: the license says something no app takes.
+var ErrNotTaken = errors.New("licenses: no app takes this license")
+
+// Check refuses a license no app takes, with ErrNotTaken: no id or one with a space, an unknown kind, nobody named, no key, a last day before its first, a trial that names features, or a license that names none; it needs no signer, so a tool checks a license before it reads a key.
+func (l License) Check() error {
 	switch {
 	case l.Kind != Org && l.Kind != Product && l.Kind != Trial:
-		return fmt.Errorf("licenses: the kind %q is not %s, %s or %s", l.Kind, Org, Product, Trial)
+		return fmt.Errorf("%w: the kind %q is not %s, %s or %s", ErrNotTaken, l.Kind, Org, Product, Trial)
 	case l.ID == "" || strings.ContainsFunc(l.ID, unicode.IsSpace):
-		return fmt.Errorf("licenses: its id %q is empty or holds a space", l.ID)
+		return fmt.Errorf("%w: its id %q is empty or holds a space", ErrNotTaken, l.ID)
 	case strings.TrimSpace(l.For) == "":
-		return fmt.Errorf("licenses: it names nobody it is for")
+		return fmt.Errorf("%w: it names nobody it is for", ErrNotTaken)
 	case l.KeyID == "":
-		return fmt.Errorf("licenses: it names no key")
+		return fmt.Errorf("%w: it names no key", ErrNotTaken)
 	case date(l.Until).Before(date(l.Issued)):
-		return fmt.Errorf("licenses: its last day %s is before its first %s", l.Until.Format(day), l.Issued.Format(day))
+		return fmt.Errorf("%w: its last day %s is before its first %s", ErrNotTaken, l.Until.Format(day), l.Issued.Format(day))
 	case l.Kind == Trial && len(l.Products) > 0:
-		return fmt.Errorf("licenses: a trial key names no products; it opens every enterprise feature")
+		return fmt.Errorf("%w: a trial key names no products; it opens every enterprise feature", ErrNotTaken)
 	case l.Kind == Product && len(l.Products) != 1:
-		return fmt.Errorf("licenses: a product license names one product, not %d", len(l.Products))
+		return fmt.Errorf("%w: a product license names one product, not %d", ErrNotTaken, len(l.Products))
 	case l.Kind == Org && len(l.Products) == 0:
-		return fmt.Errorf("licenses: an org license names its products")
+		return fmt.Errorf("%w: an org license names its products", ErrNotTaken)
 	}
 	for product, ids := range l.Products {
 		if product == "" || len(ids) == 0 || slices.Contains(ids, "") {
-			return fmt.Errorf("licenses: the product %q names no feature, or an empty one", product)
+			return fmt.Errorf("%w: the product %q names no feature, or an empty one", ErrNotTaken, product)
 		}
 	}
 	return nil
