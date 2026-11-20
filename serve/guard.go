@@ -69,7 +69,7 @@ func bearer(r *http.Request) string {
 }
 
 func (a App) guard(dir string, hosts []string, name string, next http.Handler) http.Handler {
-	// A refusal is in the contract the reader asked for when the app serves it, so a reader of an older contract can read it (CT-RULE-1); otherwise in the default.
+	// A refusal is a page for a person's browser; for a program it is in the contract the reader asked for when the app serves it, so a reader of an older contract can read it (CT-RULE-1), otherwise in the default.
 	refuse := func(w http.ResponseWriter, r *http.Request, status int, p *problem.Problem) {
 		// Only an API reader asks a contract, as choose reads it; the page gets the default.
 		asked := ""
@@ -80,7 +80,7 @@ func (a App) guard(dir string, hosts []string, name string, next http.Handler) h
 		if err != nil {
 			contract, _ = a.Contract("")
 		}
-		writeEnvelope(w, status, a.Failure(name, contract, p))
+		a.writeRefusal(w, r, status, name, contract, p)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Frame-Options", "DENY")
@@ -94,10 +94,6 @@ func (a App) guard(dir string, hosts []string, name string, next http.Handler) h
 		// Read on every request, so a renewed token counts at once; a file that cannot be trusted lets nobody in.
 		token, err := a.readToken(dir)
 		if err != nil {
-			if page {
-				writePage(w, http.StatusInternalServerError, a.command(), err.Error())
-				return
-			}
 			refuse(w, r, http.StatusInternalServerError, problem.Fail(problem.TypeFailed, ReasonConfigUnreadable, err.Error()))
 			return
 		}
@@ -171,15 +167,7 @@ func writeOnward(w http.ResponseWriter, path string) {
 
 // writeLinkPage tells a browser without a valid cookie, after a renew too, where its link is, and holds no secret.
 func (a App) writeLinkPage(w http.ResponseWriter) {
-	c := a.command()
-	writePage(w, http.StatusUnauthorized, c, "Open this page from its link: run "+c+" server link and open the link it prints.")
-}
-
-func writePage(w http.ResponseWriter, status int, title, text string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, "<!doctype html><meta charset=\"utf-8\"><title>%s</title>\n<p>%s</p>\n", html.EscapeString(title), html.EscapeString(text))
+	writePage(w, http.StatusUnauthorized, a.command(), *problem.Fail(problem.TypeRefused, ReasonToken, "this page needs the server's token, which only its link carries"))
 }
 
 // withoutToken is u on this server, as a path, with the token taken out of its query.

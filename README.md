@@ -393,6 +393,19 @@ program needs more (`serve.ReasonToken` …); a program decides by type and
 reason, never by detail. An error that is not a `*problem.Problem` is type
 `failed`. A failed answer's kind is `Error` in both envelopes.
 
+A person's browser gets a refusal as a short readable page instead: what went
+wrong (the Problem's detail), why, and what to do, for each reason a person
+meets (a host the server does not answer to, the token, the origin, a contract
+it does not serve, a body that is not JSON or too large, settings it cannot
+read), with the same status. A browser is a navigation, or an Accept that
+ranks `text/html` above `application/json`, as a browser's does; a program,
+such as the app's own page fetching `/api/`, `curl`, a health check or the
+CLI, asks with `*/*`, for JSON or with no Accept, and keeps the envelope on
+every path. The page is built from the
+Problem and the app's command alone, never from the request, so the token a
+link carries never reaches it; it is not kept (`no-store`) and sends no
+referrer. `serve.WriteError` gives it too.
+
 Each of `App.Contracts` is a `serve.Contract{Version, Envelope}`, oldest
 first, the last the default. Envelope is `v1` or `v2`; empty is `v1`. A
 contract an app has released keeps its shape (contracts CT-RULE-1), so an app
