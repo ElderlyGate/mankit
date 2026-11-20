@@ -170,7 +170,7 @@ func WriteNamed(w http.ResponseWriter, r *http.Request, name string, status int,
 	writeEnvelope(w, status, s.app.Answer(s.name, s.contract, kind, data))
 }
 
-// WriteError answers err with status, in the envelope; an err that is not a *Problem is type failed.
+// WriteError answers err with status, in the envelope, or as a readable page to a person's browser; an err that is not a *Problem is type failed.
 func WriteError(w http.ResponseWriter, r *http.Request, status int, err error) {
 	WriteErrorNamed(w, r, "", status, err)
 }
@@ -178,7 +178,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, status int, err error) {
 // WriteErrorNamed answers err like WriteError, naming the thing the answer is about.
 func WriteErrorNamed(w http.ResponseWriter, r *http.Request, name string, status int, err error) {
 	s := answering(r, name)
-	writeEnvelope(w, status, s.app.Failure(s.name, s.contract, err))
+	s.app.writeRefusal(w, r, status, s.name, s.contract, err)
 }
 
 func writeEnvelope(w http.ResponseWriter, status int, e Envelope) {
@@ -239,7 +239,7 @@ func (a App) choose(name string, next http.Handler) http.Handler {
 		}
 		if err != nil {
 			fallback, _ := a.Contract("")
-			writeEnvelope(w, http.StatusNotAcceptable, a.Failure(name, fallback, err))
+			a.writeRefusal(w, r, http.StatusNotAcceptable, name, fallback, err)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), stateKey{}, state{app: a, name: name, contract: contract})))
