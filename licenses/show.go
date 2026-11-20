@@ -1,6 +1,8 @@
 package licenses
 
 import (
+	"time"
+
 	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
@@ -20,6 +22,7 @@ const (
 // Show is the `<app> license show` answer, the same for the CLI, its JSON and the License group of the app's Settings page (ADR-L8).
 type Show struct {
 	State    string       `json:"state" yaml:"state"`
+	EndedOn  string       `json:"endedOn,omitempty" yaml:"endedOn,omitempty"`
 	Build    Build        `json:"build" yaml:"build"`
 	Licenses []ShownFile  `json:"licenses" yaml:"licenses"`
 	Refused  []RefusedRow `json:"refused" yaml:"refused"`
@@ -80,7 +83,11 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	if err != nil {
 		return Show{}, err
 	}
-	out := Show{State: f.state(), Build: Build{Release: c.Release()}, Licenses: []ShownFile{}, Refused: []RefusedRow{}, Features: []FeatureRow{}}
+	state, endedOn := f.state()
+	out := Show{State: state, Build: Build{Release: c.Release()}, Licenses: []ShownFile{}, Refused: []RefusedRow{}, Features: []FeatureRow{}}
+	if !endedOn.IsZero() {
+		out.EndedOn = endedOn.Format(day)
+	}
 	for _, t := range f.Taken {
 		row := ShownFile{Kind: t.Kind, For: t.For, Until: t.Until.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
 		// A paid license's window waits for the threshold (ADR-S23); only a running trial key's shows.
@@ -114,25 +121,34 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	return out, nil
 }
 
-// state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key, else an ended one, else none; one not begun counts as none.
-func (f Found) state() string {
-	has := func(trial, ended bool) bool {
-		for _, t := range f.Taken {
-			if (t.Kind == Trial) == trial && (ended && t.Ended || !ended && t.Running()) {
-				return true
+// state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key, else an ended one, else none; one not begun counts as none. When it is ended, the day is the latest last day of the ended paid licenses.
+func (f Found) state() (string, time.Time) {
+	var paid, ended, trial, trialEnded bool
+	var endedOn time.Time
+	for _, t := range f.Taken {
+		switch {
+		case t.Kind == Trial && t.Ended:
+			trialEnded = true
+		case t.Kind == Trial && t.Running():
+			trial = true
+		case t.Ended:
+			ended = true
+			if t.Until.After(endedOn) {
+				endedOn = t.Until
 			}
+		case t.Running():
+			paid = true
 		}
-		return false
 	}
 	switch {
-	case has(false, false):
-		return StateLicensed
-	case has(false, true):
-		return StateEnded
-	case has(true, false):
-		return StateTrial
-	case has(true, true):
-		return StateTrialEnded
+	case paid:
+		return StateLicensed, time.Time{}
+	case ended:
+		return StateEnded, endedOn
+	case trial:
+		return StateTrial, time.Time{}
+	case trialEnded:
+		return StateTrialEnded, time.Time{}
 	}
-	return StateNone
+	return StateNone, time.Time{}
 }

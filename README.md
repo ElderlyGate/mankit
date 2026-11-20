@@ -607,6 +607,8 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
   `KeyID`); what each field means is in contracts mankit/v1 `license-file` and
   `license-payload`. `licenses.Sign(l, signer)` writes one,
   `licenses.Verify(raw, trust)` reads one.
+- `License.Check` refuses what `Sign` refuses, without a signer; see its
+  [Go doc](https://pkg.go.dev/github.com/tugbayatilla/mankit/v4/licenses#License.Check).
 - A release takes licenses signed by a prod key only, any other build by a dev
   key only. A file it cannot read or verify is refused with its file and a
   Problem reason (`licenses.Reason…`, meanings in contracts problem/v1), never
