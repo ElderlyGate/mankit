@@ -15,3 +15,6 @@ func LeaveFor(d time.Duration) (restore func()) {
 	leaveFor = d
 	return func() { leaveFor = old }
 }
+
+// LastPause is the longest pause of a ticket further back in the line, the wait a quick hand-over never takes.
+func LastPause() time.Duration { return lastPause }
