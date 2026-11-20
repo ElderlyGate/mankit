@@ -14,6 +14,7 @@ import (
 
 	"github.com/tugbayatilla/mankit/v4/ask"
 	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/logs"
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
@@ -77,6 +78,8 @@ type Site struct {
 	Needs    []features.Value                       // the values the app's core cannot run without; serve refuses to start while one is missing (G-CODE-8)
 	Lookup   features.Lookup                        // finds a value of Needs; nil finds none, so any Needs refuses the start
 	Log      io.Writer                              // the app's log, for what goes wrong after an answer is sent; nil is standard error
+	// Telemetry, when set, starts what also sends the server's log records elsewhere, such as otlp.For(list, id, version) for the telemetry feature (ADR-E5); nil sends nothing, and the server links no OpenTelemetry.
+	Telemetry logs.Exporter
 }
 
 // VersionData is the data of the GET /api/version answer (contracts version/v1): the app, its build and the contract the answer is in are in its ran.

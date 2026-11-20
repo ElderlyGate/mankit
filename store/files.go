@@ -19,8 +19,8 @@ import (
 	"sync/atomic"
 
 	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
 	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
 	"github.com/tugbayatilla/mankit/v4/store/internal/queue"
 )
 

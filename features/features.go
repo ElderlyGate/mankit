@@ -7,14 +7,27 @@ import (
 	"strings"
 )
 
-// Feature is one part of an app that can be switched off, what it covers, the values it needs and whether it starts off.
+// Feature is one part of an app that can be switched off, what it covers, the values it needs, whether it starts off and its tier.
 type Feature struct {
 	ID        string  `json:"id" yaml:"id"`
 	Title     string  `json:"title" yaml:"title"`
 	Covers    string  `json:"covers" yaml:"covers"`
 	Needs     []Value `json:"needs,omitempty" yaml:"needs,omitempty"`
 	StartsOff bool    `json:"startsOff,omitempty" yaml:"startsOff,omitempty"`
+	Tier      Tier    `json:"tier,omitempty" yaml:"tier,omitempty"`
 }
+
+// Tier says whether a license can lock a feature; contracts mankit/v1 featureState.tier says what each means (ADR-L2).
+type Tier string
+
+// The tiers; the zero value is Free, left out of an answer as contracts allows.
+const (
+	Free       Tier = "free"
+	Enterprise Tier = "enterprise"
+)
+
+// Enterprise reports whether the feature's tier is enterprise, the only tier a license can lock.
+func (f Feature) Enterprise() bool { return f.Tier == Enterprise }
 
 // Value is one value a feature needs, such as an environment variable or a settings row, and what it is for.
 type Value struct {
@@ -41,6 +54,9 @@ const Switch = "switch"
 
 // Default is what keeps off a feature that starts off and that the owner has not switched on.
 const Default = "default"
+
+// License is the closer that keeps locked an enterprise feature no valid license opens; it never closes a free feature (ADR-L2).
+const License = "license"
 
 // ReasonNeedsValues is the reason of NeedsValues, with the type failed; a program decides by type and reason, never by the message (G-STACK-15).
 const ReasonNeedsValues = "feature_needs_values"
@@ -125,9 +141,12 @@ func (l *List) WithLookup(lookup Lookup) *List {
 	return l
 }
 
-// wired refuses a list that cannot answer for its features: one that needs values without a lookup, or starts off without a store that keeps on.
+// wired refuses a list that cannot answer for its features: a tier it does not know, one that needs values without a lookup, or starts off without a store that keeps on.
 func (l *List) wired() error {
 	for _, f := range l.all {
+		if f.Tier != "" && f.Tier != Free && f.Tier != Enterprise {
+			return fmt.Errorf("features: %s has the tier %q; the tiers are %s and %s", f.ID, f.Tier, Free, Enterprise)
+		}
 		if len(f.Needs) > 0 && l.lookup == nil {
 			return fmt.Errorf("features: %s needs values, and the list has no lookup (WithLookup)", f.ID)
 		}
@@ -139,10 +158,14 @@ func (l *List) wired() error {
 }
 
 // States is every feature in the list's order: off by the owner's switch, else by its default, else by the first closer that closes it,
-// else on, and broken when it misses a value.
+// else on, and broken when it misses a value. A closer by License closes enterprise features only.
 func (l *List) States() ([]State, error) {
 	if err := l.wired(); err != nil {
 		return nil, err
+	}
+	free := map[string]bool{}
+	for _, f := range l.all {
+		free[f.ID] = !f.Enterprise()
 	}
 	by := map[string]string{}
 	for _, c := range l.closers {
@@ -151,7 +174,7 @@ func (l *List) States() ([]State, error) {
 			return nil, err
 		}
 		for _, id := range ids {
-			if _, named := by[id]; !named {
+			if _, named := by[id]; !named && !(c.By == License && free[id]) {
 				by[id] = c.By
 			}
 		}

@@ -26,7 +26,7 @@ import (
 
 // Feature is the events feature for the app's list: closed, there is no stream and nothing is kept.
 // It starts off, as an enterprise feature (ADR-E9), so the app's store keeps the owner's on (features.Store.On).
-var Feature = features.Feature{ID: "events", Title: "Live events", Covers: "GET /api/events, the live stream of what changed", StartsOff: true}
+var Feature = features.Feature{ID: "events", Title: "Live events", Covers: "GET /api/events, the live stream of what changed", StartsOff: true, Tier: features.Enterprise}
 
 // Event is one CloudEvent 1.0 in structured JSON with the distributed tracing extension (contracts event/v1).
 type Event struct {

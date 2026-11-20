@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
+
+	"github.com/tugbayatilla/mankit/v4/logs"
 )
 
 // ErrRefused is wrapped by every refusal, so a caller can tell a refusal from a failure.
@@ -36,12 +36,7 @@ type Answer struct {
 
 // isTerminal reports whether the question can be asked: stdin and stderr are both a terminal.
 var isTerminal = func(in io.Reader, out io.Writer) bool {
-	return terminal(in) && terminal(out)
-}
-
-func terminal(stream any) bool {
-	f, ok := stream.(*os.File)
-	return ok && term.IsTerminal(int(f.Fd()))
+	return logs.Terminal(in) && logs.Terminal(out)
 }
 
 // readers is one reader per command, so a verb that asks twice loses no typed line to a buffer.

@@ -3,6 +3,7 @@ package home_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/tugbayatilla/mankit/v4/home"
@@ -52,6 +53,26 @@ func TestPaths(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The logs folder is the state folder on Linux and ~/Library/Logs on macOS (G-STACK-8), under the org's name.
+func TestTheLogsFolder(t *testing.T) {
+	h := env(t, "")
+	xdg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", xdg)
+	want := filepath.Join(xdg, "elderlygate", "e-designer")
+	if runtime.GOOS == "darwin" {
+		want = filepath.Join(h, "Library", "Logs", "elderlygate", "e-designer")
+	}
+	if got, err := home.ProductLogs("e-designer"); err != nil || got != want {
+		t.Errorf("ProductLogs = %q, %v; want %q", got, err, want)
+	}
+	if runtime.GOOS != "darwin" {
+		t.Setenv("XDG_STATE_HOME", "")
+		if got, _ := home.Logs(); got != filepath.Join(h, ".local", "state", "elderlygate") {
+			t.Errorf("Logs with no XDG_STATE_HOME = %q", got)
+		}
 	}
 }
 

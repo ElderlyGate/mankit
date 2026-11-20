@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
+	"github.com/tugbayatilla/mankit/v4/internal/encode"
 	"github.com/tugbayatilla/mankit/v4/store"
 )
 
@@ -97,7 +97,7 @@ func Set(path string, t Type, s Style) error {
 		if len(root.Content) == 0 {
 			return []byte{}, nil
 		}
-		return disk.YAML(doc)
+		return encode.YAML(doc)
 	})
 }
 

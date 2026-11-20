@@ -8,8 +8,8 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v4/internal/disk"
 	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
 )
 
 // Own is the folder dir opened for app as one of its own, as Config and Data open theirs: for mankit's packages whose API names a file by its path, such as settings.Set and the split's width, so what they write goes through the port too (ADR-S22).
