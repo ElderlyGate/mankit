@@ -209,3 +209,23 @@ func TestInitAddsThemeLinesAfterSchemaLine(t *testing.T) {
 		t.Fatalf("%q", s)
 	}
 }
+
+// The move into config.yaml takes its turn as the app whose folder it is, so a dev build's journals stay in its data folder, <id>-dev.
+func TestMigrateInADevFolderKeepsItsJournalsAsTheApps(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", data)
+	dir := filepath.Join(t.TempDir(), home.Folder("acme"))
+	os.MkdirAll(dir, 0o700)
+	cfg := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfg, []byte("theme: gruvbox\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, "commands.yaml"), []byte("commands:\n  - {id: a, label: A, run: echo}\n"), 0o600)
+	if did, err := Migrate(cfg); err != nil || did == "" {
+		t.Fatalf("%q %v", did, err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(data, home.Org))
+	for _, e := range entries {
+		if e.Name() != home.Folder("acme") {
+			t.Errorf("the data folder holds %s, want only %s", e.Name(), home.Folder("acme"))
+		}
+	}
+}
