@@ -86,6 +86,7 @@ but for its logs (G-STACK-8):
 | What | Where | `home` |
 |---|---|---|
 | the org's config folder | `$XDG_CONFIG_HOME/elderlygate`, else `~/.config/elderlygate` | `home.Dir()` |
+| the org's own files (the org license and its queue) | the org's config folder; in a dev build `elderlygate-dev` beside it | `home.OrgDir()` |
 | one app's config (the app folder) | `<config folder>/<product id>/`, `<product id>-dev/` in a dev build | `home.Product(id)` |
 | the org's data folder | `$XDG_DATA_HOME/elderlygate`, else `~/.local/share/elderlygate` | `home.Data()` |
 | one app's data | `<data folder>/<product id>/`, `<product id>-dev/` in a dev build | `home.ProductData(id)` |
@@ -96,7 +97,10 @@ The folder name is the one constant `home.Org`, so the org's rename changes one
 line. A relative `XDG_*` value is ignored, as the XDG rules say.
 `home.Folder(id)` is the name of an app's config and data folders: the product
 ID in a release, `<product id>-dev` in a dev build (ADR-L5), so a dev build
-never reads or writes a release's config and data.
+never reads or writes a release's config and data. The org's own files, the
+org license among them, are in `home.OrgDir()`: the org's config folder in a
+release, `elderlygate-dev` beside it in a dev build. The logs folders are the
+same in both.
 
 `home.File(id, name)` is `<app folder>/<name>`, a path and nothing more: it
 never copies or makes a file, so a read-only verb changes nothing.
@@ -606,7 +610,8 @@ Only a stamp of the form `vX.Y.Z` makes a release. A build without it, such as
 `go build`, `go install` or `go test`, is dev, so an app that moves to this
 mankit adds the line in the same change, or its releases keep their files in
 the `-dev` folders. A dev build keeps its config and data in
-`<product id>-dev/` (`home.Folder`) and takes licenses signed by a dev key only.
+`<product id>-dev/` (`home.Folder`), the org license in `elderlygate-dev/`
+(`home.OrgDir`), and takes licenses signed by a dev key only.
 
 ## Licenses
 
@@ -635,7 +640,7 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
   key only. A file it cannot read or verify is refused with its file and a
   Problem reason (`licenses.Reason…`, meanings in contracts problem/v1), never
   taken for no license. A link is followed, as fleet puts the files in.
-- `Checker.Read` reads the org's `<config folder>/license` and the app's
+- `Checker.Read` reads the org's `<home.OrgDir()>/license` and the app's
   `<app folder>/license` anew on every call. `Found.Has` and `Found.From` say
   whether and from where a feature is open; `Checker.Closer` is the license
   closer of the feature list. `Taken.DaysLeft` and `Ended` are all it says
