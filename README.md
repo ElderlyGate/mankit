@@ -22,7 +22,8 @@ three, instead of being made three times.
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> config list` and `<app> config set <key> <value>` |
 | `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. `usercmd/cli` is `<app> command path`, `create`, `check` and `edit`. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 | `helpout` | The one layout for `<app> help`, `<app> --help`, `<app> <thing> help` and a usage mistake: what the app is, how to start it, its commands, the repository; and the old forms of renamed commands, for one release |
-| `home` | Where the org's apps keep their files: the org's config and data folders and a folder per product; it names paths and writes nothing |
+| `build` | Whether the running binary is a release or a dev build: `build.Released()`, set only by the release tag stamped at build (see [Release or dev build](#release-or-dev-build)) |
+| `home` | Where the org's apps keep their files: the org's config and data folders and a folder per product, `<product id>-dev` in a dev build; it names paths and writes nothing |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 | `prefs` | What every app adds beside `settings/cli`: `<app> confirm list`, `<app> location list`, `config set confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `server list`, `server stop`, `server link`, `server token renew` (see [Serve](#serve)) |
@@ -85,18 +86,21 @@ but for its logs (G-STACK-8):
 | What | Where | `home` |
 |---|---|---|
 | the org's config folder | `$XDG_CONFIG_HOME/elderlygate`, else `~/.config/elderlygate` | `home.Dir()` |
-| one app's config (the app folder) | `<config folder>/<product id>/` | `home.Product(id)` |
+| one app's config (the app folder) | `<config folder>/<product id>/`, `<product id>-dev/` in a dev build | `home.Product(id)` |
 | the org's data folder | `$XDG_DATA_HOME/elderlygate`, else `~/.local/share/elderlygate` | `home.Data()` |
-| one app's data | `<data folder>/<product id>/` | `home.ProductData(id)` |
+| one app's data | `<data folder>/<product id>/`, `<product id>-dev/` in a dev build | `home.ProductData(id)` |
 | the org's logs folder | Linux: `$XDG_STATE_HOME/elderlygate`, else `~/.local/state/elderlygate`; macOS: `~/Library/Logs/elderlygate` | `home.Logs()` |
 | one app's logs | `<logs folder>/<product id>/` | `home.ProductLogs(id)` |
 
 The folder name is the one constant `home.Org`, so the org's rename changes one
 line. A relative `XDG_*` value is ignored, as the XDG rules say.
+`home.Folder(id)` is the name of an app's config and data folders: the product
+ID in a release, `<product id>-dev` in a dev build (ADR-L5), so a dev build
+never reads or writes a release's config and data.
 
 `home.File(id, name)` is `<app folder>/<name>`, a path and nothing more: it
 never copies or makes a file, so a read-only verb changes nothing.
-`home.Config(id, dir)` is `<dir>/<id>/config.yaml`, the app folder's
+`home.Config(id, dir)` is `<dir>/<home.Folder(id)>/config.yaml`, the app folder's
 `config.yaml` when `dir` is empty.
 
 `store.Migrate(id, names...)` brings each named file the app kept before in the
@@ -108,7 +112,7 @@ changes nothing. mankit's own files are
 `config.yaml`, `split` and `favorites`, so gitman, dcman, checkman and hubman
 keep their settings. The old file stays as it was, so an older build of the
 app still finds it. Each copy runs once: when it is done, Migrate leaves a mark
-in `<config folder>/.migrated/<app>/`, so a file the user deletes afterwards
+in `<config folder>/.migrated/<home.Folder(app)>/`, so a file the user deletes afterwards
 never comes back. A name with no old file, or a copy that fails, leaves no
 mark and is tried again next time. Both live in `store`, since they write, and
 `home` only names paths.
@@ -586,6 +590,24 @@ missing names from the feature listing (`missing`), never from the message,
 which is for people. `Set` refuses an id the list does not hold, naming the ones it
 does, and a store that cannot be read is an error, never an empty list.
 
+## Release or dev build
+
+A goreleaser release from a tag is a release; every other build is dev
+(ADR-L5). `build.Released()` says which, and nothing at run time can change
+it: no flag, setting or environment variable. Each app stamps its release tag
+at build, beside its own version stamp:
+
+```yaml
+ldflags:
+  - -X github.com/tugbayatilla/mankit/v4/build.version=v{{.Version}}
+```
+
+Only a stamp of the form `vX.Y.Z` makes a release. A build without it, such as
+`go build`, `go install` or `go test`, is dev, so an app that moves to this
+mankit adds the line in the same change, or its releases keep their files in
+the `-dev` folders. A dev build keeps its config and data in
+`<product id>-dev/` (`home.Folder`) and takes licenses signed by a dev key only.
+
 ## Licenses
 
 An enterprise feature (`features.Enterprise`) is locked until a license opens
@@ -593,7 +615,7 @@ it (ADR-L1, L2). `licenses` checks them for every app; nw-license signs them.
 
 ```go
 c, err := licenses.New(licenses.Config{ID: "designer", Trust: licenses.Trust{
-	Release: release, // the app's own build says it (ADR-L5)
+	Release: build.Released(), // ADR-L5
 	Prod:    map[string]ed25519.PublicKey{"prod-2026": prodKey},
 	Dev:     map[string]ed25519.PublicKey{"dev-2026": devKey},
 }})
