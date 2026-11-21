@@ -42,7 +42,8 @@ func (k keys) Sign(id string, message []byte) ([]byte, error) {
 // world is one machine: its org folder, a signer, the trust of a release, and the day it is.
 type world struct {
 	t     *testing.T
-	dir   string
+	dir   string // the org's config folder, where the app's folder is
+	org   string // the folder of the org's own files (home.OrgDir): <Org>-dev, as a test binary is a dev build
 	keys  keys
 	trust licenses.Trust
 	today string
@@ -53,7 +54,7 @@ func newWorld(t *testing.T, today string) *world {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", base)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	return &world{t: t, dir: filepath.Join(base, "elderlygate"), keys: keys{"prod-2026": priv}, today: today,
+	return &world{t: t, dir: filepath.Join(base, "elderlygate"), org: filepath.Join(base, "elderlygate-dev"), keys: keys{"prod-2026": priv}, today: today,
 		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"prod-2026": pub}}}
 }
 
@@ -67,8 +68,13 @@ func (w *world) sign(kind licenses.Kind, products map[string][]string, issued, u
 	return raw
 }
 
-func (w *world) put(rel string, raw []byte) {
-	path := filepath.Join(w.dir, rel)
+func (w *world) put(rel string, raw []byte) { w.putIn(w.dir, rel, raw) }
+
+// putOrg puts the org license in the folder of the org's own files.
+func (w *world) putOrg(raw []byte) { w.putIn(w.org, "license", raw) }
+
+func (w *world) putIn(dir, rel string, raw []byte) {
+	path := filepath.Join(dir, rel)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		w.t.Fatal(err)
 	}
@@ -138,7 +144,7 @@ func TestShowWithNoLicense(t *testing.T) {
 // ADR-L8's example: each feature says where it is unlocked from, org, product, both or none.
 func TestShowSaysWhereEachFeatureIsUnlockedFrom(t *testing.T) {
 	w := newWorld(t, "2026-11-19")
-	w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events", "multi-design"}, "kanban": {"sync"}}, "2026-11-06", "2027-11-06"))
+	w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events", "multi-design"}, "kanban": {"sync"}}, "2026-11-06", "2027-11-06"))
 	w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"multi-design"}}, "2026-03-01", "2027-03-01"))
 	s := w.show()
 	if s.State != licenses.StateLicensed || len(s.Licenses) != 2 || s.Licenses[0].Kind != licenses.Org || s.Licenses[0].Window != nil {
@@ -175,7 +181,7 @@ func TestShowATrialKeyWithItsWindow(t *testing.T) {
 
 func TestShowAnEndedLicenseAndARefusedFile(t *testing.T) {
 	w := newWorld(t, "2027-12-01")
-	w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+	w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
 	w.put(home.Folder("designer")+"/license", []byte("garbage"))
 	s := w.show()
 	if s.State != licenses.StateEnded || s.EndedOn != "2027-11-06" || s.Licenses[0].DaysLeft != 0 || len(s.Refused) != 1 || s.Refused[0].Reason != licenses.ReasonUnreadable || s.Refused[0].File != filepath.Join(w.dir, home.Folder("designer"), "license") {
@@ -186,7 +192,7 @@ func TestShowAnEndedLicenseAndARefusedFile(t *testing.T) {
 func TestShowNamesTheLatestEndOfTheEndedLicenses(t *testing.T) {
 	for _, ends := range [][2]string{{"2027-11-06", "2027-03-01"}, {"2027-03-01", "2027-11-06"}} {
 		w := newWorld(t, "2027-12-01")
-		w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", ends[0]))
+		w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", ends[0]))
 		w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", ends[1]))
 		if s := w.show(); s.State != licenses.StateEnded || s.EndedOn != "2027-11-06" {
 			t.Fatalf("org until %s, product until %s: show = %+v", ends[0], ends[1], s)
@@ -197,7 +203,7 @@ func TestShowNamesTheLatestEndOfTheEndedLicenses(t *testing.T) {
 // A renewal not begun counts as none, so the ended license's day stays.
 func TestShowNamesTheEndedLicenseNotARenewalNotBegun(t *testing.T) {
 	w := newWorld(t, "2027-12-01")
-	w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+	w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
 	w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"events"}}, "2027-12-15", "2028-12-15"))
 	if s := w.show(); s.State != licenses.StateEnded || s.EndedOn != "2027-11-06" || len(s.Licenses) != 2 {
 		t.Fatalf("show = %+v", s)
@@ -215,7 +221,7 @@ func TestShowNamesNoEndedDayUnlessEnded(t *testing.T) {
 		w := newWorld(t, c.today)
 		if c.org != "" {
 			days := strings.Split(c.org, "/")
-			w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, days[0], days[1]))
+			w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, days[0], days[1]))
 		}
 		switch c.product {
 		case "":
@@ -240,7 +246,7 @@ func TestAddChecksAsksAndKeeps(t *testing.T) {
 	if _, err := w.run("add", "--org", file); !errors.Is(err, ask.ErrRefused) {
 		t.Fatalf("without a yes: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(w.dir, "license")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(w.org, "license")); !os.IsNotExist(err) {
 		t.Fatal("kept without a yes")
 	}
 	out, err := w.run("add", "--org", file, "--yes", "-o", "json")

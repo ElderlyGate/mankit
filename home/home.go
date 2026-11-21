@@ -45,6 +45,15 @@ func Folder(id string) string {
 	return id + dev
 }
 
+// OrgDir is the folder of the org's own files, the org license and its queue: Dir in a release, <Org>-dev beside it in every other build, so a dev build never reads or writes a release's org license (ADR-L5). Products stay under Dir, in Folder(id).
+func OrgDir() (string, error) {
+	dir, err := Dir()
+	if err != nil || build.Released() {
+		return dir, err
+	}
+	return dir + dev, nil
+}
+
 // ID is the product ID whose folder is named folder, the reverse of Folder.
 func ID(folder string) string {
 	if build.Released() {

@@ -1,6 +1,7 @@
 package licenses_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -22,12 +23,22 @@ var all = []features.Feature{
 	{ID: "sync", Title: "Sync designs", Covers: "designs on several machines", Tier: features.Enterprise},
 }
 
-// org is the org's config folder of a test, set through XDG_CONFIG_HOME as on a machine.
+// org is the folder of the org's own files in a test (home.OrgDir), set through XDG_CONFIG_HOME as on a machine: <Org>-dev, as a test binary is a dev build.
 func org(t *testing.T) string {
 	t.Helper()
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", base)
-	return filepath.Join(base, "elderlygate")
+	return filepath.Join(base, "elderlygate-dev")
+}
+
+// productLicense is the app's own license file, in its config folder (home.File).
+func productLicense(t *testing.T) string {
+	t.Helper()
+	path, err := home.File("designer", "license")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func checker(t *testing.T, trust licenses.Trust, today string) *licenses.Checker {
@@ -93,10 +104,10 @@ func TestALicenseOpensWhatItNamesUntilItsLastDay(t *testing.T) {
 
 // A trial key opens every enterprise feature and names none (ADR-L9).
 func TestATrialKeyOpensEveryEnterpriseFeature(t *testing.T) {
-	dir := org(t)
+	org(t)
 	k, release, _ := signer(t)
 	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
-	put(t, filepath.Join(dir, home.Folder("designer"), "license"), sign(t, k, trial))
+	put(t, productLicense(t), sign(t, k, trial))
 	if got := on(t, list(checker(t, release, "2026-11-19"))); !slices.Equal(got, []string{"edit", "events", "sync"}) {
 		t.Fatalf("on = %v", got)
 	}
@@ -107,14 +118,14 @@ func TestAFileItCannotTakeIsRefusedWithItsFile(t *testing.T) {
 	dir := org(t)
 	k, _, dev := signer(t)
 	put(t, filepath.Join(dir, "license"), sign(t, k, orgLicense))
-	put(t, filepath.Join(dir, home.Folder("designer"), "license"), []byte("garbage"))
+	put(t, productLicense(t), []byte("garbage"))
 	f, err := checker(t, dev, "2026-11-19").Read()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Taken) != 0 || len(f.Refused) != 2 ||
 		f.Refused[0].File != filepath.Join(dir, "license") || f.Refused[0].Reason != licenses.ReasonOtherBuild ||
-		f.Refused[1].File != filepath.Join(dir, home.Folder("designer"), "license") || f.Refused[1].Reason != licenses.ReasonUnreadable {
+		f.Refused[1].File != productLicense(t) || f.Refused[1].Reason != licenses.ReasonUnreadable {
 		t.Fatalf("found = %+v", f)
 	}
 }
@@ -151,7 +162,7 @@ func TestAddKeepsTheOrgLicenseForEveryAppAndTheProductOneForItsApp(t *testing.T)
 	if _, err := c.Add(context.Background(), productRaw, false); err != nil {
 		t.Fatal(err)
 	}
-	for path, want := range map[string][]byte{filepath.Join(dir, "license"): orgRaw, filepath.Join(dir, home.Folder("designer"), "license"): productRaw} {
+	for path, want := range map[string][]byte{filepath.Join(dir, "license"): orgRaw, productLicense(t): productRaw} {
 		if got, err := os.ReadFile(path); err != nil || string(got) != string(want) {
 			t.Fatalf("%s = %q, %v", path, got, err)
 		}
@@ -169,7 +180,7 @@ func TestAddKeepsTheOrgLicenseInAFolderPrivateToTheUser(t *testing.T) {
 	if _, err := checker(t, release, "2026-11-19").Add(context.Background(), sign(t, k, orgLicense), true); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(os.Getenv("HOME"), ".config", home.Org)
+	dir := filepath.Join(os.Getenv("HOME"), ".config", home.Org+"-dev")
 	for path, want := range map[string]os.FileMode{dir: 0o700, filepath.Join(dir, "license"): 0o600} {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -222,13 +233,15 @@ func TestALinkToALicenseIsReadAndToAFolderRefused(t *testing.T) {
 	k, release, _ := signer(t)
 	secrets := t.TempDir()
 	put(t, filepath.Join(secrets, "org"), sign(t, k, orgLicense))
-	if err := os.MkdirAll(filepath.Join(dir, home.Folder("designer")), 0o700); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{dir, filepath.Dir(productLicense(t))} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.Symlink(filepath.Join(secrets, "org"), filepath.Join(dir, "license")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(secrets, filepath.Join(dir, home.Folder("designer"), "license")); err != nil {
+	if err := os.Symlink(secrets, productLicense(t)); err != nil {
 		t.Fatal(err)
 	}
 	f, err := checker(t, release, "2026-11-19").Read()
@@ -237,5 +250,34 @@ func TestALinkToALicenseIsReadAndToAFolderRefused(t *testing.T) {
 	}
 	if len(f.Taken) != 1 || f.Taken[0].Kind != licenses.Org || len(f.Refused) != 1 || f.Refused[0].Reason != licenses.ReasonUnreadable {
 		t.Fatalf("found = %+v", f)
+	}
+}
+
+// A dev build keeps the org license in <Org>-dev (ADR-L5): it never reads the release's org license, and license add --org never writes over it.
+func TestADevBuildNeverTouchesTheReleasesOrgLicense(t *testing.T) {
+	dir := org(t)
+	releases := filepath.Join(filepath.Dir(dir), "elderlygate", "license")
+	k, _, dev := signer(t)
+	prodRaw := sign(t, k, orgLicense)
+	put(t, releases, prodRaw)
+	f, err := checker(t, dev, "2026-11-19").Read()
+	if err != nil || len(f.Taken) != 0 || len(f.Refused) != 0 {
+		t.Fatalf("a dev build read the release's org license: %+v, %v", f, err)
+	}
+	devLicense := orgLicense
+	devLicense.KeyID = "dev-2026"
+	devRaw := sign(t, k, devLicense)
+	taken, err := checker(t, dev, "2026-11-19").Add(context.Background(), devRaw, true)
+	if err != nil || taken.File != filepath.Join(dir, "license") {
+		t.Fatalf("add --org = %+v, %v; want it in %s", taken, err, dir)
+	}
+	if got, _ := os.ReadFile(releases); !bytes.Equal(got, prodRaw) {
+		t.Fatal("add --org in a dev build wrote over the release's org license")
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "license")); !bytes.Equal(got, devRaw) {
+		t.Fatalf("the dev org license is not in %s", dir)
+	}
+	if f, err := checker(t, dev, "2026-11-19").Read(); err != nil || len(f.Taken) != 1 || f.Taken[0].File != filepath.Join(dir, "license") {
+		t.Fatalf("found = %+v, %v", f, err)
 	}
 }

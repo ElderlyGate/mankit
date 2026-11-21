@@ -17,7 +17,7 @@ import (
 	"github.com/tugbayatilla/mankit/v4/store"
 )
 
-// name is the license file's name, in the org's config folder and in each app's (ADR-L8).
+// name is the license file's name, in the org's own folder (home.OrgDir) and in each app's (ADR-L8).
 const name = "license"
 
 // most is the largest license file read; a license is a few hundred bytes.
@@ -134,13 +134,13 @@ func (c *Checker) Add(ctx context.Context, raw []byte, org bool) (Taken, error) 
 	return t, err
 }
 
-// scope is the store scope the license is kept in: the app's own config folder, or the org's, opened with store.Own as a folder private to this user.
+// scope is the store scope the license is kept in: the app's own config folder, or the org's (home.OrgDir), opened with store.Own as a folder private to this user.
 func (c *Checker) scope(org bool) (*store.Scope, error) {
 	app := store.App{ID: c.c.Folder}
 	if !org {
 		return store.Config(app)
 	}
-	dir, err := home.Dir()
+	dir, err := home.OrgDir()
 	if err != nil {
 		return nil, err
 	}
@@ -169,10 +169,10 @@ func (c *Checker) taken(l License, path string) Taken {
 	return Taken{License: l, File: path, DaysLeft: left, Ended: left == 0, Early: daysBetween(l.Issued, c.c.Now()) < 0}
 }
 
-// path is the org's license file or the app's own (ADR-L8).
+// path is the org's license file in home.OrgDir or the app's own (ADR-L5, L8).
 func (c *Checker) path(org bool) (string, error) {
 	if org {
-		dir, err := home.Dir()
+		dir, err := home.OrgDir()
 		return filepath.Join(dir, name), err
 	}
 	return home.File(c.c.Folder, name)

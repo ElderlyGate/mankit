@@ -11,7 +11,7 @@ import (
 	"github.com/tugbayatilla/mankit/v4/home"
 )
 
-// A test binary is stamped with nothing, so it is a dev build: its products' folders end in -dev, the org's folder does not.
+// A test binary is stamped with nothing, so it is a dev build: its products' folders end in -dev, and the org's own files are in <Org>-dev beside the org's config folder.
 func TestADevBuildKeepsItsOwnFolders(t *testing.T) {
 	h := env(t, "")
 	t.Setenv("XDG_DATA_HOME", "")
@@ -27,6 +27,7 @@ func TestADevBuildKeepsItsOwnFolders(t *testing.T) {
 		{must(home.Config("acme", "/x")), filepath.Join("/x", "acme-dev", "config.yaml")},
 		{must(home.MigratedMark("acme", "split")), filepath.Join(config, ".migrated", "acme-dev", "split")},
 		{must(home.Dir()), config},
+		{must(home.OrgDir()), config + "-dev"},
 	} {
 		if c[0] != c[1] {
 			t.Errorf("got %q, want %q", c[0], c[1])
@@ -34,7 +35,7 @@ func TestADevBuildKeepsItsOwnFolders(t *testing.T) {
 	}
 }
 
-// The stamp set at build is all that decides: a release tag gives a release and the product's own folders, anything else a dev build and the -dev folders.
+// The stamp set at build is all that decides: a release tag gives a release, the product's own folders and the org's, anything else a dev build and the -dev folders.
 func TestTheStampDecidesReleaseAndFolders(t *testing.T) {
 	for _, c := range []struct {
 		stamp    string
@@ -61,9 +62,9 @@ func TestTheStampDecidesReleaseAndFolders(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			folder := "acme-dev"
+			folder, own := "acme-dev", "elderlygate-dev"
 			if c.released {
-				folder = "acme"
+				folder, own = "acme", "elderlygate"
 			}
 			org := filepath.Join(tmp, "c", "elderlygate")
 			want := []string{
@@ -71,6 +72,7 @@ func TestTheStampDecidesReleaseAndFolders(t *testing.T) {
 				filepath.Join(org, folder),
 				filepath.Join(tmp, "d", "elderlygate", folder),
 				org,
+				filepath.Join(tmp, "c", own),
 				filepath.Join(org, ".migrated", folder, "config.yaml"),
 				"acme",
 			}
