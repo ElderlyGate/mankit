@@ -273,3 +273,37 @@ func TestCopyOnceLeavesTheFolderAroundItAsItIs(t *testing.T) {
 		t.Error("a .queue was made beside the copy")
 	}
 }
+
+// A dev build's copy of an app's folder goes into its -dev folder and keeps its journals as the app's, in <id>-dev, never in <id>-dev-dev.
+func TestADevBuildsCopyStaysInItsOwnFolders(t *testing.T) {
+	env(t, t.TempDir())
+	data := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", data)
+	from := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(from, "themes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"config.yaml": "theme: nord\n", "themes/acme.yaml": "accent: '#123456'\n"} {
+		if err := os.WriteFile(filepath.Join(from, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	to, _ := home.Product("acme")
+	if err := store.CopyOnce(from, to); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(to, "config.yaml")); filepath.Base(to) != "acme-dev" || got != "theme: nord\n" {
+		t.Fatalf("copied to %s: %q", to, got)
+	}
+	entries, err := os.ReadDir(filepath.Join(data, home.Org))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, " ") != "acme-dev" {
+		t.Errorf("the data folder holds %v, want only acme-dev", names)
+	}
+}

@@ -186,7 +186,7 @@ func machine(t *testing.T) string {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(data, "state"))
 	t.Setenv("HOME", filepath.Join(data, "home"))
 	t.Setenv("SERVE_TEST_CHILD", "1")
-	return filepath.Join(data, home.Org, "designer", "servers")
+	return filepath.Join(data, home.Org, home.Folder("designer"), "servers")
 }
 
 // run is one command of the app with no terminal, as a script or an agent runs it; it never runs past its deadline.

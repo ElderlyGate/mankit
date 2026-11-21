@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tugbayatilla/mankit/v4/home"
 )
 
 var spec = Spec{Views: []string{"log", "status"}, Placeholders: []string{"hash", "file"}}
@@ -126,7 +128,7 @@ func TestLoadRefusesCtrlC(t *testing.T) {
 func TestPathIsConfigYAML(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/cfg")
 	t.Setenv("HOME", t.TempDir())
-	if got := Path("gitman"); got != filepath.Join("/cfg", "elderlygate", "gitman", "config.yaml") {
+	if got := Path("gitman"); got != filepath.Join("/cfg", "elderlygate", home.Folder("gitman"), "config.yaml") {
 		t.Fatal(got)
 	}
 }
@@ -205,5 +207,35 @@ func TestInitAddsThemeLinesAfterSchemaLine(t *testing.T) {
 	s := string(b)
 	if !strings.HasPrefix(s, "# yaml-language-server: $schema=x\n#\n# Colours") || !strings.Contains(s, "# theme: default\n") || !strings.HasSuffix(s, "# about\ncommands: []\n") {
 		t.Fatalf("%q", s)
+	}
+}
+
+// The move into config.yaml takes its turn as the app whose folder it is, so a dev build's journals stay in its data folder, <id>-dev.
+func TestMigrateInADevFolderKeepsItsJournalsAsTheApps(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", data)
+	dir := filepath.Join(t.TempDir(), home.Folder("acme"))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "config.yaml")
+	for path, body := range map[string]string{cfg: "theme: gruvbox\n", filepath.Join(dir, "commands.yaml"): "commands:\n  - {id: a, label: A, run: echo}\n"} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if did, err := Migrate(cfg); err != nil || did == "" {
+		t.Fatalf("%q %v", did, err)
+	}
+	entries, err := os.ReadDir(filepath.Join(data, home.Org))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, " ") != home.Folder("acme") {
+		t.Errorf("the data folder holds %v, want only %s", names, home.Folder("acme"))
 	}
 }

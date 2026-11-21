@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/tugbayatilla/mankit/v4/home"
 )
 
 func TestLeftKeepsBothSidesUsable(t *testing.T) {
@@ -89,7 +91,7 @@ func TestFileIsInTheOrgConfigFolder(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("HOME", t.TempDir())
-	if got := File("gitman"); got != filepath.Join(xdg, "elderlygate", "gitman", "split") {
+	if got := File("gitman"); got != filepath.Join(xdg, "elderlygate", home.Folder("gitman"), "split") {
 		t.Fatal(got)
 	}
 }

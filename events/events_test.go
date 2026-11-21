@@ -37,7 +37,7 @@ func serveHandler(t *testing.T, a serve.App, s serve.Site, hosts []string) (http
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "data")
 	t.Setenv("XDG_DATA_HOME", dir)
-	servers := filepath.Join(dir, home.Org, a.ID, "servers")
+	servers := filepath.Join(dir, home.Org, home.Folder(a.ID), "servers")
 	if err := os.MkdirAll(servers, 0o700); err != nil {
 		t.Fatal(err)
 	}

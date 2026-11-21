@@ -27,7 +27,7 @@ func sandbox(t *testing.T) string {
 	t.Setenv("HOME", h)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(h, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(h, ".local", "share"))
-	return filepath.Join(h, ".config", "elderlygate", "app", "config.yaml")
+	return filepath.Join(h, ".config", "elderlygate", home.Folder("app"), "config.yaml")
 }
 
 func writeFile(t *testing.T, path, body string) {
@@ -304,7 +304,7 @@ func TestGetLocationsShowsTheAppsConfigAndItsData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := filepath.Join(os.Getenv("XDG_DATA_HOME"), "elderlygate", "app")
+	data := filepath.Join(os.Getenv("XDG_DATA_HOME"), "elderlygate", home.Folder("app"))
 	for _, want := range []string{config, data} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %s in:\n%s", want, out)
