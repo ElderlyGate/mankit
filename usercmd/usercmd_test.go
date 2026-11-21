@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tugbayatilla/mankit/v4/home"
 )
 
 var spec = Spec{Views: []string{"log", "status"}, Placeholders: []string{"hash", "file"}}
@@ -126,7 +128,7 @@ func TestLoadRefusesCtrlC(t *testing.T) {
 func TestPathIsConfigYAML(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/cfg")
 	t.Setenv("HOME", t.TempDir())
-	if got := Path("gitman"); got != filepath.Join("/cfg", "elderlygate", "gitman", "config.yaml") {
+	if got := Path("gitman"); got != filepath.Join("/cfg", "elderlygate", home.Folder("gitman"), "config.yaml") {
 		t.Fatal(got)
 	}
 }

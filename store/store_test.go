@@ -20,6 +20,7 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/store"
 	"github.com/tugbayatilla/mankit/v4/store/queue"
@@ -190,7 +191,7 @@ func TestTheOwnScopesArePrivateAndServedFilesKeepTheirMode(t *testing.T) {
 	if err := put(t, c, "tokens/web.token", "t"); err != nil {
 		t.Fatal(err)
 	}
-	cfg := filepath.Join(dir, "config", "elderlygate", app.ID)
+	cfg := filepath.Join(dir, "config", "elderlygate", home.Folder(app.ID))
 	for path, want := range map[string]fs.FileMode{cfg: 0o700, filepath.Join(cfg, "tokens"): 0o700, filepath.Join(cfg, "tokens", "web.token"): 0o600} {
 		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != want {
 			t.Errorf("%s: %v %v, want %v", path, info.Mode().Perm(), err, want)
@@ -217,7 +218,7 @@ func TestTheOwnScopesArePrivateAndServedFilesKeepTheirMode(t *testing.T) {
 
 func TestThisUsersOwnFolderOpenToOthersIsMadePrivateAndSaidSo(t *testing.T) {
 	dir := fresh(t)
-	data := filepath.Join(dir, "data", "elderlygate", app.ID)
+	data := filepath.Join(dir, "data", "elderlygate", home.Folder(app.ID))
 	write(t, filepath.Join(data, "config.yaml"), "a: 1\n")
 	write(t, filepath.Join(data, "runs", "one.json"), "{}")
 	for p, mode := range map[string]fs.FileMode{data: 0o755, filepath.Join(data, "runs"): 0o755, filepath.Join(data, "config.yaml"): 0o644, filepath.Join(data, "runs", "one.json"): 0o664} {
@@ -245,7 +246,7 @@ func TestThisUsersOwnFolderOpenToOthersIsMadePrivateAndSaidSo(t *testing.T) {
 
 func TestAPrivateOwnFolderIsNotWalkedAndALinkInsideIsNeverFollowed(t *testing.T) {
 	dir := fresh(t)
-	data := filepath.Join(dir, "data", "elderlygate", app.ID)
+	data := filepath.Join(dir, "data", "elderlygate", home.Folder(app.ID))
 	write(t, filepath.Join(data, "kept.yml"), "k")
 	outside := filepath.Join(dir, "outside.yml")
 	write(t, outside, "o")
@@ -307,7 +308,7 @@ func TestAnOwnFolderThatIsALinkIsNotUsed(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "data", "elderlygate"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(elsewhere, filepath.Join(dir, "data", "elderlygate", app.ID)); err != nil {
+	if err := os.Symlink(elsewhere, filepath.Join(dir, "data", "elderlygate", home.Folder(app.ID))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Data(app); reason(err) != store.ReasonNotOwned {
@@ -414,7 +415,7 @@ func cutShort(t *testing.T, s *store.Scope, n int) (journal string, marks []stri
 		t.Fatalf("the change was not stopped after write %d", n)
 	}
 	data := os.Getenv("XDG_DATA_HOME")
-	journals, _ := filepath.Glob(filepath.Join(data, "elderlygate", app.ID, ".store", "*", "*.jsonl"))
+	journals, _ := filepath.Glob(filepath.Join(data, "elderlygate", home.Folder(app.ID), ".store", "*", "*.jsonl"))
 	marks, _ = filepath.Glob(filepath.Join(filepath.Dir(data), "served", ".queue", "*", "*", ".queue", ".unfinished-*.json"))
 	more, _ := filepath.Glob(filepath.Join(filepath.Dir(data), "served", ".queue", "root", ".queue", ".unfinished-*.json"))
 	marks = append(marks, more...)

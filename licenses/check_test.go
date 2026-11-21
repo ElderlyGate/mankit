@@ -96,7 +96,7 @@ func TestATrialKeyOpensEveryEnterpriseFeature(t *testing.T) {
 	dir := org(t)
 	k, release, _ := signer(t)
 	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
-	put(t, filepath.Join(dir, "designer", "license"), sign(t, k, trial))
+	put(t, filepath.Join(dir, home.Folder("designer"), "license"), sign(t, k, trial))
 	if got := on(t, list(checker(t, release, "2026-11-19"))); !slices.Equal(got, []string{"edit", "events", "sync"}) {
 		t.Fatalf("on = %v", got)
 	}
@@ -107,14 +107,14 @@ func TestAFileItCannotTakeIsRefusedWithItsFile(t *testing.T) {
 	dir := org(t)
 	k, _, dev := signer(t)
 	put(t, filepath.Join(dir, "license"), sign(t, k, orgLicense))
-	put(t, filepath.Join(dir, "designer", "license"), []byte("garbage"))
+	put(t, filepath.Join(dir, home.Folder("designer"), "license"), []byte("garbage"))
 	f, err := checker(t, dev, "2026-11-19").Read()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Taken) != 0 || len(f.Refused) != 2 ||
 		f.Refused[0].File != filepath.Join(dir, "license") || f.Refused[0].Reason != licenses.ReasonOtherBuild ||
-		f.Refused[1].File != filepath.Join(dir, "designer", "license") || f.Refused[1].Reason != licenses.ReasonUnreadable {
+		f.Refused[1].File != filepath.Join(dir, home.Folder("designer"), "license") || f.Refused[1].Reason != licenses.ReasonUnreadable {
 		t.Fatalf("found = %+v", f)
 	}
 }
@@ -151,7 +151,7 @@ func TestAddKeepsTheOrgLicenseForEveryAppAndTheProductOneForItsApp(t *testing.T)
 	if _, err := c.Add(context.Background(), productRaw, false); err != nil {
 		t.Fatal(err)
 	}
-	for path, want := range map[string][]byte{filepath.Join(dir, "license"): orgRaw, filepath.Join(dir, "designer", "license"): productRaw} {
+	for path, want := range map[string][]byte{filepath.Join(dir, "license"): orgRaw, filepath.Join(dir, home.Folder("designer"), "license"): productRaw} {
 		if got, err := os.ReadFile(path); err != nil || string(got) != string(want) {
 			t.Fatalf("%s = %q, %v", path, got, err)
 		}
@@ -222,13 +222,13 @@ func TestALinkToALicenseIsReadAndToAFolderRefused(t *testing.T) {
 	k, release, _ := signer(t)
 	secrets := t.TempDir()
 	put(t, filepath.Join(secrets, "org"), sign(t, k, orgLicense))
-	if err := os.MkdirAll(filepath.Join(dir, "designer"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, home.Folder("designer")), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(secrets, "org"), filepath.Join(dir, "license")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(secrets, filepath.Join(dir, "designer", "license")); err != nil {
+	if err := os.Symlink(secrets, filepath.Join(dir, home.Folder("designer"), "license")); err != nil {
 		t.Fatal(err)
 	}
 	f, err := checker(t, release, "2026-11-19").Read()

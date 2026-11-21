@@ -10,6 +10,7 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
@@ -22,7 +23,7 @@ func shopHandler(t *testing.T, log *bytes.Buffer) http.Handler {
 	s := site(nil)
 	s.Log = log
 	servers := machine(t) // the tests' app's servers folder; shop's is beside it
-	writeToken(t, filepath.Join(filepath.Dir(filepath.Dir(servers)), "shop", "servers"), token)
+	writeToken(t, filepath.Join(filepath.Dir(filepath.Dir(servers)), home.Folder("shop"), "servers"), token)
 	h, err := shop.Handler(s, nil)
 	if err != nil {
 		t.Fatal(err)

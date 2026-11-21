@@ -55,12 +55,11 @@ func TestResolveOrder(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("NO_COLOR", "")
 	path, _ := configPath("app")
-	dir := filepath.Dir(filepath.Dir(path))
 	if ch, _ := Resolve("app", "", false); ch.Base.Name != "default" {
 		t.Fatalf("no config: %s", ch.Base.Name)
 	}
-	os.MkdirAll(filepath.Join(dir, "app"), 0o755)
-	os.WriteFile(filepath.Join(dir, "app", "config.yaml"), []byte("theme: gruvbox\nbackground: light\nother: kept\n"), 0o644)
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	os.WriteFile(path, []byte("theme: gruvbox\nbackground: light\nother: kept\n"), 0o644)
 	if ch, _ := Resolve("app", "", false); ch.Base.Name != "gruvbox" || ch.Colors != Gruvbox.Light {
 		t.Fatalf("config: %+v", ch.Base.Name)
 	}
@@ -74,7 +73,7 @@ func TestResolveOrder(t *testing.T) {
 	if ch, _ := Resolve("app", "nord", true); ch.Mono {
 		t.Fatal("an explicit --theme beats NO_COLOR")
 	}
-	os.WriteFile(filepath.Join(dir, "app", "config.yaml"), []byte("theme: [\n"), 0o644)
+	os.WriteFile(path, []byte("theme: [\n"), 0o644)
 	if _, err := Resolve("app", "", false); err == nil {
 		t.Fatal("broken config accepted")
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/tugbayatilla/mankit/v4/ask"
 	"github.com/tugbayatilla/mankit/v4/features"
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/licenses"
 	"github.com/tugbayatilla/mankit/v4/licenses/cli"
 	"github.com/tugbayatilla/mankit/v4/problem"
@@ -138,7 +139,7 @@ func TestShowWithNoLicense(t *testing.T) {
 func TestShowSaysWhereEachFeatureIsUnlockedFrom(t *testing.T) {
 	w := newWorld(t, "2026-11-19")
 	w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events", "multi-design"}, "kanban": {"sync"}}, "2026-11-06", "2027-11-06"))
-	w.put("designer/license", w.sign(licenses.Product, map[string][]string{"designer": {"multi-design"}}, "2026-03-01", "2027-03-01"))
+	w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"multi-design"}}, "2026-03-01", "2027-03-01"))
 	s := w.show()
 	if s.State != licenses.StateLicensed || len(s.Licenses) != 2 || s.Licenses[0].Kind != licenses.Org || s.Licenses[0].Window != nil {
 		t.Fatalf("show = %+v", s)
@@ -157,7 +158,7 @@ func TestShowSaysWhereEachFeatureIsUnlockedFrom(t *testing.T) {
 
 func TestShowATrialKeyWithItsWindow(t *testing.T) {
 	w := newWorld(t, "2026-11-23")
-	w.put("designer/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
+	w.put(home.Folder("designer")+"/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
 	s := w.show()
 	if s.State != licenses.StateTrial || *s.Licenses[0].Window != (licenses.Window{Of: 14}) || s.Licenses[0].DaysLeft != 10 || from(s) != "edit=none events=trial multi-design=trial sync=trial" {
 		t.Fatalf("show = %+v", s)
@@ -175,9 +176,9 @@ func TestShowATrialKeyWithItsWindow(t *testing.T) {
 func TestShowAnEndedLicenseAndARefusedFile(t *testing.T) {
 	w := newWorld(t, "2027-12-01")
 	w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
-	w.put("designer/license", []byte("garbage"))
+	w.put(home.Folder("designer")+"/license", []byte("garbage"))
 	s := w.show()
-	if s.State != licenses.StateEnded || s.EndedOn != "2027-11-06" || s.Licenses[0].DaysLeft != 0 || len(s.Refused) != 1 || s.Refused[0].Reason != licenses.ReasonUnreadable || s.Refused[0].File != filepath.Join(w.dir, "designer", "license") {
+	if s.State != licenses.StateEnded || s.EndedOn != "2027-11-06" || s.Licenses[0].DaysLeft != 0 || len(s.Refused) != 1 || s.Refused[0].Reason != licenses.ReasonUnreadable || s.Refused[0].File != filepath.Join(w.dir, home.Folder("designer"), "license") {
 		t.Fatalf("show = %+v", s)
 	}
 }
@@ -186,7 +187,7 @@ func TestShowNamesTheLatestEndOfTheEndedLicenses(t *testing.T) {
 	for _, ends := range [][2]string{{"2027-11-06", "2027-03-01"}, {"2027-03-01", "2027-11-06"}} {
 		w := newWorld(t, "2027-12-01")
 		w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", ends[0]))
-		w.put("designer/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", ends[1]))
+		w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", ends[1]))
 		if s := w.show(); s.State != licenses.StateEnded || s.EndedOn != "2027-11-06" {
 			t.Fatalf("org until %s, product until %s: show = %+v", ends[0], ends[1], s)
 		}
@@ -197,7 +198,7 @@ func TestShowNamesTheLatestEndOfTheEndedLicenses(t *testing.T) {
 func TestShowNamesTheEndedLicenseNotARenewalNotBegun(t *testing.T) {
 	w := newWorld(t, "2027-12-01")
 	w.put("license", w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
-	w.put("designer/license", w.sign(licenses.Product, map[string][]string{"designer": {"events"}}, "2027-12-15", "2028-12-15"))
+	w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"events"}}, "2027-12-15", "2028-12-15"))
 	if s := w.show(); s.State != licenses.StateEnded || s.EndedOn != "2027-11-06" || len(s.Licenses) != 2 {
 		t.Fatalf("show = %+v", s)
 	}
@@ -219,10 +220,10 @@ func TestShowNamesNoEndedDayUnlessEnded(t *testing.T) {
 		switch c.product {
 		case "":
 		case "trial":
-			w.put("designer/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
+			w.put(home.Folder("designer")+"/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
 		default:
 			days := strings.Split(c.product, "/")
-			w.put("designer/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, days[0], days[1]))
+			w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, days[0], days[1]))
 		}
 		if s := w.show(); s.State != c.state || s.EndedOn != "" {
 			t.Fatalf("%+v: show = %+v", c, s)
@@ -269,7 +270,7 @@ func TestAddRefusesWhatItCannotTakeNamingTheFile(t *testing.T) {
 // Adding a trial key where the product license is says it replaces that license before it asks (G-STACK-13).
 func TestAddNamesTheLicenseItReplaces(t *testing.T) {
 	w := newWorld(t, "2026-11-19")
-	w.put("designer/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", "2027-03-01"))
+	w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", "2027-03-01"))
 	file := filepath.Join(t.TempDir(), "trial.license")
 	if err := os.WriteFile(file, w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"), 0o600); err != nil {
 		t.Fatal(err)

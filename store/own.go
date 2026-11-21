@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
 )
@@ -25,9 +26,9 @@ func Own(app App, dir string) (*Scope, error) {
 	return open(app, abs, true, func(Key) string { return abs })
 }
 
-// ownFolder is Own for a folder whose last step names the app, as the folder of an app's file is.
+// ownFolder is Own for a folder whose last step names the app (home.Folder), as the folder of an app's file is.
 func ownFolder(dir string) (*Scope, error) {
-	return Own(App{ID: filepath.Base(filepath.Clean(dir)), Version: version()}, dir)
+	return Own(App{ID: home.ID(filepath.Base(filepath.Clean(dir))), Version: version()}, dir)
 }
 
 // EditFile changes the one file at path, in its folder opened with Own: edit gets what is there, nil and false when nothing is, and gives back what to keep, nil to remove it. It is written whole, only if the file still holds what edit was given, and read back; what edit gives back unchanged writes nothing.

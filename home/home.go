@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+
+	"github.com/tugbayatilla/mankit/v4/build"
 )
 
 // Org is the name of the org's folders, written only here so a rename changes one line.
@@ -31,11 +34,30 @@ func Logs() (string, error) {
 // ProductLogs is <Logs>/<id>, the logs folder of the product with that ID.
 func ProductLogs(id string) (string, error) { return under(Logs, id) }
 
-// Product is <Dir>/<id>, the config folder of the product with that ID.
-func Product(id string) (string, error) { return under(Dir, id) }
+// dev ends the name of a dev build's own folders (ADR-L5).
+const dev = "-dev"
 
-// ProductData is <Data>/<id>, the data folder of the product with that ID.
-func ProductData(id string) (string, error) { return under(Data, id) }
+// Folder is the name of the product id's config and data folders: id in a release, <id>-dev in every other build (build.Released), so a dev build never reads or writes a release's (ADR-L5).
+func Folder(id string) string {
+	if build.Released() {
+		return id
+	}
+	return id + dev
+}
+
+// ID is the product ID whose folder is named folder, the reverse of Folder.
+func ID(folder string) string {
+	if build.Released() {
+		return folder
+	}
+	return strings.TrimSuffix(folder, dev)
+}
+
+// Product is <Dir>/<Folder(id)>, the config folder of the product with that ID.
+func Product(id string) (string, error) { return under(Dir, Folder(id)) }
+
+// ProductData is <Data>/<Folder(id)>, the data folder of the product with that ID.
+func ProductData(id string) (string, error) { return under(Data, Folder(id)) }
 
 // File is <Product(id)>/<name>; it only names the path and never touches a file (Migrate copies the old ones).
 func File(id, name string) (string, error) {
@@ -46,12 +68,12 @@ func File(id, name string) (string, error) {
 	return filepath.Join(dir, name), nil
 }
 
-// Config is <dir>/<id>/config.yaml, the one file of each app a person edits; an empty dir is File(id, "config.yaml"). It only names the path.
+// Config is <dir>/<Folder(id)>/config.yaml, the one file of each app a person edits; an empty dir is File(id, "config.yaml"). It only names the path.
 func Config(id, dir string) (string, error) {
 	if dir == "" {
 		return File(id, "config.yaml")
 	}
-	return filepath.Join(dir, id, "config.yaml"), nil
+	return filepath.Join(dir, Folder(id), "config.yaml"), nil
 }
 
 // Current is the file to read id's name from now: File(id, name), or the old file in the system's config folder, read in place,
@@ -71,13 +93,13 @@ func Current(id, name string) (string, error) {
 	return to, nil
 }
 
-// MigratedMark is the mark store.Migrate leaves once it copied id's old name: Current reads the old file in place only while it is missing.
+// MigratedMark is the mark store.Migrate leaves once it copied id's old name, one per Folder(id), so a dev build's copy never stops a release's: Current reads the old file in place only while it is missing.
 func MigratedMark(id, name string) (string, error) {
 	dir, err := Dir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, ".migrated", id, name), nil
+	return filepath.Join(dir, ".migrated", Folder(id), name), nil
 }
 
 // exists reports whether something is at path.

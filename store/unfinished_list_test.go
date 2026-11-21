@@ -55,7 +55,7 @@ const token = "s3cret"
 // unfinishedServer is the app's server with UnfinishedRoutes on the served scope in dir, behind serve's guard with a token of the test's own.
 func unfinishedServer(t *testing.T, dir string) http.Handler {
 	t.Helper()
-	tokens := filepath.Join(os.Getenv("XDG_DATA_HOME"), home.Org, app.ID, "servers")
+	tokens := filepath.Join(os.Getenv("XDG_DATA_HOME"), home.Org, home.Folder(app.ID), "servers")
 	if err := os.MkdirAll(tokens, 0o700); err != nil {
 		t.Fatal(err)
 	}

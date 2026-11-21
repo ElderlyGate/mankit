@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/settings"
 )
 
@@ -98,7 +99,7 @@ func TestFileIsInTheOrgConfigFolder(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("HOME", t.TempDir())
-	if got := File("gitman"); got != filepath.Join(xdg, "elderlygate", "gitman", "favorites") {
+	if got := File("gitman"); got != filepath.Join(xdg, "elderlygate", home.Folder("gitman"), "favorites") {
 		t.Fatal(got)
 	}
 }

@@ -126,7 +126,7 @@ func TestServersTokenLivesInTheAppsFolder(t *testing.T) {
 			if _, err := a.Handler(site(nil), nil); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := os.Stat(filepath.Join(data, home.Org, c.want, "servers", "token")); err != nil {
+			if _, err := os.Stat(filepath.Join(data, home.Org, home.Folder(c.want), "servers", "token")); err != nil {
 				t.Fatalf("no token under %s: %v", c.want, err)
 			}
 		})

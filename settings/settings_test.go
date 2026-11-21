@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tugbayatilla/mankit/v4/ask"
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/settings"
 	"github.com/tugbayatilla/mankit/v4/store"
@@ -35,13 +36,13 @@ func row(t *testing.T, path, key string) settings.Row {
 }
 
 func TestPathTakesADirOverride(t *testing.T) {
-	if got := settings.Path("app", "/x"); got != filepath.Join("/x", "app", "config.yaml") {
+	if got := settings.Path("app", "/x"); got != filepath.Join("/x", home.Folder("app"), "config.yaml") {
 		t.Fatal(got)
 	}
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("HOME", t.TempDir())
-	if got := settings.Path("app", ""); got != filepath.Join(xdg, "elderlygate", "app", "config.yaml") {
+	if got := settings.Path("app", ""); got != filepath.Join(xdg, "elderlygate", home.Folder("app"), "config.yaml") {
 		t.Fatal(got)
 	}
 }

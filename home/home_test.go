@@ -45,8 +45,8 @@ func TestPaths(t *testing.T) {
 			dataDir, _ := home.Data()
 			productData, _ := home.ProductData("control-room")
 			got := []string{dir, product, file, dataDir, productData}
-			want := []string{config, filepath.Join(config, "gitman"),
-				filepath.Join(config, "gitman", "split"), data, filepath.Join(data, "control-room")}
+			want := []string{config, filepath.Join(config, "gitman-dev"),
+				filepath.Join(config, "gitman-dev", "split"), data, filepath.Join(data, "control-room-dev")}
 			for i := range got {
 				if got[i] != want[i] {
 					t.Errorf("got %q, want %q", got[i], want[i])
