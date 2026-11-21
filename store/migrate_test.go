@@ -288,11 +288,11 @@ func TestADevBuildsCopyStaysInItsOwnFolders(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	to, _ := home.Product("gitman")
+	to, _ := home.Product("acme")
 	if err := store.CopyOnce(from, to); err != nil {
 		t.Fatal(err)
 	}
-	if got := read(t, filepath.Join(to, "config.yaml")); filepath.Base(to) != "gitman-dev" || got != "theme: nord\n" {
+	if got := read(t, filepath.Join(to, "config.yaml")); filepath.Base(to) != "acme-dev" || got != "theme: nord\n" {
 		t.Fatalf("copied to %s: %q", to, got)
 	}
 	entries, err := os.ReadDir(filepath.Join(data, home.Org))
@@ -303,7 +303,7 @@ func TestADevBuildsCopyStaysInItsOwnFolders(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	if strings.Join(names, " ") != "gitman-dev" {
-		t.Errorf("the data folder holds %v, want only gitman-dev", names)
+	if strings.Join(names, " ") != "acme-dev" {
+		t.Errorf("the data folder holds %v, want only acme-dev", names)
 	}
 }
