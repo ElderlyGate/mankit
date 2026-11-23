@@ -82,29 +82,53 @@ type Found struct {
 func (c *Checker) Read() (Found, error) {
 	f := Found{product: c.c.ID}
 	for _, org := range []bool{true, false} {
-		path, err := c.path(org)
+		p, err := c.at(org)
 		if err != nil {
 			return Found{}, err
 		}
-		raw, err := readFile(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		var l License
-		if err == nil {
-			l, err = c.take(raw, org)
-		}
-		var p *problem.Problem
 		switch {
-		case errors.As(err, &p):
-			f.Refused = append(f.Refused, Refused{File: path, Reason: p.Reason, Detail: p.Detail})
-		case err != nil:
-			f.Refused = append(f.Refused, Refused{File: path, Reason: ReasonUnreadable, Detail: err.Error()})
-		default:
-			f.Taken = append(f.Taken, c.taken(l, path))
+		case p.refused != nil:
+			f.Refused = append(f.Refused, *p.refused)
+		case p.license != nil:
+			f.Taken = append(f.Taken, c.taken(*p.license, p.path))
 		}
 	}
 	return f, nil
+}
+
+// place is what the org's place or the app's own holds: nothing, a license taken with the bytes it was read from, or a file refused.
+type place struct {
+	path    string
+	raw     []byte
+	license *License
+	refused *Refused
+}
+
+// at reads the org's place or the app's own; it fails only when the folder cannot be found.
+func (c *Checker) at(org bool) (place, error) {
+	path, err := c.path(org)
+	if err != nil {
+		return place{}, err
+	}
+	p := place{path: path}
+	raw, err := readFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return p, nil
+	}
+	var l License
+	if err == nil {
+		l, err = c.take(raw, org)
+	}
+	var pr *problem.Problem
+	switch {
+	case errors.As(err, &pr):
+		p.refused = &Refused{File: path, Reason: pr.Reason, Detail: pr.Detail}
+	case err != nil:
+		p.refused = &Refused{File: path, Reason: ReasonUnreadable, Detail: err.Error()}
+	default:
+		p.raw, p.license = raw, &l
+	}
+	return p, nil
 }
 
 // Check is the license raw holds as the app would take it at the org's place or its own, or the Problem why not: what add shows before it asks.
