@@ -51,13 +51,14 @@ func New(c Config) (*Checker, error) {
 	return &Checker{c: c}, nil
 }
 
-// Taken is a license the app read and took, where it was read from, and how long it runs from today.
+// Taken is a license the app read and took, where it was read from, and how long it runs from today. A release-trial runs from its started day; one not started is the key as signed, which opens nothing.
 type Taken struct {
 	License
 	File     string
-	DaysLeft int  // 0 once it has ended
-	Ended    bool // its features are locked again (ADR-L3)
-	Early    bool // its first day has not come, so it opens nothing yet
+	LastDay  time.Time // Until, but for a started release-trial its trial's last day: the started day plus its days, less one
+	DaysLeft int       // 0 once it has ended
+	Ended    bool      // its features are locked again (ADR-L3)
+	Early    bool      // its first day has not come, or a release-trial has not started, so it opens nothing yet
 }
 
 // Running reports whether the license opens its features today: its first day has come and its last has not passed.
@@ -147,7 +148,7 @@ func (c *Checker) scope(org bool) (*store.Scope, error) {
 	return store.Own(app, dir)
 }
 
-// take verifies raw and refuses a license that does not belong where it is: an org license outside the org's place, a product license or trial key in it, or another product's license.
+// take verifies raw and refuses a license that does not belong where it is: an org license outside the org's place, a product license or trial key in it, or another product's license or release-trial.
 func (c *Checker) take(raw []byte, org bool) (License, error) {
 	l, err := Verify(raw, c.c.Trust)
 	if err != nil {
@@ -158,15 +159,32 @@ func (c *Checker) take(raw []byte, org bool) (License, error) {
 		return License{}, refused(ReasonWrongPlace, fmt.Sprintf("it is a %s license, which an app keeps as its own, not as the org's", l.Kind))
 	case !org && l.Kind == Org:
 		return License{}, refused(ReasonWrongPlace, "it is an org license, which is kept as the org's (license add --org)")
-	case l.Kind == Product && l.Products[c.c.ID] == nil:
-		return License{}, refused(ReasonWrongPlace, fmt.Sprintf("it is a product license for another product, not %s", c.c.ID))
+	case (l.Kind == Product || l.Kind == ReleaseTrial) && !l.names(c.c.ID):
+		return License{}, refused(ReasonWrongPlace, fmt.Sprintf("it is a %s license for another product, not %s", l.Kind, c.c.ID))
 	}
 	return l, nil
 }
 
+// names reports whether the license names the product id, with feature ids or, as a release-trial, without.
+func (l License) names(product string) bool {
+	_, ok := l.Products[product]
+	return ok
+}
+
+// taken is l as it runs today: from its issued day to its until, a started release-trial from its started day for its days, and one not started opens nothing and ends once its last day to start one has passed.
 func (c *Checker) taken(l License, path string) Taken {
-	left := max(daysBetween(c.c.Now(), l.Until)+1, 0)
-	return Taken{License: l, File: path, DaysLeft: left, Ended: left == 0, Early: daysBetween(l.Issued, c.c.Now()) < 0}
+	first, last, waiting := l.Issued, l.Until, false
+	if l.Kind == ReleaseTrial {
+		if l.Started == nil {
+			waiting = true
+		} else {
+			first = l.Started.Day
+			last = date(first).AddDate(0, 0, l.TrialDays-1)
+		}
+	}
+	left := max(daysBetween(c.c.Now(), last)+1, 0)
+	early := waiting || daysBetween(first, c.c.Now()) < 0
+	return Taken{License: l, File: path, LastDay: last, DaysLeft: left, Ended: left == 0, Early: early && left > 0}
 }
 
 // path is the org's license file in home.OrgDir or the app's own (ADR-L5, L8).
@@ -211,7 +229,7 @@ const (
 	FromNone    From = "none"
 )
 
-// From is where f is unlocked from now, and the last day it stays open: the latest of the licenses that name it, else a running trial key's, else none. A free feature is from none: it needs no license (ADR-L2).
+// From is where f is unlocked from now, and the last day it stays open: the latest of the licenses that name it, else a running trial key's or this app's release-trial's, else none. A free feature is from none: it needs no license (ADR-L2).
 func (f Found) From(ft features.Feature) (From, time.Time) {
 	if !ft.Enterprise() {
 		return FromNone, time.Time{}
@@ -221,12 +239,12 @@ func (f Found) From(ft features.Feature) (From, time.Time) {
 	for _, t := range f.Taken {
 		switch {
 		case !t.Running():
-		case t.Kind == Trial:
-			trial, trialUntil = true, t.Until
+		case t.Kind == Trial || (t.Kind == ReleaseTrial && t.names(f.product)):
+			trial, trialUntil = true, t.LastDay
 		case t.Names(f.product, ft.ID):
 			org, product = org || t.Kind == Org, product || t.Kind == Product
-			if t.Until.After(until) {
-				until = t.Until
+			if t.LastDay.After(until) {
+				until = t.LastDay
 			}
 		}
 	}
