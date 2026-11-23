@@ -22,7 +22,7 @@ jobs:
   release:
     permissions:
       contents: write
-    uses: ElderlyGate/.github/.github/workflows/release.yml@main
+    uses: nayweelabs/.github/.github/workflows/release.yml@main
     with:
       build: none
       rc: ${{ inputs.rc == true }}
