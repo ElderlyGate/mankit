@@ -1,8 +1,8 @@
 # mankit
 
-What the `-man` dashboards share: [gitman](https://github.com/ElderlyGate/gitman),
-[dcman](https://github.com/ElderlyGate/dcman) and
-[checkman](https://github.com/ElderlyGate/checkman). A change here reaches all
+What the `-man` dashboards share: [gitman](https://github.com/nayweelabs/gitman),
+[dcman](https://github.com/nayweelabs/dcman) and
+[checkman](https://github.com/nayweelabs/checkman). A change here reaches all
 three, instead of being made three times.
 
 | Package | What it is |
@@ -177,7 +177,7 @@ text.
 helpout.Apply(root, helpout.Info{
 	What:  "a git dashboard for the terminal",
 	Start: []string{"gitman", "run it inside a git repository"},
-	More:  "https://github.com/ElderlyGate/gitman",
+	More:  "https://github.com/nayweelabs/gitman",
 })
 ```
 
@@ -195,7 +195,7 @@ Commands:
 Flags:
       --theme string   the colours: default, nord, gruvbox, solarized, high-contrast, mono
 
-More: https://github.com/ElderlyGate/gitman
+More: https://github.com/nayweelabs/gitman
 ```
 
 A usage mistake prints `error: <msg>`, then the layout, both to stderr, and
@@ -509,7 +509,7 @@ one on, with no restart. A token file that cannot be read, is empty, or is open
 to other users lets nobody in.
 
 The tests check the real answers against the schemas in
-[contracts](https://github.com/ElderlyGate/contracts).
+[contracts](https://github.com/nayweelabs/contracts).
 
 ## Logs
 
@@ -999,7 +999,7 @@ A merge to `main` releases mankit: the pipeline tags the next version. Then in
 each app `go get github.com/tugbayatilla/mankit/v4@vX.Y.Z && go mod tidy`. The
 module path is `github.com/tugbayatilla/mankit/v4` until a later migration moves
 it with the org rename; the repository itself lives at
-`github.com/ElderlyGate/mankit`.
+`github.com/nayweelabs/mankit`.
 
 CI runs [gorelease](https://pkg.go.dev/golang.org/x/exp/cmd/gorelease) on every
 pull request: a change that breaks the public API fails it, unless the module
