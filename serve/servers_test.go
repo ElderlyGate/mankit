@@ -173,7 +173,7 @@ func TestTheOldServersFormsRunTheirFullForms(t *testing.T) {
 // help -o json, printed through the app's Printer, is contracts mankit/v1's Help in the app's envelope.
 func TestHelpAsJSONIsTheHelpAnswer(t *testing.T) {
 	r := root(nil)
-	helpout.Apply(r, helpout.Info{What: "a test app", Start: []string{"e-designer serve"}, More: "https://github.com/ElderlyGate/e-designer",
+	helpout.Apply(r, helpout.Info{What: "a test app", Start: []string{"e-designer serve"}, More: "https://github.com/nayweelabs/e-designer",
 		Answer: func(c *cobra.Command) helpout.Answerer { return app.Printer(c) }})
 	var out, errOut bytes.Buffer
 	r.SetOut(&out)
