@@ -146,6 +146,7 @@ func Sign(l License, s Signer) ([]byte, error) {
 	if l.Started != nil {
 		return nil, errors.New("licenses: a signed file has no started trial; the app writes it")
 	}
+	// A copy, so a release-trial's nil feature list marshals as [], as the schema takes.
 	products := make(map[string][]string, len(l.Products))
 	for id, features := range l.Products {
 		products[id] = append([]string{}, features...)
