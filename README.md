@@ -652,6 +652,18 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
   keeps a product license or trial key for the app, `--org` an org license for
   every app: it checks the file, asks, naming the license it replaces, and
   writes it whole through the store.
+- `Checker.StartTrial(ctx, key, binary)` is the one call an app makes at
+  start, with its built-in release-trial key and its executable's path
+  (`os.Executable()`), so a trial works with no other tool (ADR-L9). With no
+  license it writes the key as the app's license file, through the store as
+  `license add` does, with `spec.started`: today and the binary's path and
+  file time. A new install, whose path or file time differs, gets a fresh
+  trial; the install that started it keeps it, ended or not. An org license,
+  a bought product license, a person's trial key, or a file it cannot take is
+  never touched, and after the key's `until` no trial starts. It returns a
+  `TrialStart` (`Outcome`: `started`, `renewed`, `kept`, `skipped` or
+  `failed`, and a `Reason`) for the start log; a failed write leaves the old
+  file whole and never stops the app.
 
 ## Events
 
