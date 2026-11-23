@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/store"
 )
 
@@ -34,36 +35,66 @@ type TrialStart struct {
 
 func (s TrialStart) String() string { return fmt.Sprintf("license: trial %s: %s", s.Outcome, s.Reason) }
 
-// StartTrial is the call an app makes at start with its built-in release-trial key and its executable's path (ADR-L9): with no license it writes the key as the app's license file, started today and stamped with the binary's path and file time; a new install, whose stamp differs, gets a fresh trial over a release-trial; a bought license, an org license or a person's trial key is never touched.
+// StartTrial is the call an app makes at start with its built-in release-trial key and its executable's path, as os.Executable gives it (ADR-L9): with no license it writes the key as the app's license file, started today and stamped with the binary's path and file time; a new install, whose stamp differs, gets a fresh trial over a release-trial; a bought license, an org license or a person's trial key is never touched.
 func (c *Checker) StartTrial(ctx context.Context, key []byte, binary string) TrialStart {
-	r := TrialStart{}
-	fail := func(why string, err error) TrialStart {
-		r.Outcome, r.Reason, r.Err = TrialFailed, fmt.Sprintf("%s: %v", why, err), err
-		return r
-	}
 	k, err := c.take(key, false)
 	if err == nil && k.Kind != ReleaseTrial {
 		err = fmt.Errorf("it is a %s license, not a release-trial", k.Kind)
 	}
 	if err != nil {
-		return fail("the built-in trial key is refused", err)
+		return failed("", "the built-in trial key is refused", err)
 	}
 	stamp, err := stampOf(binary)
 	if err != nil {
-		return fail("the app's binary cannot be stamped", err)
+		return failed("", "the app's binary cannot be stamped", err)
 	}
+	r, want := c.plan(k, stamp)
+	if r.Outcome != "" {
+		return r
+	}
+	stamp.Day = date(c.c.Now())
+	body, err := withStarted(key, stamp)
+	if err == nil {
+		_, err = c.take(body, false)
+	}
+	if err != nil {
+		return failed(r.File, "the trial cannot be written", err)
+	}
+	s, err := c.scope(false)
+	if err != nil {
+		return failed(r.File, "the app's folder cannot be opened", err)
+	}
+	defer s.Close()
+	err = s.Change(ctx, name, "license trial", func(tx store.Tx) error { return tx.Put(name, body, want) })
+	var p *problem.Problem
+	if errors.As(err, &p) && p.Type == problem.TypeRefused && p.Reason == store.ReasonChanged {
+		return c.again(k, stamp)
+	}
+	if err != nil {
+		return failed(r.File, "the license file is not written and the old one is whole", err)
+	}
+	did := TrialStarted
+	if want != store.Absent() {
+		did = TrialRenewed
+	}
+	r.Outcome, r.Reason = did, fmt.Sprintf("a %d-day trial from %s", k.TrialDays, stamp.Day.Format(day))
+	return r
+}
+
+// plan reads both places and decides: a TrialStart with an Outcome when nothing is to be written, else the app's file and what the write wants to find there.
+func (c *Checker) plan(k License, stamp Started) (TrialStart, store.Want) {
 	org, err := c.at(true)
 	if err != nil {
-		return fail("the org's license cannot be found", err)
+		return failed("", "the org's license cannot be found", err), store.Want{}
 	}
 	own, err := c.at(false)
 	if err != nil {
-		return fail("the app's license cannot be found", err)
+		return failed("", "the app's license cannot be found", err), store.Want{}
 	}
-	r.File = own.path
-	skip := func(why string) TrialStart {
+	r := TrialStart{File: own.path}
+	skip := func(why string) (TrialStart, store.Want) {
 		r.Outcome, r.Reason = TrialSkipped, why
-		return r
+		return r, store.Want{}
 	}
 	for _, p := range []place{org, own} {
 		if p.refused != nil {
@@ -73,44 +104,46 @@ func (c *Checker) StartTrial(ctx context.Context, key []byte, binary string) Tri
 	if org.license != nil {
 		return skip(fmt.Sprintf("the org license %s is kept", org.license.ID))
 	}
-	want, did := store.Absent(), TrialStarted
+	want := store.Absent()
 	if l := own.license; l != nil {
 		switch {
 		case l.Kind != ReleaseTrial:
 			return skip(fmt.Sprintf("the %s license %s is kept", l.Kind, l.ID))
 		case l.Started != nil && stamp.same(*l.Started):
 			r.Outcome, r.Reason = TrialKept, fmt.Sprintf("this install started its trial on %s", l.Started.Day.Format(day))
-			return r
+			return r, store.Want{}
 		}
-		want, did = store.Holds(store.SumOf(own.raw)), TrialRenewed
+		want = store.Holds(store.SumOf(own.raw))
 	}
-	today := date(c.c.Now())
-	if today.After(date(k.Until)) {
+	if today := date(c.c.Now()); today.After(date(k.Until)) {
 		return skip(fmt.Sprintf("the built-in key's last day to start a trial, %s, has passed", k.Until.Format(day)))
 	}
-	stamp.Day = today
-	body, err := withStarted(key, stamp)
-	if err == nil {
-		_, err = c.take(body, false)
+	return r, want
+}
+
+// again is what the places hold once another start, or license add, changed the file while this one wrote: read once more, never written.
+func (c *Checker) again(k License, stamp Started) TrialStart {
+	r, _ := c.plan(k, stamp)
+	switch r.Outcome {
+	case "":
+		r.Outcome, r.Reason = TrialSkipped, "the license file changed while the trial was written, so it is left as another start wrote it"
+	case TrialKept, TrialSkipped:
+		r.Reason += "; another start wrote it"
 	}
-	if err != nil {
-		return fail("the trial cannot be written", err)
-	}
-	s, err := c.scope(false)
-	if err != nil {
-		return fail("the app's folder cannot be opened", err)
-	}
-	defer s.Close()
-	if err := s.Change(ctx, name, "license trial", func(tx store.Tx) error { return tx.Put(name, body, want) }); err != nil {
-		return fail("the license file is not written and the old one is whole", err)
-	}
-	r.Outcome, r.Reason = did, fmt.Sprintf("a %d-day trial from %s", k.TrialDays, today.Format(day))
 	return r
 }
 
-// stampOf is the install stamp of the binary at path: its absolute path and its file time to the second, as spec.started keeps it.
+// failed is a TrialStart that failed with err, saying why.
+func failed(file, why string, err error) TrialStart {
+	return TrialStart{Outcome: TrialFailed, Reason: fmt.Sprintf("%s: %v", why, err), File: file, Err: err}
+}
+
+// stampOf is the install stamp of the binary at path: its absolute path with every link resolved, as macOS may give a link where Linux does not, and its file time to the second, as spec.started keeps it.
 func stampOf(path string) (Started, error) {
 	abs, err := filepath.Abs(path)
+	if err == nil {
+		abs, err = filepath.EvalSymlinks(abs)
+	}
 	if err != nil {
 		return Started{}, err
 	}

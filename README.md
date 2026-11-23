@@ -654,7 +654,8 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
   writes it whole through the store.
 - `Checker.StartTrial(ctx, key, binary)` is the one call an app makes at
   start, with its built-in release-trial key and its executable's path
-  (`os.Executable()`), so a trial works with no other tool (ADR-L9). With no
+  (`os.Executable()` as it is: StartTrial resolves links itself), so a trial
+  works with no other tool (ADR-L9). Two starts at once write one trial. With no
   license it writes the key as the app's license file, through the store as
   `license add` does, with `spec.started`: today and the binary's path and
   file time. A new install, whose path or file time differs, gets a fresh

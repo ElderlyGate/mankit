@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,12 +24,22 @@ func install(t *testing.T) (bin, orgDir string) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	bin = filepath.Join(t.TempDir(), "designer")
+	bin = filepath.Join(real(t, t.TempDir()), "designer")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	touch(t, bin, installed)
 	return bin, orgDir
+}
+
+// real is path with every link resolved, as the stamp keeps it: a temp folder on macOS lies behind a link.
+func real(t *testing.T, path string) string {
+	t.Helper()
+	p, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func touch(t *testing.T, path string, at time.Time) {
@@ -121,7 +132,7 @@ func TestAChangedStampRenewsTheTrial(t *testing.T) {
 			return bin
 		},
 		"a new path": func(t *testing.T, bin string) string {
-			moved := filepath.Join(t.TempDir(), "designer")
+			moved := filepath.Join(real(t, t.TempDir()), "designer")
 			if err := os.Rename(bin, moved); err != nil {
 				t.Fatal(err)
 			}
@@ -211,15 +222,10 @@ func TestAFailedWriteLeavesTheOldFileWhole(t *testing.T) {
 	want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialStarted)
 	before, _ := read(t)
 	folder := filepath.Dir(productLicense(t))
-	for _, p := range []string{filepath.Join(folder, ".queue"), folder} {
-		if err := os.Chmod(p, 0o500); err != nil && !os.IsNotExist(err) {
-			t.Fatal(err)
-		}
+	if err := os.Chmod(folder, 0o500); err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_ = os.Chmod(folder, 0o700)
-		_ = os.Chmod(filepath.Join(folder, ".queue"), 0o700)
-	})
+	t.Cleanup(func() { _ = os.Chmod(folder, 0o700) })
 	touch(t, bin, installed.Add(time.Hour))
 	want(t, startTrial(t, key, release, "2027-01-10", bin), licenses.TrialFailed)
 	if after, _ := read(t); !bytes.Equal(after, before) {
@@ -258,5 +264,67 @@ func TestABinaryThatIsNotThereIsReported(t *testing.T) {
 	want(t, startTrial(t, sign(t, k, releaseTrial), release, "2026-12-03", filepath.Join(t.TempDir(), "gone")), licenses.TrialFailed)
 	if _, there := read(t); there {
 		t.Fatal("a trial was written without a stamp")
+	}
+}
+
+// A link to the binary, as macOS's os.Executable may give, stamps the same install as its real path, so switching between them keeps the trial.
+func TestALinkToTheBinaryIsTheSameInstall(t *testing.T) {
+	bin, _ := install(t)
+	k, release, _ := signer(t)
+	key := sign(t, k, releaseTrial)
+	link := filepath.Join(t.TempDir(), "designer-link")
+	if err := os.Symlink(bin, link); err != nil {
+		t.Fatal(err)
+	}
+	want(t, startTrial(t, key, release, "2026-12-03", link), licenses.TrialStarted)
+	want(t, startTrial(t, key, release, "2026-12-04", bin), licenses.TrialKept)
+	want(t, startTrial(t, key, release, "2026-12-05", link), licenses.TrialKept)
+	if tk := started(t, release, "2026-12-05"); tk.Started.Binary != bin {
+		t.Fatalf("binary = %s, want %s", tk.Started.Binary, bin)
+	}
+}
+
+// A file at the org's place that it cannot take is never taken for no license, so no trial is written (G-CODE-6).
+func TestAFileAtTheOrgsPlaceItCannotTakeMeansNoTrial(t *testing.T) {
+	bin, dir := install(t)
+	k, release, _ := signer(t)
+	put(t, filepath.Join(dir, "license"), []byte("not a license\n"))
+	want(t, startTrial(t, sign(t, k, releaseTrial), release, "2026-12-03", bin), licenses.TrialSkipped)
+	if _, there := read(t); there {
+		t.Fatal("a trial was written beside an org file it cannot take")
+	}
+}
+
+// Starts at the same moment write one trial: the first starts it, the others find it there.
+func TestStartsAtOnceWriteOneTrial(t *testing.T) {
+	bin, _ := install(t)
+	k, release, _ := signer(t)
+	key := sign(t, k, releaseTrial)
+	c := checker(t, release, "2026-12-03")
+	got := make([]licenses.TrialStart, 8)
+	var wg sync.WaitGroup
+	for i := range got {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got[i] = c.StartTrial(context.Background(), key, bin)
+		}()
+	}
+	wg.Wait()
+	n := 0
+	for _, r := range got {
+		switch r.Outcome {
+		case licenses.TrialStarted:
+			n++
+		case licenses.TrialKept:
+		default:
+			t.Errorf("outcome = %s (%s)", r.Outcome, r.Reason)
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d started, want 1: %+v", n, got)
+	}
+	if tk := started(t, release, "2026-12-03"); !tk.Running() {
+		t.Fatalf("taken = %+v", tk)
 	}
 }
