@@ -89,9 +89,9 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 		out.EndedOn = endedOn.Format(day)
 	}
 	for _, t := range f.Taken {
-		row := ShownFile{Kind: t.Kind, For: t.For, Until: t.Until.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
-		// A paid license's window waits for the threshold (ADR-S23); only a running trial key's shows.
-		if t.Kind == Trial && t.Running() {
+		row := ShownFile{Kind: t.Kind, For: t.For, Until: t.LastDay.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
+		// A paid license's window waits for the threshold (ADR-S23); only a running trial key's or release-trial's shows.
+		if (t.Kind == Trial || t.Kind == ReleaseTrial) && t.Running() {
 			row.Window = &Window{Of: t.Days()}
 		}
 		out.Licenses = append(out.Licenses, row)
@@ -121,15 +121,17 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	return out, nil
 }
 
-// state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key, else an ended one, else none; one not begun counts as none. When it is ended, the day is the latest last day of the ended paid licenses.
+// state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key or release-trial, else an ended one, else none; one not begun, or a release-trial not started, counts as none. When it is ended, the day is the latest last day of the ended paid licenses.
 func (f Found) state() (string, time.Time) {
 	var paid, ended, trial, trialEnded bool
 	var endedOn time.Time
 	for _, t := range f.Taken {
+		isTrial := t.Kind == Trial || t.Kind == ReleaseTrial
 		switch {
-		case t.Kind == Trial && t.Ended:
+		case t.Kind == ReleaseTrial && t.Started == nil:
+		case isTrial && t.Ended:
 			trialEnded = true
-		case t.Kind == Trial && t.Running():
+		case isTrial && t.Running():
 			trial = true
 		case t.Ended:
 			ended = true

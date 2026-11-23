@@ -179,6 +179,63 @@ func TestShowATrialKeyWithItsWindow(t *testing.T) {
 	}
 }
 
+// releaseTrial is designer's release-trial key, started on the day when started is not empty, as the app writes it beside the signed payload.
+func (w *world) releaseTrial(started string) []byte {
+	raw, err := licenses.Sign(licenses.License{ID: "designer-v1.2.0-trial", Kind: licenses.ReleaseTrial, For: "designer v1.2.0", Products: map[string][]string{"designer": nil}, Issued: day("2026-11-23"), Until: day("2027-11-23"), TrialDays: 14, KeyID: "prod-2026"}, w.keys)
+	if err != nil || started == "" {
+		return raw
+	}
+	var f map[string]any
+	_ = json.Unmarshal(raw, &f)
+	f["spec"].(map[string]any)["started"] = map[string]any{"day": started, "binary": "/home/ada/.local/bin/designer", "fileTime": started + "T09:14:05Z"}
+	raw, _ = json.Marshal(f)
+	return raw
+}
+
+// A started release-trial shows its trial's last day, not the key's, and the days left of its window (contracts mankit/v1 license-show).
+func TestShowAReleaseTrialFromItsStartedDay(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
+	s := w.show()
+	l := s.Licenses[0]
+	if s.State != licenses.StateTrial || l.Kind != licenses.ReleaseTrial || l.For != "designer v1.2.0" || l.Until != "2026-12-16" || l.DaysLeft != 10 || l.Window == nil || *l.Window != (licenses.Window{Of: 14}) {
+		t.Fatalf("show = %+v", s)
+	}
+	if from(s) != "edit=none events=trial multi-design=trial sync=trial" || s.Features[1].Until != "2026-12-16" {
+		t.Fatalf("show = %+v", s)
+	}
+	w.today = "2026-12-17"
+	if s := w.show(); s.State != licenses.StateTrialEnded || s.Licenses[0].Window != nil || !s.Licenses[0].Ended || s.Counts.Locked != 3 {
+		t.Fatalf("after the trial = %+v", s)
+	}
+}
+
+// A paid license comes before a release-trial in state: running, licensed; ended, ended on the org license's last day.
+func TestShowAPaidLicenseBeforeAReleaseTrial(t *testing.T) {
+	for _, c := range []struct{ until, state, endedOn string }{{"2027-11-06", licenses.StateLicensed, ""}, {"2026-12-01", licenses.StateEnded, "2026-12-01"}} {
+		w := newWorld(t, "2026-12-07")
+		w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", c.until))
+		w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
+		if s := w.show(); s.State != c.state || s.EndedOn != c.endedOn || len(s.Licenses) != 2 || s.Licenses[1].Kind != licenses.ReleaseTrial || s.Licenses[1].Ended {
+			t.Fatalf("org until %s: show = %+v", c.until, s)
+		}
+	}
+}
+
+// A release-trial not started is the key as signed: listed with its last day to start a trial, it opens nothing and counts as none.
+func TestShowAReleaseTrialNotStarted(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.put(home.Folder("designer")+"/license", w.releaseTrial(""))
+	s := w.show()
+	if s.State != licenses.StateNone || len(s.Licenses) != 1 || s.Licenses[0].Until != "2027-11-23" || s.Licenses[0].Window != nil || s.Licenses[0].Ended || s.Counts.Locked != 3 {
+		t.Fatalf("show = %+v", s)
+	}
+	w.today = "2027-11-24"
+	if s := w.show(); s.State != licenses.StateNone || !s.Licenses[0].Ended || s.Licenses[0].DaysLeft != 0 {
+		t.Fatalf("after its last day to start one = %+v", s)
+	}
+}
+
 func TestShowAnEndedLicenseAndARefusedFile(t *testing.T) {
 	w := newWorld(t, "2027-12-01")
 	w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))

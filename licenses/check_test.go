@@ -281,3 +281,82 @@ func TestADevBuildNeverTouchesTheReleasesOrgLicense(t *testing.T) {
 		t.Fatalf("found = %+v, %v", f, err)
 	}
 }
+
+// A started release-trial opens every enterprise feature of its app, counted from its started day for its days: started 3 Dec for 14 days, its last day is 16 Dec (ADR-L9).
+func TestAReleaseTrialRunsItsDaysFromItsStartedDay(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	put(t, productLicense(t), start(t, sign(t, k, releaseTrial), "2026-12-03"))
+	for _, c := range []struct {
+		today string
+		on    []string
+		left  int
+		early bool
+	}{
+		{"2026-12-02", []string{"edit"}, 15, true},
+		{"2026-12-03", []string{"edit", "events", "sync"}, 14, false},
+		{"2026-12-16", []string{"edit", "events", "sync"}, 1, false},
+		{"2026-12-17", []string{"edit"}, 0, false},
+	} {
+		c2 := checker(t, release, c.today)
+		if got := on(t, list(c2)); !slices.Equal(got, c.on) {
+			t.Errorf("%s: on = %v, want %v", c.today, got, c.on)
+		}
+		f, err := c2.Read()
+		if err != nil || len(f.Taken) != 1 {
+			t.Fatalf("%s: found = %+v, %v", c.today, f, err)
+		}
+		if got := f.Taken[0]; !got.LastDay.Equal(day("2026-12-16")) || got.DaysLeft != c.left || got.Ended != (c.left == 0) || got.Early != c.early {
+			t.Errorf("%s: taken = %+v", c.today, got)
+		}
+	}
+}
+
+// A started day edited to before the key's issued day opens nothing before that issued day.
+func TestAReleaseTrialStartedBeforeItsIssuedDayOpensNothingEarly(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	put(t, productLicense(t), start(t, sign(t, k, releaseTrial), "2026-11-20"))
+	for today, want := range map[string][]string{"2026-11-22": {"edit"}, "2026-11-23": {"edit", "events", "sync"}} {
+		if got := on(t, list(checker(t, release, today))); !slices.Equal(got, want) {
+			t.Errorf("%s: on = %v, want %v", today, got, want)
+		}
+	}
+}
+
+// A release-trial with no started trial is the key as signed: it opens nothing, and its last day is its last day to start one.
+func TestAReleaseTrialNotStartedOpensNothing(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	put(t, productLicense(t), sign(t, k, releaseTrial))
+	for today, ended := range map[string]bool{"2026-12-03": false, "2027-11-24": true} {
+		c := checker(t, release, today)
+		if got := on(t, list(c)); !slices.Equal(got, []string{"edit"}) {
+			t.Errorf("%s: on = %v", today, got)
+		}
+		f, err := c.Read()
+		if err != nil || len(f.Taken) != 1 {
+			t.Fatalf("%s: found = %+v, %v", today, f, err)
+		}
+		if got := f.Taken[0]; got.Running() || got.Ended != ended || got.Early == ended || !got.LastDay.Equal(releaseTrial.Until) {
+			t.Errorf("%s: taken = %+v", today, got)
+		}
+	}
+}
+
+// A release-trial opens its own app only (ADR-L2): another app refuses it, and it is never the org's.
+func TestAReleaseTrialOfAnotherAppOrAsTheOrgsIsRefused(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	c := checker(t, release, "2026-12-03")
+	other := releaseTrial
+	other.For, other.Products = "kanban v1.2.0", map[string][]string{"kanban": nil}
+	for name, tc := range map[string]struct {
+		raw []byte
+		org bool
+	}{"another app's": {start(t, sign(t, k, other), "2026-12-03"), false}, "as the org's": {start(t, sign(t, k, releaseTrial), "2026-12-03"), true}} {
+		if _, err := c.Check(tc.raw, tc.org); reason(err) != licenses.ReasonWrongPlace {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}

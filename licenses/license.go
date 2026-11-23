@@ -20,9 +20,10 @@ type Kind string
 
 // The kinds of license.
 const (
-	Org     Kind = "org"
-	Product Kind = "product"
-	Trial   Kind = "trial"
+	Org          Kind = "org"
+	Product      Kind = "product"
+	Trial        Kind = "trial"
+	ReleaseTrial Kind = "release-trial"
 )
 
 // The reasons a license file is refused, Problem reasons of type refused (contracts problem/v1).
@@ -35,19 +36,33 @@ const (
 	ReasonIDMismatch   = "id_mismatch"
 )
 
-// License is what a license file says, all of it signed; contracts mankit/v1 license-payload says what each field means, license-file the file around it.
+// License is what a license file says, all of it signed but Started; contracts mankit/v1 license-payload says what each field means, license-file the file around it.
 type License struct {
-	ID       string
-	Kind     Kind
-	For      string
-	Products map[string][]string
-	Issued   time.Time
-	Until    time.Time
-	KeyID    string
+	ID        string
+	Kind      Kind
+	For       string
+	Products  map[string][]string
+	Issued    time.Time
+	Until     time.Time
+	TrialDays int // the payload's days: a release-trial's alone
+	KeyID     string
+	Started   *Started // unsigned, beside the payload; nil when the file has none
 }
 
-// Days is how many days the license runs, its first and last day included: a trial key's length (ADR-L9).
-func (l License) Days() int { return daysBetween(l.Issued, l.Until) + 1 }
+// Started is the trial a release-trial's file started, which the app writes beside the signed payload (contracts mankit/v1 license-file spec.started).
+type Started struct {
+	Day      time.Time
+	Binary   string
+	FileTime time.Time
+}
+
+// Days is how many days the license runs, its first and last day included: a trial key's length, or the length of each trial a release-trial starts (ADR-L9).
+func (l License) Days() int {
+	if l.Kind == ReleaseTrial {
+		return l.TrialDays
+	}
+	return daysBetween(l.Issued, l.Until) + 1
+}
 
 // Names reports whether the license names the feature id of the product id.
 func (l License) Names(product, id string) bool { return slices.Contains(l.Products[product], id) }
@@ -90,9 +105,17 @@ type file struct {
 		ID string `json:"id"`
 	} `json:"metadata"`
 	Spec struct {
-		Payload   []byte `json:"payload"`
-		Signature []byte `json:"signature"`
+		Payload   []byte       `json:"payload"`
+		Signature []byte       `json:"signature"`
+		Started   *startedJSON `json:"started,omitempty"`
 	} `json:"spec"`
+}
+
+// startedJSON is spec.started as the file holds it.
+type startedJSON struct {
+	Day      string `json:"day"`
+	Binary   string `json:"binary"`
+	FileTime string `json:"fileTime"`
 }
 
 // The license file's form and kind (ADR-S15, contracts apiversion/v1 forms.yaml).
@@ -109,17 +132,26 @@ type payload struct {
 	Products map[string][]string `json:"products,omitempty"`
 	Issued   string              `json:"issued"`
 	Until    string              `json:"until"`
+	Days     int                 `json:"days,omitempty"`
 	KeyID    string              `json:"keyId"`
 }
 
 const day = "2006-01-02"
 
-// Sign is the license file of l, signed by s with the key l.KeyID; a license Check refuses is refused before anything is signed.
+// Sign is the license file of l, signed by s with the key l.KeyID; a license Check refuses is refused before anything is signed, and so is a Started, which only the app writes.
 func Sign(l License, s Signer) ([]byte, error) {
 	if err := l.Check(); err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(payload{ID: l.ID, Kind: l.Kind, For: l.For, Products: l.Products, Issued: l.Issued.UTC().Format(day), Until: l.Until.UTC().Format(day), KeyID: l.KeyID})
+	if l.Started != nil {
+		return nil, errors.New("licenses: a signed file has no started trial; the app writes it")
+	}
+	// A copy, so a release-trial's nil feature list marshals as [], as the schema takes.
+	products := make(map[string][]string, len(l.Products))
+	for id, features := range l.Products {
+		products[id] = append([]string{}, features...)
+	}
+	body, err := json.Marshal(payload{ID: l.ID, Kind: l.Kind, For: l.For, Products: products, Issued: l.Issued.UTC().Format(day), Until: l.Until.UTC().Format(day), Days: l.TrialDays, KeyID: l.KeyID})
 	if err != nil {
 		return nil, err
 	}
@@ -174,11 +206,26 @@ func Verify(raw []byte, t Trust) (License, error) {
 	if ierr != nil || uerr != nil {
 		return License{}, refused(ReasonUnreadable, "its days are not dates")
 	}
-	l := License{ID: p.ID, Kind: p.Kind, For: p.For, Products: p.Products, Issued: issued, Until: until, KeyID: p.KeyID}
+	l := License{ID: p.ID, Kind: p.Kind, For: p.For, Products: p.Products, Issued: issued, Until: until, TrialDays: p.Days, KeyID: p.KeyID}
+	if f.Spec.Started != nil {
+		if l.Started, err = f.Spec.Started.read(); err != nil {
+			return License{}, err
+		}
+	}
 	if err := l.Check(); err != nil {
 		return License{}, refused(ReasonUnreadable, err.Error())
 	}
 	return l, nil
+}
+
+// read is the started record, or why the file is unreadable: a day, a binary and a file time it must have.
+func (s startedJSON) read() (*Started, error) {
+	d, derr := time.Parse(day, s.Day)
+	ft, ferr := time.Parse(time.RFC3339, s.FileTime)
+	if derr != nil || ferr != nil || s.Binary == "" {
+		return nil, refused(ReasonUnreadable, "its started trial is not a day, a binary and a file time")
+	}
+	return &Started{Day: d, Binary: s.Binary, FileTime: ft}, nil
 }
 
 // key is the public key id names for this build, or why the license is refused: a key of the other build (ADR-L5) or one this build does not trust (ADR-L6).
@@ -199,11 +246,11 @@ func (t Trust) key(id string) (ed25519.PublicKey, error) {
 // ErrNotTaken is the code of every error Check gives: the license says something no app takes.
 var ErrNotTaken = errors.New("licenses: no app takes this license")
 
-// Check refuses a license no app takes, with ErrNotTaken: no id or one with a space, an unknown kind, nobody named, no key, a last day before its first, a trial that names features, or a license that names none; it needs no signer, so a tool checks a license before it reads a key.
+// Check refuses a license no app takes, with ErrNotTaken: no id or one with a space, an unknown kind, nobody named, no key, a last day before its first, a trial that names features, a release-trial that names other than one product with no feature ids or runs no day, days or a started trial on another kind, a trial started after a release-trial's last day to start one, or a license that names none; it needs no signer, so a tool checks a license before it reads a key.
 func (l License) Check() error {
 	switch {
-	case l.Kind != Org && l.Kind != Product && l.Kind != Trial:
-		return fmt.Errorf("%w: the kind %q is not %s, %s or %s", ErrNotTaken, l.Kind, Org, Product, Trial)
+	case l.Kind != Org && l.Kind != Product && l.Kind != Trial && l.Kind != ReleaseTrial:
+		return fmt.Errorf("%w: the kind %q is not %s, %s, %s or %s", ErrNotTaken, l.Kind, Org, Product, Trial, ReleaseTrial)
 	case l.ID == "" || strings.ContainsFunc(l.ID, unicode.IsSpace):
 		return fmt.Errorf("%w: its id %q is empty or holds a space", ErrNotTaken, l.ID)
 	case strings.TrimSpace(l.For) == "":
@@ -218,11 +265,36 @@ func (l License) Check() error {
 		return fmt.Errorf("%w: a product license names one product, not %d", ErrNotTaken, len(l.Products))
 	case l.Kind == Org && len(l.Products) == 0:
 		return fmt.Errorf("%w: an org license names its products", ErrNotTaken)
+	case l.Kind != ReleaseTrial && l.TrialDays != 0:
+		return fmt.Errorf("%w: a %s license has no days; only a release-trial has", ErrNotTaken, l.Kind)
+	case l.Kind != ReleaseTrial && l.Started != nil:
+		return fmt.Errorf("%w: a %s license has no started trial; only a release-trial's file has", ErrNotTaken, l.Kind)
+	case l.Kind == ReleaseTrial:
+		return l.checkReleaseTrial()
 	}
 	for product, ids := range l.Products {
 		if product == "" || len(ids) == 0 || slices.Contains(ids, "") {
 			return fmt.Errorf("%w: the product %q names no feature, or an empty one", ErrNotTaken, product)
 		}
+	}
+	return nil
+}
+
+// checkReleaseTrial refuses a release-trial that names other than its one product, names a feature id, runs no day, or started its trial after its last day to start one (ADR-L9).
+func (l License) checkReleaseTrial() error {
+	if len(l.Products) != 1 {
+		return fmt.Errorf("%w: a release-trial names one product, its app, not %d", ErrNotTaken, len(l.Products))
+	}
+	for product, ids := range l.Products {
+		if product == "" || len(ids) > 0 {
+			return fmt.Errorf("%w: a release-trial names its app's product id and no feature ids; it opens every enterprise feature of that app", ErrNotTaken)
+		}
+	}
+	switch {
+	case l.TrialDays < 1:
+		return fmt.Errorf("%w: a release-trial runs %d days, not 1 or more", ErrNotTaken, l.TrialDays)
+	case l.Started != nil && date(l.Started.Day).After(date(l.Until)):
+		return fmt.Errorf("%w: its trial started on %s, after %s, its last day to start one", ErrNotTaken, l.Started.Day.Format(day), l.Until.Format(day))
 	}
 	return nil
 }

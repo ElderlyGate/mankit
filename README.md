@@ -631,8 +631,9 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
 - A license file is a Resource (ADR-S15) whose spec is the payload's bytes as
   they were signed and the Ed25519 signature over them. Its one Go type is
   `licenses.License` (`ID`, `Kind`, `For`, `Products`, `Issued`, `Until`,
-  `KeyID`); what each field means is in contracts mankit/v1 `license-file` and
-  `license-payload`. `licenses.Sign(l, signer)` writes one,
+  `TrialDays`, `KeyID`, and `Started`, the unsigned record of the trial a
+  release-trial started); what each field means is in contracts mankit/v1
+  `license-file` and `license-payload`. `licenses.Sign(l, signer)` writes one,
   `licenses.Verify(raw, trust)` reads one.
 - `License.Check` refuses what `Sign` refuses, without a signer; see its
   [Go doc](https://pkg.go.dev/github.com/tugbayatilla/mankit/v4/licenses#License.Check).
@@ -643,8 +644,9 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
 - `Checker.Read` reads the org's `<home.OrgDir()>/license` and the app's
   `<app folder>/license` anew on every call. `Found.Has` and `Found.From` say
   whether and from where a feature is open; `Checker.Closer` is the license
-  closer of the feature list. `Taken.DaysLeft` and `Ended` are all it says
-  about time; when to warn is a threshold's (ADR-S23).
+  closer of the feature list. `Taken.LastDay`, `DaysLeft` and `Ended` are all
+  it says about time, a release-trial's counted from its started day; when to
+  warn is a threshold's (ADR-S23).
 - `<app> license show` answers contracts mankit/v1 `LicenseShow`
   (`Checker.Show`, the same for a Settings page). `<app> license add <file>`
   keeps a product license or trial key for the app, `--org` an org license for

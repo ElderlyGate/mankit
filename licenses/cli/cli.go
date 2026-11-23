@@ -63,7 +63,7 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		if err != nil {
 			return err
 		}
-		what := fmt.Sprintf("keep the %s license for %s until %s as %s, in %s%s", t.Kind, t.For, t.Until.Format("2006-01-02"), whose(*org, a.ID), t.File, replacing(found, t.File))
+		what := fmt.Sprintf("keep the %s license for %s until %s as %s, in %s%s", t.Kind, t.For, t.LastDay.Format("2006-01-02"), whose(*org, a.ID), t.File, replacing(found, t.File))
 		if err := confirm(cc, ask.Action{Type: ask.Settings, What: what, Name: "license"}); err != nil {
 			return err
 		}
@@ -87,7 +87,7 @@ func whose(org bool, app string) string {
 func replacing(f licenses.Found, path string) string {
 	for _, t := range f.Taken {
 		if t.File == path {
-			return fmt.Sprintf(", replacing the %s license for %s until %s", t.Kind, t.For, t.Until.Format("2006-01-02"))
+			return fmt.Sprintf(", replacing the %s license for %s until %s", t.Kind, t.For, t.LastDay.Format("2006-01-02"))
 		}
 	}
 	for _, r := range f.Refused {
