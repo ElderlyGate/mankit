@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   rule-dates:
-    uses: ElderlyGate/.github/.github/workflows/rule-dates.yml@main
+    uses: nayweelabs/.github/.github/workflows/rule-dates.yml@main
     # The org constitution keeps its rules in tech-stack.md at the root:
     # with:
     #   files: tech-stack.md
