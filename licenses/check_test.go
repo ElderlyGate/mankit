@@ -312,6 +312,18 @@ func TestAReleaseTrialRunsItsDaysFromItsStartedDay(t *testing.T) {
 	}
 }
 
+// A started day edited to before the key's issued day opens nothing before that issued day.
+func TestAReleaseTrialStartedBeforeItsIssuedDayOpensNothingEarly(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	put(t, productLicense(t), start(t, sign(t, k, releaseTrial), "2026-11-20"))
+	for today, want := range map[string][]string{"2026-11-22": {"edit"}, "2026-11-23": {"edit", "events", "sync"}} {
+		if got := on(t, list(checker(t, release, today))); !slices.Equal(got, want) {
+			t.Errorf("%s: on = %v, want %v", today, got, want)
+		}
+	}
+}
+
 // A release-trial with no started trial is the key as signed: it opens nothing, and its last day is its last day to start one.
 func TestAReleaseTrialNotStartedOpensNothing(t *testing.T) {
 	org(t)

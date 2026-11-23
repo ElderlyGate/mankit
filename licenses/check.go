@@ -171,7 +171,7 @@ func (l License) names(product string) bool {
 	return ok
 }
 
-// taken is l as it runs today: from its issued day to its until, a started release-trial from its started day for its days, and one not started opens nothing and ends once its last day to start one has passed.
+// taken is l as it runs today: from its issued day to its until, a started release-trial from its started day for its days but never before its issued day, and one not started opens nothing and ends once its last day to start one has passed.
 func (c *Checker) taken(l License, path string) Taken {
 	first, last, waiting := l.Issued, l.Until, false
 	if l.Kind == ReleaseTrial {
@@ -183,7 +183,7 @@ func (c *Checker) taken(l License, path string) Taken {
 		}
 	}
 	left := max(daysBetween(c.c.Now(), last)+1, 0)
-	early := waiting || daysBetween(first, c.c.Now()) < 0
+	early := waiting || daysBetween(first, c.c.Now()) < 0 || daysBetween(l.Issued, c.c.Now()) < 0
 	return Taken{License: l, File: path, LastDay: last, DaysLeft: left, Ended: left == 0, Early: early && left > 0}
 }
 
