@@ -210,6 +210,18 @@ func TestShowAReleaseTrialFromItsStartedDay(t *testing.T) {
 	}
 }
 
+// A paid license comes before a release-trial in state: running, licensed; ended, ended on the org license's last day.
+func TestShowAPaidLicenseBeforeAReleaseTrial(t *testing.T) {
+	for _, c := range []struct{ until, state, endedOn string }{{"2027-11-06", licenses.StateLicensed, ""}, {"2026-12-01", licenses.StateEnded, "2026-12-01"}} {
+		w := newWorld(t, "2026-12-07")
+		w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", c.until))
+		w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
+		if s := w.show(); s.State != c.state || s.EndedOn != c.endedOn || len(s.Licenses) != 2 || s.Licenses[1].Kind != licenses.ReleaseTrial || s.Licenses[1].Ended {
+			t.Fatalf("org until %s: show = %+v", c.until, s)
+		}
+	}
+}
+
 // A release-trial not started is the key as signed: listed with its last day to start a trial, it opens nothing and counts as none.
 func TestShowAReleaseTrialNotStarted(t *testing.T) {
 	w := newWorld(t, "2026-12-07")
