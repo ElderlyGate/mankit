@@ -17,6 +17,7 @@ jobs:
     # A public repo: GitHub's machines cost it nothing, and an own runner would run any fork's PR on the owner's Mac.
     name: github · linux
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # The whole history, so gorelease finds the release tags it compares with.
       - uses: actions/checkout@v4
