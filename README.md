@@ -672,8 +672,9 @@ added by a pull request that changes the file, and apps get it with the mankit
 release that follows. An app takes the keys only through `licenses.Trusted()`:
 a release takes the prod keys only, every other build the dev keys only
 (`build.Released()`, ADR-L5). It refuses a file that is not a list of keys, an
-id listed twice, or one id as both prod and dev. An app never builds its own
-list; `Config.Trust` takes another `Trust` for tests.
+id listed twice, or one id as both prod and dev, with `licenses.ErrTrustedKeys`.
+An app never builds its own list, which would skip ADR-L5; only a test hands
+`Config.Trust` its own.
 
 ## Events
 
