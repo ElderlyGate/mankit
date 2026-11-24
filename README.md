@@ -619,11 +619,8 @@ An enterprise feature (`features.Enterprise`) is locked until a license opens
 it (ADR-L1, L2). `licenses` checks them for every app; nw-license signs them.
 
 ```go
-c, err := licenses.New(licenses.Config{ID: "designer", Trust: licenses.Trust{
-	Release: build.Released(), // ADR-L5
-	Prod:    map[string]ed25519.PublicKey{"prod-2026": prodKey},
-	Dev:     map[string]ed25519.PublicKey{"dev-2026": devKey},
-}})
+trust, err := licenses.Trusted() // the org's keys for this build
+c, err := licenses.New(licenses.Config{ID: "designer", Trust: trust})
 list := features.New(all, store, c.Closer(all))
 root.AddCommand(cli.Command(app, c, list, asker.Ask))
 ```
@@ -665,6 +662,18 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
   `TrialStart` (`Outcome`: `started`, `renewed`, `kept`, `skipped` or
   `failed`, and a `Reason`) for the start log; a failed write leaves the old
   file whole and never stops the app.
+
+### Trusted keys
+
+`licenses/trusted.json` is the one home of the public keys every app trusts,
+prod and dev (ADR-L6): a list of `{"id", "publicKey", "build"}`, the key in
+base64 and the build `prod` or `dev`. It is built into mankit, so a key is
+added by a pull request that changes the file, and apps get it with the mankit
+release that follows. An app takes the keys only through `licenses.Trusted()`:
+a release takes the prod keys only, every other build the dev keys only
+(`build.Released()`, ADR-L5). It refuses a file that is not a list of keys, an
+id listed twice, or one id as both prod and dev. An app never builds its own
+list; `Config.Trust` takes another `Trust` for tests.
 
 ## Events
 
