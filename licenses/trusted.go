@@ -41,7 +41,7 @@ func refuse(name, format string, a ...any) error {
 // Trusted is the Trust every app hands its Checker: the org's keys from trusted.json, and whether this build is a release (ADR-L5).
 func Trusted() (Trust, error) { return readTrust("trusted.json", trusted, build.Released()) }
 
-// readTrust reads a list of trusted keys, or refuses it with ErrTrustedKeys: no single JSON list of keys, a key without an id or build, an id listed twice, one id as both prod and dev, or a key that is not an Ed25519 public key.
+// readTrust reads a list of trusted keys, or refuses it with ErrTrustedKeys: no single JSON list of keys, a key without an id, build or public key, an id listed twice, one id as both prod and dev, or a key that is not an Ed25519 public key.
 func readTrust(name string, raw []byte, release bool) (Trust, error) {
 	var keys []trustedKey
 	d := json.NewDecoder(bytes.NewReader(raw))
@@ -68,6 +68,9 @@ func readTrust(name string, raw []byte, release bool) (Trust, error) {
 		}
 		if k.ID == "" {
 			return Trust{}, refuse(name, "it lists a key without an id")
+		}
+		if len(k.PublicKey) == 0 {
+			return Trust{}, refuse(name, "the key %s has no public key", k.ID)
 		}
 		if _, twice := builds[k.ID]; twice {
 			return Trust{}, refuse(name, "it lists the key %s twice", k.ID)

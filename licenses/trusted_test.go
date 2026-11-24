@@ -81,7 +81,7 @@ func TestAWrongTrustedFileIsRefusedForItsOwnReason(t *testing.T) {
 		"twice.json":         "it lists the key acme-prod-1 twice",
 		"prod-and-dev.json":  "the key id acme-1 is both a prod and a dev key",
 		"short-key.json":     "the prod key acme-prod-1 is not an Ed25519 public key",
-		"no-key.json":        "the prod key acme-prod-1 is not an Ed25519 public key",
+		"no-key.json":        "the key acme-prod-1 has no public key",
 	}
 	files, err := filepath.Glob("testdata/refused/*.json")
 	if err != nil || len(files) != len(why) {
@@ -90,6 +90,10 @@ func TestAWrongTrustedFileIsRefusedForItsOwnReason(t *testing.T) {
 	for _, f := range files {
 		name := filepath.Base(f)
 		t.Run(name, func(t *testing.T) {
+			reason, ok := why[name]
+			if !ok {
+				t.Fatalf("%s has no reason in the table", name)
+			}
 			raw, err := os.ReadFile(f)
 			if err != nil {
 				t.Fatal(err)
@@ -98,8 +102,8 @@ func TestAWrongTrustedFileIsRefusedForItsOwnReason(t *testing.T) {
 			if !errors.Is(err, licenses.ErrTrustedKeys) {
 				t.Fatalf("ReadTrust = %v, want ErrTrustedKeys", err)
 			}
-			if prefix := "licenses: " + name + ": "; !strings.HasPrefix(err.Error(), prefix) || !strings.Contains(err.Error(), why[name]) {
-				t.Errorf("the error %q does not start %q and say %q", err, prefix, why[name])
+			if prefix := "licenses: " + name + ": "; !strings.HasPrefix(err.Error(), prefix) || !strings.Contains(err.Error(), reason) {
+				t.Errorf("the error %q does not start %q and say %q", err, prefix, reason)
 			}
 		})
 	}
