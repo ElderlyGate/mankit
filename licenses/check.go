@@ -27,7 +27,7 @@ const most = 64 << 10
 type Config struct {
 	ID     string
 	Folder string           // empty is ID
-	Trust  Trust            // Release is build.Released() (ADR-L5)
+	Trust  Trust            // an app hands in Trusted(); a test its own keys
 	Now    func() time.Time // nil is time.Now
 }
 
