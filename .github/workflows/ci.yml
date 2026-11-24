@@ -31,10 +31,12 @@ jobs:
           else
             echo "Only cards, designs or Markdown changed: no tests."
           fi
+      # Actions cache save hangs on our self-hosted runners; Go's module cache stays on the runner.
       - uses: actions/setup-go@v5
         if: steps.scope.outputs.code == 'true'
         with:
           go-version-file: go.mod
+          cache: false
       - name: vet
         if: steps.scope.outputs.code == 'true'
         run: go vet ./...
