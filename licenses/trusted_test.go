@@ -3,9 +3,11 @@ package licenses_test
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,23 +67,39 @@ func TestAnEmptyListTrustsNoKey(t *testing.T) {
 	}
 }
 
-func TestAWrongTrustedFileIsRefusedNamingIt(t *testing.T) {
+func TestAWrongTrustedFileIsRefusedForItsOwnReason(t *testing.T) {
+	why := map[string]string{
+		"cut-short.json":     "is not a list of keys: unexpected EOF",
+		"not-a-list.json":    "is not a list of keys: json: cannot unmarshal object",
+		"not-base64.json":    "illegal base64 data",
+		"unknown-field.json": `unknown field "until"`,
+		"null.json":          "it is not a list of keys",
+		"two-lists.json":     "it holds more than one list of keys",
+		"no-id.json":         "it lists a key without an id",
+		"no-build.json":      `has the build "", not prod or dev`,
+		"other-build.json":   `has the build "release", not prod or dev`,
+		"twice.json":         "it lists the key acme-prod-1 twice",
+		"prod-and-dev.json":  "the key id acme-1 is both a prod and a dev key",
+		"short-key.json":     "the prod key acme-prod-1 is not an Ed25519 public key",
+		"no-key.json":        "the prod key acme-prod-1 is not an Ed25519 public key",
+	}
 	files, err := filepath.Glob("testdata/refused/*.json")
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no refused files: %v", err)
+	if err != nil || len(files) != len(why) {
+		t.Fatalf("refused files %v (%v), want one per reason: %v", files, err, slices.Sorted(maps.Keys(why)))
 	}
 	for _, f := range files {
-		t.Run(filepath.Base(f), func(t *testing.T) {
+		name := filepath.Base(f)
+		t.Run(name, func(t *testing.T) {
 			raw, err := os.ReadFile(f)
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = licenses.ReadTrust(filepath.Base(f), raw, false)
-			if err == nil {
-				t.Fatal("taken, want refused")
+			_, err = licenses.ReadTrust(name, raw, false)
+			if !errors.Is(err, licenses.ErrTrustedKeys) {
+				t.Fatalf("ReadTrust = %v, want ErrTrustedKeys", err)
 			}
-			if !strings.Contains(err.Error(), filepath.Base(f)) {
-				t.Errorf("the error %q does not name the file", err)
+			if prefix := "licenses: " + name + ": "; !strings.HasPrefix(err.Error(), prefix) || !strings.Contains(err.Error(), why[name]) {
+				t.Errorf("the error %q does not start %q and say %q", err, prefix, why[name])
 			}
 		})
 	}

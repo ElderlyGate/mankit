@@ -79,19 +79,19 @@ type Trust struct {
 	Dev     map[string]ed25519.PublicKey
 }
 
-// check refuses keys that are not Ed25519 public keys, or an id both builds name.
+// check refuses keys that are not Ed25519 public keys, or an id both builds name; its caller says where they came from.
 func (t Trust) check() error {
 	for id, k := range t.Prod {
 		if _, both := t.Dev[id]; both {
-			return fmt.Errorf("licenses: the key id %s is both a prod and a dev key", id)
+			return fmt.Errorf("the key id %s is both a prod and a dev key", id)
 		}
 		if len(k) != ed25519.PublicKeySize {
-			return fmt.Errorf("licenses: the prod key %s is not an Ed25519 public key", id)
+			return fmt.Errorf("the prod key %s is not an Ed25519 public key", id)
 		}
 	}
 	for id, k := range t.Dev {
 		if len(k) != ed25519.PublicKeySize {
-			return fmt.Errorf("licenses: the dev key %s is not an Ed25519 public key", id)
+			return fmt.Errorf("the dev key %s is not an Ed25519 public key", id)
 		}
 	}
 	return nil

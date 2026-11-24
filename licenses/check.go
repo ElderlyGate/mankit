@@ -40,7 +40,7 @@ func New(c Config) (*Checker, error) {
 		return nil, errors.New("licenses: the app has no product ID")
 	}
 	if err := c.Trust.check(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("licenses: %w", err)
 	}
 	if c.Folder == "" {
 		c.Folder = c.ID
