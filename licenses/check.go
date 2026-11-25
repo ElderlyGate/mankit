@@ -27,7 +27,7 @@ const most = 64 << 10
 type Config struct {
 	ID     string
 	Folder string           // empty is ID
-	Trust  Trust            // Release is build.Released() (ADR-L5)
+	Trust  Trust            // Trusted() in every app, as a hand-built one skips ADR-L5; only a test hands in its own
 	Now    func() time.Time // nil is time.Now
 }
 
@@ -40,7 +40,7 @@ func New(c Config) (*Checker, error) {
 		return nil, errors.New("licenses: the app has no product ID")
 	}
 	if err := c.Trust.check(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("licenses: %w", err)
 	}
 	if c.Folder == "" {
 		c.Folder = c.ID
