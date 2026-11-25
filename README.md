@@ -1030,6 +1030,10 @@ CI runs [gorelease](https://pkg.go.dev/golang.org/x/exp/cmd/gorelease) on every
 pull request: a change that breaks the public API fails it, unless the module
 path itself moves to the next major (`/v4`), which is how a major is declared.
 
-## Licence
+## License
 
-MIT. See [LICENSE](LICENSE).
+Elastic License 2.0 (ELv2), see [LICENSE](LICENSE).
+You may use, copy and change this code. You may not offer it as a hosted or managed service,
+and you may not remove or get around its license keys.
+
+Versions released before this license was added were under the MIT licence.
