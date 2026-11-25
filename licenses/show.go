@@ -1,6 +1,7 @@
 package licenses
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/features"
@@ -19,10 +20,15 @@ const (
 	StateEnded      = "ended"
 )
 
+// TrialWarnDays is how many last days of a running trial warn, the last day among them (the owner's license-badge decision of 25 Nov).
+const TrialWarnDays = 3
+
 // Show is the `<app> license show` answer, the same for the CLI, its JSON and the License group of the app's Settings page (ADR-L8).
 type Show struct {
 	State    string       `json:"state" yaml:"state"`
 	EndedOn  string       `json:"endedOn,omitempty" yaml:"endedOn,omitempty"`
+	Sentence string       `json:"sentence,omitempty" yaml:"sentence,omitempty"`
+	Warn     bool         `json:"warn" yaml:"warn"`
 	Build    Build        `json:"build" yaml:"build"`
 	Licenses []ShownFile  `json:"licenses" yaml:"licenses"`
 	Refused  []RefusedRow `json:"refused" yaml:"refused"`
@@ -126,7 +132,48 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 		}
 		out.Features = append(out.Features, row)
 	}
+	out.Sentence, out.Warn = says(out, c.c.Title)
 	return out, nil
+}
+
+// says is the owner's sentence for the state of s, naming the app as name, empty for a state it has none for, and whether that state warns.
+func says(s Show, name string) (string, bool) {
+	switch s.State {
+	case StateTrial:
+		for _, l := range s.Licenses {
+			// Only a running trial's row has a window.
+			if l.Window == nil {
+				continue
+			}
+			ends := l.Until
+			if l.TrialEnds != "" {
+				ends = l.TrialEnds
+			}
+			days := "days"
+			if l.DaysLeft == 1 {
+				days = "day"
+			}
+			return fmt.Sprintf("Trial: %d %s left (ends %s)", l.DaysLeft, days, ends), l.DaysLeft <= TrialWarnDays
+		}
+	case StateTrialEnded:
+		return "Your trial has ended. Buy a license to keep the paid features.", true
+	case StateEnded:
+		return "", true
+	case StateLicensed:
+		for _, l := range s.Licenses {
+			// The license names no product line yet (ADR-L10), so the line waits for the purchase MVP.
+			if (l.Kind == Org || l.Kind == Product) && !l.Ended {
+				return fmt.Sprintf("Licensed to %s · %s", l.For, name), false
+			}
+		}
+	case StateNone:
+		for _, l := range s.Licenses {
+			if l.Kind == ReleaseTrial && l.TrialEnds == "" && l.Ended {
+				return "This version doesn't include a free trial anymore. Download the latest version to try " + name + ".", false
+			}
+		}
+	}
+	return "", false
 }
 
 // state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key or release-trial, else an ended one, else none; one not begun, or a release-trial not started, counts as none. When it is ended, the day is the latest last day of the ended paid licenses.

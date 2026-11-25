@@ -37,7 +37,7 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		if err := showOut.Check(); err != nil {
 			return err
 		}
-		return answer(cc, showOut, a.Name(), c, list)
+		return answer(cc, showOut, c, list)
 	}
 	add := &cobra.Command{
 		Use:   "add <file>",
@@ -70,7 +70,7 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		if _, err := c.Add(cc.Context(), raw, *org); err != nil {
 			return err
 		}
-		return answer(cc, addOut, a.Name(), c, list)
+		return answer(cc, addOut, c, list)
 	}
 	cmd.AddCommand(show, add)
 	return cmd
@@ -107,16 +107,16 @@ func failAt(err error, file string) error {
 	return err
 }
 
-// answer prints the license show answer: the envelope with -o json or yaml, else what it says for the app named name and its tables.
-func answer(cc *cobra.Command, out serve.Printer, name string, c *licenses.Checker, list *features.List) error {
+// answer prints the license show answer: the envelope with -o json or yaml, else its sentence and its tables.
+func answer(cc *cobra.Command, out serve.Printer, c *licenses.Checker, list *features.List) error {
 	s, err := c.Show(list)
 	if err != nil {
 		return err
 	}
 	return out.Print(cc.OutOrStdout(), "", licenses.ShowKind, s, func(w io.Writer) {
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		if line := says(s, name); line != "" {
-			fmt.Fprintf(tw, "%s\n\n", line)
+		if s.Sentence != "" {
+			fmt.Fprintf(tw, "%s\n\n", s.Sentence)
 		}
 		fmt.Fprintf(tw, "STATE\t%s\nRELEASE\t%t\n\n", s.State, s.Build.Release)
 		if len(s.Licenses) > 0 {
@@ -142,44 +142,6 @@ func answer(cc *cobra.Command, out serve.Printer, name string, c *licenses.Check
 		}
 		_ = tw.Flush()
 	})
-}
-
-// says is the owner's sentence for the state of s, naming the app as name; empty for a state it has none for.
-func says(s licenses.Show, name string) string {
-	switch s.State {
-	case licenses.StateTrial:
-		for _, l := range s.Licenses {
-			// Only a running trial's row has a window.
-			if l.Window == nil {
-				continue
-			}
-			ends := l.Until
-			if l.TrialEnds != "" {
-				ends = l.TrialEnds
-			}
-			days := "days"
-			if l.DaysLeft == 1 {
-				days = "day"
-			}
-			return fmt.Sprintf("Trial: %d %s left (ends %s)", l.DaysLeft, days, ends)
-		}
-	case licenses.StateTrialEnded:
-		return "Your trial has ended. Buy a license to keep the paid features."
-	case licenses.StateLicensed:
-		for _, l := range s.Licenses {
-			// The license names no product line yet (ADR-L10), so the line waits for the purchase MVP.
-			if (l.Kind == licenses.Org || l.Kind == licenses.Product) && !l.Ended {
-				return fmt.Sprintf("Licensed to %s · %s", l.For, name)
-			}
-		}
-	case licenses.StateNone:
-		for _, l := range s.Licenses {
-			if l.Kind == licenses.ReleaseTrial && l.TrialEnds == "" && l.Ended {
-				return "This version doesn't include a free trial anymore. Download the latest version to try " + name + "."
-			}
-		}
-	}
-	return ""
 }
 
 // ends is the day a row's UNTIL column shows: a release-trial's trial end once started, else its offer end, as contracts mankit/v1 license-show says; every other kind's until.
