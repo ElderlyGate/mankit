@@ -26,7 +26,7 @@ const most = 64 << 10
 // Config is what a Checker needs from its app: the product ID licenses name, the name its license show sentence says, its folder under the org's config folder when the two differ, and the keys its build trusts.
 type Config struct {
 	ID     string
-	Title  string           // the app's name people read, as serve.App's Title; empty is ID
+	Title  string           // the app's name people read, filled from serve.App.Name() by licenses/cli.Checker, the way apps build their Checker
 	Folder string           // empty is ID
 	Trust  Trust            // Trusted() in every app, as a hand-built one skips ADR-L5; only a test hands in its own
 	Now    func() time.Time // nil is time.Now
@@ -45,9 +45,6 @@ func New(c Config) (*Checker, error) {
 	}
 	if c.Folder == "" {
 		c.Folder = c.ID
-	}
-	if c.Title == "" {
-		c.Title = c.ID
 	}
 	if c.Now == nil {
 		c.Now = time.Now

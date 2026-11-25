@@ -49,6 +49,7 @@ type world struct {
 	trust licenses.Trust
 	today string
 	asked string // what the last question said
+	app   serve.App
 }
 
 func newWorld(t *testing.T, today string) *world {
@@ -56,7 +57,8 @@ func newWorld(t *testing.T, today string) *world {
 	t.Setenv("XDG_CONFIG_HOME", base)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	return &world{t: t, dir: filepath.Join(base, "elderlygate"), org: filepath.Join(base, "elderlygate-dev"), keys: keys{"prod-2026": priv}, today: today,
-		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"prod-2026": pub}}}
+		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"prod-2026": pub}},
+		app:   serve.App{ID: "designer", Title: "Designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}}
 }
 
 func day(s string) time.Time { d, _ := time.Parse("2006-01-02", s); return d }
@@ -87,13 +89,13 @@ func (w *world) putIn(dir, rel string, raw []byte) {
 // run runs `license` words as an app mounts the thing; the events feature is switched on, as an owner would.
 func (w *world) run(words ...string) (string, error) {
 	w.t.Helper()
-	c, err := licenses.New(licenses.Config{ID: "designer", Title: "Designer", Trust: w.trust, Now: func() time.Time { return day(w.today) }})
+	cli.SetNow(w.t, func() time.Time { return day(w.today) })
+	c, err := cli.Checker(w.app, w.trust)
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	store := features.Store{Off: func() ([]string, error) { return nil, nil }, Keep: func(string, bool) error { return nil }, On: func() ([]string, error) { return []string{"events"}, nil }}
 	list := features.New(all, store, c.Closer(all))
-	app := serve.App{ID: "designer", Title: "Designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 	asked := func(cc *cobra.Command, a ask.Action) error {
 		w.asked = a.What
 		if f := cc.Flags().Lookup("yes"); f == nil || f.Value.String() != "true" {
@@ -102,7 +104,7 @@ func (w *world) run(words ...string) (string, error) {
 		return nil
 	}
 	root := &cobra.Command{Use: "e-designer", SilenceUsage: true, SilenceErrors: true}
-	root.AddCommand(cli.Command(app, c, list, asked))
+	root.AddCommand(cli.Command(w.app, c, list, asked))
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetArgs(append([]string{"license"}, words...))
@@ -309,6 +311,18 @@ func TestShowSaysTheStateInTheOwnersWords(t *testing.T) {
 		out, err := w.run("show")
 		if err != nil || !strings.HasPrefix(out, c.says+"\n\nSTATE") {
 			t.Fatalf("%s: err = %v, out =\n%s", c.name, err, out)
+		}
+	}
+}
+
+// The sentence names the app as serve.App does: its title, else its ID.
+func TestShowSaysTheAppsName(t *testing.T) {
+	for _, c := range []struct{ title, says string }{{"Designer", "Licensed to Acme Ltd · Designer"}, {"", "Licensed to Acme Ltd · designer"}} {
+		w := newWorld(t, "2026-12-07")
+		w.app.Title = c.title
+		w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+		if s := w.show(); s.Sentence != c.says {
+			t.Fatalf("title %q: sentence %q", c.title, s.Sentence)
 		}
 	}
 }

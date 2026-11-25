@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +17,14 @@ import (
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/serve"
 )
+
+// now is the day the Checker reads by; nil is time.Now, and only a test hands in its own.
+var now func() time.Time
+
+// Checker is the one way an app builds its license Checker, so its ID, title and folder come from a alone; trust is licenses.Trusted() in every app.
+func Checker(a serve.App, trust licenses.Trust) (*licenses.Checker, error) {
+	return licenses.New(licenses.Config{ID: a.ID, Title: a.Name(), Folder: a.Folder, Trust: trust, Now: now})
+}
 
 // Command is the thing license of app a, printed through serve's Printer so every app answers alike: c reads its licenses, list holds its features closed by c's Closer, and add asks with confirm.
 func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
