@@ -56,15 +56,15 @@ func newWorld(t *testing.T, today string) *world {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", base)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	return &world{t: t, dir: filepath.Join(base, "elderlygate"), org: filepath.Join(base, "elderlygate-dev"), keys: keys{"prod-2026": priv}, today: today,
-		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"prod-2026": pub}},
+	return &world{t: t, dir: filepath.Join(base, "elderlygate"), org: filepath.Join(base, "elderlygate-dev"), keys: keys{"test-2026": priv}, today: today,
+		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"test-2026": pub}},
 		app:   serve.App{ID: "designer", Title: "Designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}}
 }
 
 func day(s string) time.Time { d, _ := time.Parse("2006-01-02", s); return d }
 
 func (w *world) sign(kind licenses.Kind, products map[string][]string, issued, until string) []byte {
-	raw, err := licenses.Sign(licenses.License{ID: "acme-2026", Kind: kind, For: "Acme Ltd", Products: products, Issued: day(issued), Until: day(until), KeyID: "prod-2026"}, w.keys)
+	raw, err := licenses.Sign(licenses.License{ID: "acme-2026", Kind: kind, For: "Acme Ltd", Products: products, Issued: day(issued), Until: day(until), KeyID: "test-2026"}, w.keys)
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestShowATrialKeyWithItsWindow(t *testing.T) {
 
 // releaseTrial is designer's release-trial key, started on the day when started is not empty, as the app writes it beside the signed payload.
 func (w *world) releaseTrial(started string) []byte {
-	raw, err := licenses.Sign(licenses.License{ID: "designer-v1.2.0-trial", Kind: licenses.ReleaseTrial, For: "designer v1.2.0", Products: map[string][]string{"designer": nil}, Issued: day("2026-11-23"), Until: day("2027-11-23"), TrialDays: 14, KeyID: "prod-2026"}, w.keys)
+	raw, err := licenses.Sign(licenses.License{ID: "designer-v1.2.0-trial", Kind: licenses.ReleaseTrial, For: "designer v1.2.0", Products: map[string][]string{"designer": nil}, Issued: day("2026-11-23"), Until: day("2027-11-23"), TrialDays: 14, KeyID: "test-2026"}, w.keys)
 	if err != nil || started == "" {
 		return raw
 	}
