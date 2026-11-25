@@ -157,7 +157,11 @@ func says(s licenses.Show, name string) string {
 			if l.TrialEnds != "" {
 				ends = l.TrialEnds
 			}
-			return fmt.Sprintf("Trial: %d days left (ends %s)", l.DaysLeft, ends)
+			days := "days"
+			if l.DaysLeft == 1 {
+				days = "day"
+			}
+			return fmt.Sprintf("Trial: %d %s left (ends %s)", l.DaysLeft, days, ends)
 		}
 	case licenses.StateTrialEnded:
 		return "Your trial has ended. Buy a license to keep the paid features."

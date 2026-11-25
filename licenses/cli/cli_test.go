@@ -271,6 +271,9 @@ func TestShowSaysTheStateInTheOwnersWords(t *testing.T) {
 		{"a release-trial running", "2026-12-07", "Trial: 10 days left (ends 2026-12-16)", func(w *world) {
 			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
 		}},
+		{"a release-trial on its last day", "2026-12-16", "Trial: 1 day left (ends 2026-12-16)", func(w *world) {
+			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
+		}},
 		{"a release-trial ended", "2026-12-17", "Your trial has ended. Buy a license to keep the paid features.", func(w *world) {
 			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
 		}},
