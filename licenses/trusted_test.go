@@ -28,6 +28,22 @@ func TestTheShippedTrustedKeysLoad(t *testing.T) {
 	}
 }
 
+func TestTheShippedProdKeyIsTakenByAReleaseOnly(t *testing.T) {
+	for _, release := range []bool{true, false} {
+		trust, err := licenses.ReadTrust("trusted.json", licenses.Shipped, release)
+		if err != nil {
+			t.Fatalf("release %v: %v", release, err)
+		}
+		_, err = licenses.TrustKey(trust, "prod-2026")
+		if release && err != nil {
+			t.Errorf("a release refuses the prod key prod-2026: %v", err)
+		}
+		if !release && reason(err) != licenses.ReasonOtherBuild {
+			t.Errorf("a dev build takes the prod key prod-2026: %v, want %s", err, licenses.ReasonOtherBuild)
+		}
+	}
+}
+
 func TestTrustedKeysAreSplitByBuild(t *testing.T) {
 	raw, err := os.ReadFile("testdata/trusted.json")
 	if err != nil {
