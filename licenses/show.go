@@ -17,6 +17,7 @@ const (
 	StateTrial      = "trial"
 	StateTrialEnded = "trial-ended"
 	StateLicensed   = "licensed"
+	StateEnding     = "ending"
 	StateEnded      = "ended"
 )
 
@@ -154,7 +155,7 @@ func says(s Show, name string) (string, bool) {
 		}
 	case StateTrialEnded:
 		return "Your trial has ended. Buy a license to keep the paid features.", true
-	case StateEnded:
+	case StateEnded, StateEnding:
 		return "", true
 	case StateLicensed:
 		for _, l := range s.Licenses {
@@ -173,9 +174,9 @@ func says(s Show, name string) (string, bool) {
 	return "", false
 }
 
-// state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key or release-trial, else an ended one, else none; one not begun, or a release-trial not started, counts as none. When it is ended, the day is the latest last day of the ended paid licenses.
+// state is one word for the app: a running paid license, ending once any running one is within LicenseExpiring's paid point, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key or release-trial, else an ended one, else none; one not begun, or a release-trial not started, counts as none. When it is ended, the day is the latest last day of the ended paid licenses.
 func (f Found) state() (string, time.Time) {
-	var paid, ended, trial, trialEnded bool
+	var paid, ending, ended, trial, trialEnded bool
 	var endedOn time.Time
 	for _, t := range f.Taken {
 		isTrial := t.Kind == Trial || t.Kind == ReleaseTrial
@@ -192,9 +193,12 @@ func (f Found) state() (string, time.Time) {
 			}
 		case t.Running():
 			paid = true
+			ending = ending || LicenseExpiring.Warns(t.Kind, t.DaysLeft)
 		}
 	}
 	switch {
+	case ending:
+		return StateEnding, time.Time{}
 	case paid:
 		return StateLicensed, time.Time{}
 	case ended:
