@@ -12,7 +12,7 @@ import (
 
 // The server link command: the link that opens a server's page.
 
-const linkSchema = "mankit/v1/link.schema.json"
+const linkSchema = "mankit/v2/link.schema.json"
 
 // Success
 

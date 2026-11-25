@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/ask"
 	"go.naywee.com/mankit/v5/problem"
@@ -81,7 +81,7 @@ func TestUnfinishedClearAnswersInItsContractShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := contracts.Validate("mankit/v1/store-unfinished-cleared.schema.json", []byte(out)); err != nil {
+	if err := contracts.Validate("mankit/v2/store-unfinished-cleared.schema.json", []byte(out)); err != nil {
 		t.Fatalf("not a StoreUnfinishedCleared: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, `"thing": "shop"`) || !strings.Contains(out, journal) {
@@ -231,7 +231,7 @@ func TestUnfinishedClearOverHTTPAsksAndAnswersAsTheCLI(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("DELETE = %d %s", w.Code, w.Body)
 	}
-	if err := contracts.Validate("mankit/v1/store-unfinished-cleared.schema.json", w.Body.Bytes()); err != nil || !strings.Contains(w.Body.String(), journal) {
+	if err := contracts.Validate("mankit/v2/store-unfinished-cleared.schema.json", w.Body.Bytes()); err != nil || !strings.Contains(w.Body.String(), journal) {
 		t.Fatalf("not a StoreUnfinishedCleared naming the journal: %v\n%s", err, w.Body)
 	}
 	if got := idsOf(t, s, "shop"); len(got) != 1 || got[0] != "17000000000000000001" {

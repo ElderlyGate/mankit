@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/licenses"
 )
@@ -97,7 +97,7 @@ func TestWithNoLicenseTheBuiltInTrialStarts(t *testing.T) {
 		t.Fatalf("file = %s", got.File)
 	}
 	raw, _ := read(t)
-	if err := contracts.Validate("mankit/v1/license-file.schema.json", raw); err != nil {
+	if err := contracts.Validate("mankit/v2/license-file.schema.json", raw); err != nil {
 		t.Fatalf("the written file does not meet its schema: %v\n%s", err, raw)
 	}
 	tk := started(t, release, "2026-12-03")

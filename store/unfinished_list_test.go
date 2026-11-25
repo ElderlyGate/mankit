@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/ask"
 	"go.naywee.com/mankit/v5/helpout"
@@ -165,7 +165,7 @@ func TestUnfinishedListAnswersInItsContractShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := contracts.Validate("mankit/v1/store-unfinished-list.schema.json", []byte(empty)); err != nil || !strings.Contains(empty, `"changes": []`) {
+	if err := contracts.Validate("mankit/v2/store-unfinished-list.schema.json", []byte(empty)); err != nil || !strings.Contains(empty, `"changes": []`) {
 		t.Fatalf("an empty list: %v\n%s", err, empty)
 	}
 	cutShort(t, s, 5)
@@ -177,7 +177,7 @@ func TestUnfinishedListAnswersInItsContractShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := contracts.Validate("mankit/v1/store-unfinished-list.schema.json", []byte(out)); err != nil {
+	if err := contracts.Validate("mankit/v2/store-unfinished-list.schema.json", []byte(out)); err != nil {
 		t.Fatalf("not a StoreUnfinishedList: %v\n%s", err, out)
 	}
 	for _, says := range []string{`"left": true`, `"folder": true`, `"user": "alice"`} {
@@ -229,7 +229,7 @@ func TestUnfinishedListOverHTTPAnswersAsTheCLI(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("GET%s = %d %s", q, w.Code, w.Body)
 		}
-		if err := contracts.Validate("mankit/v1/store-unfinished-list.schema.json", w.Body.Bytes()); err != nil {
+		if err := contracts.Validate("mankit/v2/store-unfinished-list.schema.json", w.Body.Bytes()); err != nil {
 			t.Fatalf("GET%s is not a StoreUnfinishedList: %v\n%s", q, err, w.Body)
 		}
 		words := []string{"list", "-o", "json"}

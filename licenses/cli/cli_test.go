@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/ask"
 	"go.naywee.com/mankit/v5/features"
@@ -25,7 +25,7 @@ import (
 	"go.naywee.com/mankit/v5/serve"
 )
 
-const schema = "mankit/v1/license-show.schema.json"
+const schema = "mankit/v2/license-show.schema.json"
 
 var all = []features.Feature{
 	{ID: "edit", Title: "Change a design", Covers: "apply and edit"},
@@ -112,7 +112,7 @@ func (w *world) run(words ...string) (string, error) {
 	return out.String(), err
 }
 
-// show is `license show -o json`, checked against contracts mankit/v1 LicenseShow, and its data.
+// show is `license show -o json`, checked against contracts mankit/v2 LicenseShow, and its data.
 func (w *world) show() licenses.Show {
 	w.t.Helper()
 	out, err := w.run("show", "-o", "json")
@@ -195,7 +195,7 @@ func (w *world) releaseTrial(started string) []byte {
 	return raw
 }
 
-// A started release-trial shows its trial's last day, not the key's, and the days left of its window (contracts mankit/v1 license-show).
+// A started release-trial shows its trial's last day, not the key's, and the days left of its window (contracts mankit/v2 license-show).
 func TestShowAReleaseTrialFromItsStartedDay(t *testing.T) {
 	w := newWorld(t, "2026-12-07")
 	w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
@@ -239,7 +239,7 @@ func TestShowAReleaseTrialNotStarted(t *testing.T) {
 	}
 }
 
-// A release-trial always shows its offer's end, the key's own until, and its trial's end only once started (contracts mankit/v1 license-show).
+// A release-trial always shows its offer's end, the key's own until, and its trial's end only once started (contracts mankit/v2 license-show).
 func TestShowAReleaseTrialsOfferAndTrialEnds(t *testing.T) {
 	for _, c := range []struct{ started, trialEnds string }{{"", ""}, {"2026-12-03", "2026-12-16"}} {
 		w := newWorld(t, "2026-12-07")

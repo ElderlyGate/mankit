@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/home"
 	"go.naywee.com/mankit/v5/problem"
@@ -329,7 +329,7 @@ func markOf(t *testing.T, line, user, host string, folder bool, keys ...string) 
 		m["spec"].(map[string]any)["folder"] = true
 	}
 	data, _ := json.Marshal(m)
-	if err := contracts.Validate("mankit/v1/store-unfinished.schema.json", data); err != nil {
+	if err := contracts.Validate("mankit/v2/store-unfinished.schema.json", data); err != nil {
 		t.Fatalf("the test's own mark: %v", err)
 	}
 	dir := filepath.Join(line, ".queue")
@@ -435,9 +435,9 @@ func TestTheJournalAndTheMarksAreInTheirContractShape(t *testing.T) {
 	raw, _ := os.ReadFile(journal)
 	scan := bufio.NewScanner(bytes.NewReader(raw))
 	for n := 0; scan.Scan(); n++ {
-		schema := "mankit/v1/store-journal-change.schema.json"
+		schema := "mankit/v2/store-journal-change.schema.json"
 		if n == 0 {
-			schema = "mankit/v1/store-journal.schema.json"
+			schema = "mankit/v2/store-journal.schema.json"
 		}
 		if err := contracts.Validate(schema, scan.Bytes()); err != nil {
 			t.Fatalf("journal line %d %s: %v", n+1, scan.Bytes(), err)
@@ -448,7 +448,7 @@ func TestTheJournalAndTheMarksAreInTheirContractShape(t *testing.T) {
 	}
 	for _, m := range marks {
 		data, _ := os.ReadFile(m)
-		if err := contracts.Validate("mankit/v1/store-unfinished.schema.json", data); err != nil {
+		if err := contracts.Validate("mankit/v2/store-unfinished.schema.json", data); err != nil {
 			t.Fatalf("%s: %v", m, err)
 		}
 	}

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/features"
 	"go.naywee.com/mankit/v5/home"
@@ -67,7 +67,7 @@ func TestServeInTheForegroundLeavesARecordUntilItStops(t *testing.T) {
 	if !strings.Contains(out.String(), "e-designer server link "+addr) {
 		t.Fatalf("it does not say where the link is: %q", out.String())
 	}
-	list, _ := answer(t, "mankit/v1/server-list.schema.json", "server", "list").Data.([]any)
+	list, _ := answer(t, "mankit/v2/server-list.schema.json", "server", "list").Data.([]any)
 	if len(list) != 1 || list[0].(map[string]any)["record"].(map[string]any)["spec"].(map[string]any)["detached"] != false {
 		t.Fatalf("servers lists %v", list)
 	}
@@ -326,10 +326,10 @@ func TestServeDetachAnswersLikeHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	if e.Source != (serve.Source{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}) {
-		t.Fatalf("ran %+v", e.Source)
+		t.Fatalf("source %+v", e.Source)
 	}
 	raw, _ := json.Marshal(e.Data)
-	if err := contracts.Validate("mankit/v1/server.schema.json", raw); err != nil {
+	if err := contracts.Validate("mankit/v2/server.schema.json", raw); err != nil {
 		t.Fatal(err)
 	}
 }

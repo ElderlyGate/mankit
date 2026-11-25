@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/helpout"
 	"go.naywee.com/mankit/v5/helpout/helptest"
@@ -20,7 +20,7 @@ import (
 
 // The servers command: every server of the app on this machine.
 
-const listSchema = "mankit/v1/server-list.schema.json"
+const listSchema = "mankit/v2/server-list.schema.json"
 
 // Success
 
@@ -170,7 +170,7 @@ func TestTheOldServersFormsRunTheirFullForms(t *testing.T) {
 	})
 }
 
-// help -o json, printed through the app's Printer, is contracts mankit/v1's Help in the app's envelope.
+// help -o json, printed through the app's Printer, is contracts mankit/v2's Help in the app's envelope.
 func TestHelpAsJSONIsTheHelpAnswer(t *testing.T) {
 	r := root(nil)
 	helpout.Apply(r, helpout.Info{What: "a test app", Start: []string{"e-designer serve"}, More: "https://github.com/nayweelabs/e-designer",
@@ -182,7 +182,7 @@ func TestHelpAsJSONIsTheHelpAnswer(t *testing.T) {
 	if code, err := helpout.Execute(context.Background(), r); code != 0 || err != nil {
 		t.Fatalf("code %d, err %v, stderr %s", code, err, errOut.String())
 	}
-	if err := contracts.Validate("mankit/v1/help.schema.json", out.Bytes()); err != nil {
+	if err := contracts.Validate("mankit/v2/help.schema.json", out.Bytes()); err != nil {
 		t.Fatalf("not a Help answer: %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), `"words": "servers stop"`) || !strings.Contains(out.String(), `"now": "server stop"`) {

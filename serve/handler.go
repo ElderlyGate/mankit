@@ -93,7 +93,7 @@ type Site struct {
 	Telemetry logs.Exporter
 }
 
-// VersionData is the data of the GET /api/version answer (contracts version/v1): the app, its build and the contract the answer is in are in its ran.
+// VersionData is the data of the GET /api/version answer (contracts version/v1): the app, its build and the contract the answer is in are in its source.
 type VersionData struct {
 	SupportedContracts []string `json:"supportedContracts"`
 }
@@ -121,9 +121,8 @@ func (a App) Handler(site Site, hosts []string) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		s := answering(r, "")
-		// version/v1 stays on envelope/v1 for good, whatever contract the app answers in.
 		e := a.Answer(s.name, s.contract, VersionKind, VersionData{SupportedContracts: a.versions()})
-		e.APIVersion, e.form = VersionAPIVersion, "v1"
+		e.APIVersion = VersionAPIVersion
 		writeEnvelope(w, http.StatusOK, e)
 	})
 	parts, err := attached(site.Features)

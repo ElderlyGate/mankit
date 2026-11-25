@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/home"
 	"go.naywee.com/mankit/v5/serve"
@@ -88,7 +88,7 @@ func TestAProgramOnAnotherHostKeepsTheEnvelope(t *testing.T) {
 		if w.Code != http.StatusForbidden || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
 			t.Fatalf("%s: status %d, %s", target, w.Code, w.Header().Get("Content-Type"))
 		}
-		if err := contracts.Validate("envelope/v1/envelope.schema.json", w.Body.Bytes()); err != nil {
+		if err := contracts.Validate("envelope/v2/envelope.schema.json", w.Body.Bytes()); err != nil {
 			t.Errorf("%s: not the envelope: %v\n%s", target, err, w.Body)
 		}
 	}

@@ -4,45 +4,46 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/problem"
 	"go.naywee.com/mankit/v5/serve"
 )
 
-// moved is designer answering v1 in envelope/v1 and v2 in envelope/v2, as an app that moved with its next contract.
-var moved = serve.App{ID: "designer", Command: "e-designer", Version: "6.0.0", Contracts: []serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v2"}}, Addr: "127.0.0.1:0"}
+// both is designer answering contracts v1 and v2, each in envelope/v2.
+var both = serve.App{ID: "designer", Command: "e-designer", Version: "6.0.0", Contracts: []serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v2"}}, Addr: "127.0.0.1:0"}
 
-func movedHandler(t *testing.T) http.Handler {
+func bothHandler(t *testing.T) http.Handler {
 	t.Helper()
-	h, err := serveHandler(t, moved, site(nil), nil)
+	h, err := serveHandler(t, both, site(nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return h
 }
 
-func TestAnAppAnswersEachContractInItsOwnEnvelope(t *testing.T) {
-	h := movedHandler(t)
-	for contract, schema := range map[string]string{"v1": "envelope/v1/envelope.schema.json", "v2": "envelope/v2/envelope.schema.json"} {
+func TestEveryContractAnswersInEnvelopeV2(t *testing.T) {
+	h := bothHandler(t)
+	for _, contract := range []string{"v1", "v2"} {
 		for _, c := range []struct{ method, target string }{{"GET", "/api/greeting"}, {"DELETE", "/api/greeting?confirm=yes"}, {"GET", "/api/nothing"}} {
 			body := call(t, h, c.method, c.target, "", map[string]string{serve.ContractHeader: contract}).Body.Bytes()
-			if err := contracts.Validate(schema, body); err != nil {
-				t.Errorf("%s %s in %s: not %s: %v\n%s", c.method, c.target, contract, schema, err, body)
+			if err := contracts.Validate("envelope/v2/envelope.schema.json", body); err != nil {
+				t.Errorf("%s %s in %s: not envelope/v2: %v\n%s", c.method, c.target, contract, err, body)
+			}
+			var e serve.Envelope
+			if err := json.Unmarshal(body, &e); err != nil || e.Source.Contract != contract {
+				t.Errorf("%s %s in %s: source %+v, %v", c.method, c.target, contract, e.Source, err)
 			}
 		}
 	}
 }
 
 func TestAProblemMeetsProblemV1(t *testing.T) {
-	body := call(t, movedHandler(t), "GET", "/api/nothing", "", nil).Body.Bytes()
+	body := call(t, bothHandler(t), "GET", "/api/nothing", "", nil).Body.Bytes()
 	var e struct {
 		Errors []json.RawMessage `json:"errors"`
 	}
@@ -54,40 +55,40 @@ func TestAProblemMeetsProblemV1(t *testing.T) {
 	}
 }
 
-// A refusal of the guard is in the contract the reader asked for when the app serves it, so a v1 reader can read it (CT-RULE-1).
+// A refusal of the guard is in the contract the reader asked for when the app serves it, else in the default (CT-RULE-1).
 func TestTheGuardRefusesInTheContractAskedFor(t *testing.T) {
-	h := movedHandler(t)
-	for asked, schema := range map[string]string{"v1": "envelope/v1/envelope.schema.json", "v2": "envelope/v2/envelope.schema.json", "": "envelope/v2/envelope.schema.json", "v9": "envelope/v2/envelope.schema.json"} {
+	h := bothHandler(t)
+	for asked, want := range map[string]string{"v1": "v1", "v2": "v2", "": "v2", "v9": "v2"} {
 		w := call(t, h, "GET", "/api/greeting", "", map[string]string{"Authorization": "Bearer wrong", serve.ContractHeader: asked})
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("asked %q: status %d", asked, w.Code)
 		}
-		if err := contracts.Validate(schema, w.Body.Bytes()); err != nil {
-			t.Errorf("asked %q: not %s: %v\n%s", asked, schema, err, w.Body)
+		if err := contracts.Validate("envelope/v2/envelope.schema.json", w.Body.Bytes()); err != nil {
+			t.Errorf("asked %q: not envelope/v2: %v\n%s", asked, err, w.Body)
 		}
 		var e serve.Envelope
-		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || len(e.Errors) != 1 || e.Errors[0].Type != problem.TypeRefused || e.Errors[0].Reason != serve.ReasonToken {
-			t.Errorf("asked %q: %+v, %v", asked, e.Errors, err)
+		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || len(e.Errors) != 1 || e.Errors[0].Type != problem.TypeRefused || e.Errors[0].Reason != serve.ReasonToken || e.Source.Contract != want {
+			t.Errorf("asked %q: %+v %+v, %v", asked, e.Source, e.Errors, err)
 		}
 	}
 }
 
-// servers finds this app on a port whether its token refusal is in envelope/v1 (an app on mankit v2) or envelope/v2.
-func TestServersFindsTheAppInEitherEnvelope(t *testing.T) {
-	v1, err := os.ReadFile(filepath.Join("testdata", "v1-golden", "token_refused.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+// servers finds this app on a port by its token refusal in envelope/v2; an answer in any other shape is not this app.
+func TestServersFindsTheAppByItsEnvelopeV2Refusal(t *testing.T) {
 	v2, err := json.Marshal(serve.App{ID: "designer", Version: "5.0.0", Contracts: []serve.Contract{{Version: "v2", Envelope: "v2"}}}.Failure("shop", "v2", problem.Fail(problem.TypeRefused, serve.ReasonToken, "no token")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range map[string][]byte{"envelope/v1": v1, "envelope/v2": v2} {
+	other := []byte(`{"apiVersion":"elderlygate/designer/app/v1","kind":"Error","ran":{"name":"shop","app":"designer","version":"5.0.0","contract":"v1"},"data":null,"errors":[{"apiVersion":"elderlygate/designer/app/v1","kind":"Error","code":"token_refused","message":"no token"}]}`)
+	for name, c := range map[string]struct {
+		body      []byte
+		answering bool
+	}{"envelope/v2": {v2, true}, "another shape": {other, false}} {
 		t.Run(name, func(t *testing.T) {
 			dir := machine(t)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write(body)
+				_, _ = w.Write(c.body)
 			}))
 			defer srv.Close()
 			sleeper := exec.Command("sleep", "30")
@@ -98,8 +99,8 @@ func TestServersFindsTheAppInEitherEnvelope(t *testing.T) {
 			writeRecord(t, dir, srv.Listener.Addr().String(), sleeper.Process.Pid)
 			e := answer(t, listSchema, "server", "list")
 			list, _ := e.Data.([]any)
-			if len(list) != 1 || list[0].(map[string]any)["answering"] != true {
-				t.Fatalf("listed %v", e.Data)
+			if len(list) != 1 || list[0].(map[string]any)["answering"] != c.answering {
+				t.Fatalf("listed %v, want answering %v", e.Data, c.answering)
 			}
 		})
 	}
@@ -110,57 +111,32 @@ func TestAppContractsAreChecked(t *testing.T) {
 		contracts []serve.Contract
 		says      string
 	}{
-		"an envelope serve does not write": {[]serve.Contract{{Version: "v1", Envelope: "V2"}}, "does not write"},
+		"envelope/v1":                      {[]serve.Contract{{Version: "v1", Envelope: "v1"}}, "serve writes only envelope/v2"},
+		"an envelope serve does not write": {[]serve.Contract{{Version: "v1", Envelope: "V2"}}, "serve writes only envelope/v2"},
 		"a version twice":                  {[]serve.Contract{{Version: "v1"}, {Version: "v1", Envelope: "v2"}}, "given twice"},
 		"no contract":                      {nil, "at least one contract"},
 		"an empty version":                 {[]serve.Contract{{Version: ""}}, `contract "" is not vN`},
 		"a capital V":                      {[]serve.Contract{{Version: "V1"}}, `contract "V1" is not vN`},
 		"a bare number":                    {[]serve.Contract{{Version: "1"}}, `contract "1" is not vN`},
-		// A reader moving to a newer contract never meets an older envelope.
-		"an envelope going back": {[]serve.Contract{{Version: "v1", Envelope: "v2"}, {Version: "v2", Envelope: "v1"}}, "goes back"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			wrong := moved
+			wrong := both
 			wrong.Contracts = c.contracts
 			if _, err := serveHandler(t, wrong, site(nil), nil); err == nil || !strings.Contains(err.Error(), c.says) {
 				t.Fatalf("got %v, want it to say %q", err, c.says)
 			}
 		})
 	}
-	// An empty envelope is v1, and staying on one envelope is no step back.
-	fine := moved
-	fine.Contracts = []serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v1"}, {Version: "v3", Envelope: "v2"}, {Version: "v4", Envelope: "v2"}}
+	// An empty envelope is v2.
+	fine := both
+	fine.Contracts = []serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v2"}}
 	if _, err := serveHandler(t, fine, site(nil), nil); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// error/v1 has one place, so a Problem's first place is its at {file, field}.
-func TestTheFirstPlaceIsTheV1At(t *testing.T) {
-	p := problem.Fail(problem.TypeRefused, "duplicate", "another file already holds the request second")
-	p.At = []problem.Place{{File: "request/second-copy.yml", Document: 1, Line: 3, Path: "metadata.id"}, {File: "request/second.yml", Path: "metadata.id"}}
-	body, err := json.Marshal(app.Failure("shop", "v1", p))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := contracts.Validate("envelope/v1/envelope.schema.json", body); err != nil {
-		t.Fatalf("not envelope/v1: %v\n%s", err, body)
-	}
-	var e struct {
-		Errors []struct {
-			At map[string]string `json:"at"`
-		} `json:"errors"`
-	}
-	if err := json.Unmarshal(body, &e); err != nil || len(e.Errors) != 1 {
-		t.Fatalf("%s: %v", body, err)
-	}
-	if want := map[string]string{"file": "request/second-copy.yml", "field": "metadata.id"}; !reflect.DeepEqual(e.Errors[0].At, want) {
-		t.Fatalf("at %v, want %v", e.Errors[0].At, want)
-	}
-}
-
 func TestA406OnEnvelopeV2IsAProblem(t *testing.T) {
-	w := call(t, movedHandler(t), "GET", "/api/greeting", "", map[string]string{serve.ContractHeader: "v9"})
+	w := call(t, bothHandler(t), "GET", "/api/greeting", "", map[string]string{serve.ContractHeader: "v9"})
 	if w.Code != http.StatusNotAcceptable {
 		t.Fatalf("status %d: %s", w.Code, w.Body)
 	}
@@ -182,7 +158,7 @@ func TestA406OnEnvelopeV2IsAProblem(t *testing.T) {
 func TestAFailureNeverWritesAnEmptyDetailOrPlace(t *testing.T) {
 	p := problem.Fail(problem.TypeFailed, serve.ReasonConfigUnreadable, "")
 	p.At = []problem.Place{{}, {Path: "queue.wait"}, {}}
-	e := moved.Failure("shop", "v2", p)
+	e := both.Failure("shop", "v2", p)
 	body, err := json.Marshal(e)
 	if err != nil {
 		t.Fatal(err)
@@ -200,8 +176,8 @@ func TestAFailureNeverWritesAnEmptyDetailOrPlace(t *testing.T) {
 
 // The page asks no contract, as choose reads Accept-Contract only under /api/, so a refusal there is in the default.
 func TestTheGuardReadsTheContractOnlyForTheAPI(t *testing.T) {
-	h := movedHandler(t)
-	for target, schema := range map[string]string{"/board": "envelope/v2/envelope.schema.json", "/api/greeting": "envelope/v1/envelope.schema.json"} {
+	h := bothHandler(t)
+	for target, want := range map[string]string{"/board": "v2", "/api/greeting": "v1"} {
 		req := httptest.NewRequest("GET", "http://evil.example"+target, nil)
 		req.Header.Set(serve.ContractHeader, "v1")
 		w := httptest.NewRecorder()
@@ -209,8 +185,9 @@ func TestTheGuardReadsTheContractOnlyForTheAPI(t *testing.T) {
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("%s: status %d", target, w.Code)
 		}
-		if err := contracts.Validate(schema, w.Body.Bytes()); err != nil {
-			t.Errorf("%s: not %s: %v\n%s", target, schema, err, w.Body)
+		var e serve.Envelope
+		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || e.Source.Contract != want {
+			t.Errorf("%s: source %+v, want contract %s: %v", target, e.Source, want, err)
 		}
 	}
 }

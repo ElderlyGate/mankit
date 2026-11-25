@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/helpout"
 	"go.naywee.com/mankit/v5/problem"
@@ -68,7 +68,7 @@ func TestServersCheckAnswersOneEnvelopeWithItsReason(t *testing.T) {
 	var checked, second struct {
 		Kind   string
 		Data   json.RawMessage
-		Errors []struct{ Code, Message string }
+		Errors []struct{ Reason, Detail string }
 	}
 	if dec.Decode(&checked) != nil || dec.Decode(&second) == nil {
 		t.Fatalf("not exactly one envelope:\n%s", out)
@@ -83,8 +83,7 @@ func TestServersCheckAnswersOneEnvelopeWithItsReason(t *testing.T) {
 	if checked.Kind != serve.ServerListKind || string(sameJSON) != string(wasJSON) {
 		t.Fatalf("kind %q, data differs from servers:\n%s\n%s", checked.Kind, sameJSON, wasJSON)
 	}
-	// envelope/v1 writes the reason as error/v1's code, the word a program decides by.
-	if len(checked.Errors) != 1 || checked.Errors[0].Code != serve.ReasonNotAnswering || !strings.Contains(checked.Errors[0].Message, "do not answer") {
+	if len(checked.Errors) != 1 || checked.Errors[0].Reason != serve.ReasonNotAnswering || !strings.Contains(checked.Errors[0].Detail, "do not answer") {
 		t.Fatalf("errors %+v", checked.Errors)
 	}
 }
@@ -97,8 +96,8 @@ func TestServersCheckFailsWhenNoServerIsListed(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	out, _ = run(t, "server", "list", "--check", "-o", "json")
-	var said struct{ Errors []struct{ Code string } }
-	if json.Unmarshal([]byte(out), &said) != nil || len(said.Errors) != 1 || said.Errors[0].Code != serve.ReasonNoneListed {
+	var said struct{ Errors []struct{ Reason string } }
+	if json.Unmarshal([]byte(out), &said) != nil || len(said.Errors) != 1 || said.Errors[0].Reason != serve.ReasonNoneListed {
 		t.Fatalf("json: %s", out)
 	}
 }
@@ -142,12 +141,12 @@ func TestServersCheckAnAddressFailsAndRemovesNothing(t *testing.T) {
 	dec := json.NewDecoder(strings.NewReader(out))
 	var said, second struct {
 		Data   []map[string]any
-		Errors []struct{ Code string }
+		Errors []struct{ Reason string }
 	}
 	if dec.Decode(&said) != nil || dec.Decode(&second) == nil {
 		t.Fatalf("not exactly one envelope:\n%s", out)
 	}
-	if len(said.Data) != 1 || said.Data[0]["answering"] != false || len(said.Errors) != 1 || said.Errors[0].Code != serve.ReasonNotAnswering {
+	if len(said.Data) != 1 || said.Data[0]["answering"] != false || len(said.Errors) != 1 || said.Errors[0].Reason != serve.ReasonNotAnswering {
 		t.Fatalf("got %+v", said)
 	}
 	for _, f := range []string{mine, other} {

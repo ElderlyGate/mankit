@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/ask"
 	"go.naywee.com/mankit/v5/helpout"
@@ -47,7 +47,7 @@ func TestQueueShowsBothSettingsAndTheirDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := contracts.Validate("mankit/v1/queue-settings.schema.json", []byte(out)); err != nil {
+	if err := contracts.Validate("mankit/v2/queue-settings.schema.json", []byte(out)); err != nil {
 		t.Fatalf("not a QueueSettings answer: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, `"value": "30s"`) || !strings.Contains(out, `"value": "2m0s"`) || strings.Contains(out, `"set": true`) {
@@ -117,7 +117,7 @@ func TestQueueWritesTheCanonicalForm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := contracts.Validate("mankit/v1/queue-settings.schema.json", []byte(out)); err != nil {
+	if err := contracts.Validate("mankit/v2/queue-settings.schema.json", []byte(out)); err != nil {
 		t.Fatalf("not a QueueSettings answer: %v\n%s", err, out)
 	}
 }

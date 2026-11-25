@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/ask"
 	"go.naywee.com/mankit/v5/events"
@@ -252,7 +252,7 @@ func (s *shop) open(t *testing.T, lastID string) *stream {
 	return &stream{resp: resp, r: bufio.NewReader(resp.Body), stop: cancel}
 }
 
-// next is the next event on the stream, checked against the contract (mankit/v1 for a gapped one) and its id: line; it skips heartbeat comments.
+// next is the next event on the stream, checked against the contract (mankit/v2 for a gapped one) and its id: line; it skips heartbeat comments.
 func (st *stream) next(t *testing.T) (events.Event, []byte) {
 	t.Helper()
 	var id, data string
@@ -275,7 +275,7 @@ func (st *stream) next(t *testing.T) (events.Event, []byte) {
 				t.Fatalf("%s: %v", data, err)
 			}
 			if strings.HasSuffix(e.Type, "."+events.Gapped) {
-				if err := contracts.Validate("mankit/v1/stream.gapped.schema.json", []byte(data)); err != nil {
+				if err := contracts.Validate("mankit/v2/stream.gapped.schema.json", []byte(data)); err != nil {
 					t.Fatalf("%s: %v", data, err)
 				}
 			}

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/ask"
 	"go.naywee.com/mankit/v5/features"
@@ -50,7 +50,6 @@ func TestServeAnswersItsVersion(t *testing.T) {
 		t.Fatalf("not the version answer: %v\n%s", err, w.Body)
 	}
 	two := app
-	// Moved to envelope/v2 at v2, the version answer still stays on envelope/v1 (version/v1).
 	two.Contracts = []serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v2"}}
 	h, err := serveHandler(t, two, site(nil), nil)
 	if err != nil {
@@ -63,14 +62,14 @@ func TestServeAnswersItsVersion(t *testing.T) {
 			t.Fatalf("asked %q: not the version answer: %v\n%s", asked, err, body)
 		}
 		var e struct {
-			Ran  serve.Source      `json:"ran"`
-			Data serve.VersionData `json:"data"`
+			Source serve.Source      `json:"source"`
+			Data   serve.VersionData `json:"data"`
 		}
 		if err := json.Unmarshal(body, &e); err != nil {
 			t.Fatal(err)
 		}
-		if e.Ran.Contract != want || strings.Join(e.Data.SupportedContracts, ",") != "v1,v2" {
-			t.Fatalf("asked %q: ran %+v, data %+v; want contract %s of v1,v2", asked, e.Ran, e.Data, want)
+		if e.Source.Contract != want || strings.Join(e.Data.SupportedContracts, ",") != "v1,v2" {
+			t.Fatalf("asked %q: source %+v, data %+v; want contract %s of v1,v2", asked, e.Source, e.Data, want)
 		}
 	}
 }
@@ -286,7 +285,7 @@ func TestOneServerNamesEachProjectInItsAnswers(t *testing.T) {
 		}
 		want := serve.Source{Name: c.project, App: "designer", Version: "5.0.0", Contract: "v1"}
 		if e := envelope(t, w.Body.Bytes()); e.Source != want {
-			t.Fatalf("%s %s ran %+v, want %+v", c.method, c.target, e.Source, want)
+			t.Fatalf("%s %s source %+v, want %+v", c.method, c.target, e.Source, want)
 		}
 	}
 }
@@ -297,7 +296,7 @@ func TestOneServerNamesTheProjectInAnError(t *testing.T) {
 		t.Fatalf("status %d: %s", w.Code, w.Body)
 	}
 	if e := envelope(t, w.Body.Bytes()); e.Source.Name != "alpha" {
-		t.Fatalf("ran %+v, want the project alpha", e.Source)
+		t.Fatalf("source %+v, want the project alpha", e.Source)
 	}
 }
 
@@ -323,7 +322,7 @@ func TestOneServerNamesItselfWhereNoProjectIsNamed(t *testing.T) {
 			t.Fatalf("%s %s %v: status %d, want %d: %s", c.method, c.target, c.header, w.Code, c.status, w.Body)
 		}
 		if e := envelope(t, w.Body.Bytes()); e.Source.Name != "shop" {
-			t.Fatalf("%s %s %v ran %+v, want the server's name shop", c.method, c.target, c.header, e.Source)
+			t.Fatalf("%s %s %v source %+v, want the server's name shop", c.method, c.target, c.header, e.Source)
 		}
 	}
 }
@@ -333,21 +332,14 @@ func TestOneServerNamesItselfWhereNoProjectIsNamed(t *testing.T) {
 func TestServeAnswersTheContractAskedFor(t *testing.T) {
 	w := call(t, handler(t, nil), "GET", "/api/greeting", "", map[string]string{serve.ContractHeader: "v1"})
 	if e := envelope(t, w.Body.Bytes()); w.Code != http.StatusOK || e.Source.Contract != "v1" {
-		t.Fatalf("status %d, ran %+v", w.Code, e.Source)
+		t.Fatalf("status %d, source %+v", w.Code, e.Source)
 	}
 }
 
 func TestServeRefusesAContractItDoesNotAnswer(t *testing.T) {
 	w := call(t, handler(t, nil), "GET", "/api/greeting", "", map[string]string{serve.ContractHeader: "v9"})
-	refusal(t, w, http.StatusNotAcceptable, problem.TypeUnsupportedContract, "")
-	// error/v1 still lists the contracts for a contract on envelope/v1.
-	var raw struct {
-		Errors []struct {
-			Supported []string `json:"supported"`
-		} `json:"errors"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil || len(raw.Errors) != 1 || strings.Join(raw.Errors[0].Supported, ",") != "v1" {
-		t.Fatalf("supported %+v, want v1: %v", raw, err)
+	if p := refusal(t, w, http.StatusNotAcceptable, problem.TypeUnsupportedContract, ""); !strings.Contains(p.Detail, "it answers v1") {
+		t.Fatalf("detail %q does not name the contracts it answers", p.Detail)
 	}
 }
 
@@ -1082,15 +1074,14 @@ func TestRememberWithAQuestionsIDSavesTheType(t *testing.T) {
 	}
 }
 
-// The Question is in the contract the reader asked for: ran on envelope/v1, source on envelope/v2.
+// The Question is in the contract the reader asked for.
 func TestTheQuestionFollowsTheAskedContract(t *testing.T) {
-	h := movedHandler(t)
+	h := bothHandler(t)
 	for _, contract := range []string{"v1", "v2"} {
 		w := call(t, h, "DELETE", "/api/greeting", "", map[string]string{serve.ContractHeader: contract})
 		asked(t, w)
-		key := map[string]string{"v1": `"ran"`, "v2": `"source"`}[contract]
-		if !strings.Contains(w.Body.String(), key) {
-			t.Errorf("%s: the Question is not in its envelope:\n%s", contract, w.Body)
+		if e := envelope(t, w.Body.Bytes()); e.Source.Contract != contract {
+			t.Errorf("%s: the Question is in contract %q:\n%s", contract, e.Source.Contract, w.Body)
 		}
 	}
 }

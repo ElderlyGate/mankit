@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/licenses"
 	"go.naywee.com/mankit/v5/problem"
@@ -282,7 +282,7 @@ func TestAReleaseTrialVerifiesWithItsDays(t *testing.T) {
 	}
 }
 
-// The started trial is read from beside the payload, unsigned, so writing it never breaks the signature; only a release-trial's file has it (contracts mankit/v1 license-file).
+// The started trial is read from beside the payload, unsigned, so writing it never breaks the signature; only a release-trial's file has it (contracts mankit/v2 license-file).
 func TestAStartedTrialIsReadUnsignedFromAReleaseTrialsFileOnly(t *testing.T) {
 	k, release, _ := signer(t)
 	got, err := licenses.Verify(start(t, sign(t, k, releaseTrial), "2026-12-03"), release)
@@ -327,7 +327,7 @@ func TestAKeyThatIsNoEd25519KeyIsAnErrorNotAPanic(t *testing.T) {
 	}
 }
 
-// A signed file and its payload meet contracts mankit/v1 license-file and license-payload, the home of what each field means.
+// A signed file and its payload meet contracts mankit/v2 license-file and license-payload, the home of what each field means.
 func TestASignedFileMeetsItsSchema(t *testing.T) {
 	k, _, _ := signer(t)
 	product := orgLicense
@@ -335,11 +335,11 @@ func TestASignedFileMeetsItsSchema(t *testing.T) {
 	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "test-2026"}
 	for _, l := range []licenses.License{orgLicense, product, trial, releaseTrial} {
 		raw := sign(t, k, l)
-		if err := contracts.Validate("mankit/v1/license-file.schema.json", raw); err != nil {
+		if err := contracts.Validate("mankit/v2/license-file.schema.json", raw); err != nil {
 			t.Fatalf("%s file: %v\n%s", l.Kind, err, raw)
 		}
 		if l.Kind == licenses.ReleaseTrial {
-			if started := start(t, raw, "2026-12-03"); contracts.Validate("mankit/v1/license-file.schema.json", started) != nil {
+			if started := start(t, raw, "2026-12-03"); contracts.Validate("mankit/v2/license-file.schema.json", started) != nil {
 				t.Fatalf("a started release-trial's file does not meet its schema\n%s", started)
 			}
 		}
@@ -347,7 +347,7 @@ func TestASignedFileMeetsItsSchema(t *testing.T) {
 		if err := json.Unmarshal(raw, &f); err != nil {
 			t.Fatal(err)
 		}
-		if err := contracts.Validate("mankit/v1/license-payload.schema.json", f.Spec.Payload); err != nil {
+		if err := contracts.Validate("mankit/v2/license-payload.schema.json", f.Spec.Payload); err != nil {
 			t.Fatalf("%s payload: %v\n%s", l.Kind, err, f.Spec.Payload)
 		}
 	}

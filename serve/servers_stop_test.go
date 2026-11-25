@@ -18,7 +18,7 @@ import (
 
 // The server stop command: stop a server by its address or its name, or every one.
 
-const stoppedSchema = "mankit/v1/stopped-list.schema.json"
+const stoppedSchema = "mankit/v2/stopped-list.schema.json"
 
 // Success
 

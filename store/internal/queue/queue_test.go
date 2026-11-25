@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
 	"github.com/gofrs/flock"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/problem"
 	"go.naywee.com/mankit/v5/serve"
@@ -382,7 +382,7 @@ func TestTicketsOnDiskAndTheListMeetTheContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := contracts.Validate("mankit/v1/queue-ticket.schema.json", doc); err != nil {
+		if err := contracts.Validate("mankit/v2/queue-ticket.schema.json", doc); err != nil {
 			t.Errorf("%s: %v", f, err)
 		}
 	}
@@ -394,7 +394,7 @@ func TestTicketsOnDiskAndTheListMeetTheContract(t *testing.T) {
 	if err := serve.Encode(&answer, app.Answer("", "v1", queue.ListKind, l)); err != nil {
 		t.Fatal(err)
 	}
-	if err := contracts.Validate("mankit/v1/queue-list.schema.json", answer.Bytes()); err != nil {
+	if err := contracts.Validate("mankit/v2/queue-list.schema.json", answer.Bytes()); err != nil {
 		t.Errorf("the list: %v\n%s", err, answer.String())
 	}
 	if err := release(); err != nil {
@@ -416,7 +416,7 @@ func TestAnEmptyQueueListsEmptyArrays(t *testing.T) {
 	if err := serve.Encode(&answer, app.Answer("", "v1", queue.ListKind, l)); err != nil {
 		t.Fatal(err)
 	}
-	if err := contracts.Validate("mankit/v1/queue-list.schema.json", answer.Bytes()); err != nil {
+	if err := contracts.Validate("mankit/v2/queue-list.schema.json", answer.Bytes()); err != nil {
 		t.Errorf("%v\n%s", err, answer.String())
 	}
 }
@@ -835,7 +835,7 @@ func markerOf(kind string) string {
 func TestAMarkerNamingFilesKeepsTheFileQueueAndStays(t *testing.T) {
 	q, log := newQueue(t)
 	path := marker(t, q, markerOf(queue.BackendFiles))
-	if err := contracts.Validate("mankit/v1/queue-backend.schema.json", []byte(markerOf(queue.BackendFiles))); err != nil {
+	if err := contracts.Validate("mankit/v2/queue-backend.schema.json", []byte(markerOf(queue.BackendFiles))); err != nil {
 		t.Fatalf("the marker the test writes breaks the contract: %v", err)
 	}
 	if err := q.Change(context.Background(), "add item", nothing, nothing); err != nil {

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
+	"go.naywee.com/contracts/v2"
 
 	"go.naywee.com/mankit/v5/ask"
 	"go.naywee.com/mankit/v5/home"
@@ -109,7 +109,7 @@ func call(t *testing.T, h http.Handler, method, target, body string, header map[
 // envelope checks body against the contracts envelope and returns it.
 func envelope(t *testing.T, body []byte) serve.Envelope {
 	t.Helper()
-	if err := contracts.Validate("envelope/v1/envelope.schema.json", body); err != nil {
+	if err := contracts.Validate("envelope/v2/envelope.schema.json", body); err != nil {
 		t.Fatalf("not a contracts envelope: %v\n%s", err, body)
 	}
 	var e serve.Envelope
@@ -119,7 +119,7 @@ func envelope(t *testing.T, body []byte) serve.Envelope {
 	return e
 }
 
-// refusal checks an error answer: its status, its one Problem's type and reason, and where it ran.
+// refusal checks an error answer: its status, its one Problem's type and reason, and its source.
 func refusal(t *testing.T, w *httptest.ResponseRecorder, status int, typ, reason string) problem.Problem {
 	t.Helper()
 	if w.Code != status {
@@ -130,7 +130,7 @@ func refusal(t *testing.T, w *httptest.ResponseRecorder, status int, typ, reason
 		t.Fatalf("errors %+v, want one %s %s", e.Errors, typ, reason)
 	}
 	if e.Source != (serve.Source{Name: "shop", App: "designer", Version: "5.0.0", Contract: "v1"}) {
-		t.Fatalf("ran %+v", e.Source)
+		t.Fatalf("source %+v", e.Source)
 	}
 	return e.Errors[0]
 }
@@ -268,7 +268,7 @@ func detached(t *testing.T) map[string]any {
 		t.Fatalf("kind %q", e.Kind)
 	}
 	raw, _ := json.Marshal(e.Data)
-	if err := contracts.Validate("mankit/v1/server.schema.json", raw); err != nil {
+	if err := contracts.Validate("mankit/v2/server.schema.json", raw); err != nil {
 		t.Fatalf("not a contracts server record: %v\n%s", err, raw)
 	}
 	rec := e.Data.(map[string]any)
