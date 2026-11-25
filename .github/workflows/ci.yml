@@ -67,8 +67,9 @@ jobs:
           else
             n=${major#v}
             prev=v$((n - 1))
-            prevmod=${mod%/"$major"}
-            [ "$prev" = v1 ] || prevmod="$prevmod/$prev"
-            echo "No $major release yet: comparing with the latest $prev release, as the first $major.0.0."
-            gorelease -base="$prevmod@$(latest "$prev")" -version="$major.0.0"
+            prevtag=$(latest "$prev")
+            # The previous major's own go.mod names its path, which may differ from this one's beyond /vN.
+            prevmod=$(git show "$prevtag:go.mod" | awk '$1 == "module" { print $2; exit }')
+            echo "No $major release yet: comparing with $prevmod@$prevtag, as the first $major.0.0."
+            gorelease -base="$prevmod@$prevtag" -version="$major.0.0"
           fi
