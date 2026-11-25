@@ -7,7 +7,7 @@ type Threshold struct {
 	Trial int // days left from which a trial key or release-trial warns
 }
 
-// LicenseExpiring warns 14 days before a paid license ends and 3 days before a trial ends (the owner, 19 and 25 Nov).
+// LicenseExpiring is ADR-L3's built-in license-expiring threshold. Read only: never assign it.
 var LicenseExpiring = Threshold{ID: "license-expiring", Paid: 14, Trial: 3}
 
 // Warns is whether a running license of kind k with days left warns; license checking gives only the days left.
