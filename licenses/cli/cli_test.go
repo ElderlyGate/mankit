@@ -236,6 +236,29 @@ func TestShowAReleaseTrialNotStarted(t *testing.T) {
 	}
 }
 
+// A release-trial always shows its offer's end, the key's own until, and its trial's end only once started (contracts mankit/v1 license-show).
+func TestShowAReleaseTrialsOfferAndTrialEnds(t *testing.T) {
+	for _, c := range []struct{ started, trialEnds string }{{"", ""}, {"2026-12-03", "2026-12-16"}} {
+		w := newWorld(t, "2026-12-07")
+		w.put(home.Folder("designer")+"/license", w.releaseTrial(c.started))
+		if l := w.show().Licenses[0]; l.OfferEnds != "2027-11-23" || l.TrialEnds != c.trialEnds {
+			t.Fatalf("started %q: row = %+v", c.started, l)
+		}
+	}
+}
+
+// Only a release-trial has an offer's end or a trial's end.
+func TestShowNoOfferOrTrialEndOnOtherKinds(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+	w.put(home.Folder("designer")+"/license", w.sign(licenses.Trial, nil, "2026-12-01", "2026-12-30"))
+	for _, l := range w.show().Licenses {
+		if l.OfferEnds != "" || l.TrialEnds != "" {
+			t.Fatalf("row = %+v", l)
+		}
+	}
+}
+
 func TestShowAnEndedLicenseAndARefusedFile(t *testing.T) {
 	w := newWorld(t, "2027-12-01")
 	w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
