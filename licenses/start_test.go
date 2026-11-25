@@ -158,8 +158,8 @@ func TestAChangedStampRenewsTheTrial(t *testing.T) {
 // A bought product license, or a person's trial key, at the app's place is never touched and no trial is written.
 func TestTheAppsOwnLicenseIsNeverTouched(t *testing.T) {
 	k, release, _ := signer(t)
-	product := licenses.License{ID: "acme-designer", Kind: licenses.Product, For: "Acme Ltd", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-06"), Until: day("2027-11-06"), KeyID: "prod-2026"}
-	person := licenses.License{ID: "ada-trial", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
+	product := licenses.License{ID: "acme-designer", Kind: licenses.Product, For: "Acme Ltd", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-06"), Until: day("2027-11-06"), KeyID: "test-2026"}
+	person := licenses.License{ID: "ada-trial", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "test-2026"}
 	for name, l := range map[string]licenses.License{"a bought product license": product, "a person's trial key, ended": person} {
 		t.Run(name, func(t *testing.T) {
 			bin, _ := install(t)
@@ -238,7 +238,7 @@ func TestABuiltInKeyIsCheckedAsAnyLicense(t *testing.T) {
 	k, release, dev := signer(t)
 	devKey := releaseTrial
 	devKey.KeyID = "dev-2026"
-	person := licenses.License{ID: "ada-trial", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
+	person := licenses.License{ID: "ada-trial", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "test-2026"}
 	for name, c := range map[string]struct {
 		key   []byte
 		trust licenses.Trust

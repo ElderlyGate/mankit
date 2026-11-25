@@ -32,9 +32,9 @@ func signer(t *testing.T) (keys, licenses.Trust, licenses.Trust) {
 	t.Helper()
 	prodPub, prod, _ := ed25519.GenerateKey(rand.Reader)
 	devPub, dev, _ := ed25519.GenerateKey(rand.Reader)
-	k := keys{"prod-2026": prod, "dev-2026": dev}
+	k := keys{"test-2026": prod, "dev-2026": dev}
 	trust := func(release bool) licenses.Trust {
-		return licenses.Trust{Release: release, Prod: map[string]ed25519.PublicKey{"prod-2026": prodPub}, Dev: map[string]ed25519.PublicKey{"dev-2026": devPub}}
+		return licenses.Trust{Release: release, Prod: map[string]ed25519.PublicKey{"test-2026": prodPub}, Dev: map[string]ed25519.PublicKey{"dev-2026": devPub}}
 	}
 	return k, trust(true), trust(false)
 }
@@ -47,10 +47,10 @@ func day(s string) time.Time {
 	return d
 }
 
-var orgLicense = licenses.License{ID: "acme-2026", Kind: licenses.Org, For: "Acme Ltd", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-06"), Until: day("2027-11-06"), KeyID: "prod-2026"}
+var orgLicense = licenses.License{ID: "acme-2026", Kind: licenses.Org, For: "Acme Ltd", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-06"), Until: day("2027-11-06"), KeyID: "test-2026"}
 
 // releaseTrial is the trial key built into one release of designer: it may start a trial until its until, each trial running 14 days (ADR-L9).
-var releaseTrial = licenses.License{ID: "designer-v1.2.0-trial", Kind: licenses.ReleaseTrial, For: "designer v1.2.0", Products: map[string][]string{"designer": nil}, Issued: day("2026-11-23"), Until: day("2027-11-23"), TrialDays: 14, KeyID: "prod-2026"}
+var releaseTrial = licenses.License{ID: "designer-v1.2.0-trial", Kind: licenses.ReleaseTrial, For: "designer v1.2.0", Products: map[string][]string{"designer": nil}, Issued: day("2026-11-23"), Until: day("2027-11-23"), TrialDays: 14, KeyID: "test-2026"}
 
 // start is the license file raw with the trial it started on the day, as the app writes it beside the signed payload.
 func start(t *testing.T, raw []byte, on string) []byte {
@@ -83,7 +83,7 @@ func TestASignedLicenseVerifiesAsSigned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Kind != licenses.Org || got.For != "Acme Ltd" || !got.Names("designer", "events") || !got.Until.Equal(orgLicense.Until) || got.KeyID != "prod-2026" {
+	if got.Kind != licenses.Org || got.For != "Acme Ltd" || !got.Names("designer", "events") || !got.Until.Equal(orgLicense.Until) || got.KeyID != "test-2026" {
 		t.Fatalf("license = %+v", got)
 	}
 }
@@ -321,7 +321,7 @@ func TestATrialKeysLengthIsItsDays(t *testing.T) {
 
 func TestAKeyThatIsNoEd25519KeyIsAnErrorNotAPanic(t *testing.T) {
 	k, release, _ := signer(t)
-	release.Prod["prod-2026"] = ed25519.PublicKey("short")
+	release.Prod["test-2026"] = ed25519.PublicKey("short")
 	if _, err := licenses.Verify(sign(t, k, orgLicense), release); err == nil {
 		t.Fatal("verified with a malformed key")
 	}
@@ -332,7 +332,7 @@ func TestASignedFileMeetsItsSchema(t *testing.T) {
 	k, _, _ := signer(t)
 	product := orgLicense
 	product.Kind, product.Products = licenses.Product, map[string][]string{"designer": {"sync"}}
-	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "prod-2026"}
+	trial := licenses.License{ID: "acme-2026", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "test-2026"}
 	for _, l := range []licenses.License{orgLicense, product, trial, releaseTrial} {
 		raw := sign(t, k, l)
 		if err := contracts.Validate("mankit/v1/license-file.schema.json", raw); err != nil {
@@ -356,8 +356,8 @@ func TestASignedFileMeetsItsSchema(t *testing.T) {
 // A field a newer nw-license adds to the spec or the signed payload is passed over, and the signature still covers the payload's every byte (ADR-S15, CT-RULE-4).
 func TestANewerFileWithFieldsItDoesNotKnowIsTaken(t *testing.T) {
 	k, release, _ := signer(t)
-	body := []byte(`{"id":"acme-2026","kind":"org","for":"Acme Ltd","products":{"designer":["events"]},"issued":"2026-11-06","until":"2027-11-06","keyId":"prod-2026","note":"issued for testing"}`)
-	sig, _ := k.Sign("prod-2026", body)
+	body := []byte(`{"id":"acme-2026","kind":"org","for":"Acme Ltd","products":{"designer":["events"]},"issued":"2026-11-06","until":"2027-11-06","keyId":"test-2026","note":"issued for testing"}`)
+	sig, _ := k.Sign("test-2026", body)
 	raw, _ := json.Marshal(map[string]any{
 		"apiVersion": licenses.APIVersion, "kind": licenses.FileKind, "metadata": map[string]any{"id": "acme-2026"},
 		"spec": map[string]any{"payload": body, "signature": sig, "note": "from a newer nw-license"},
