@@ -12,8 +12,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/logs"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/logs"
 )
 
 // For is the Exporter of the app id at version with list, for serve.Site.Telemetry.

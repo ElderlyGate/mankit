@@ -11,11 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/licenses"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/licenses"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
 )
 
 // now is the day the Checker reads by; nil is time.Now, and only a test hands in its own.

@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // Kind is what a license covers (ADR-L8, L9); contracts mankit/v1 license-show says what each means.

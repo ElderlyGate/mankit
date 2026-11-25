@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // TrialOutcome is what StartTrial did, the word a program decides by (G-STACK-15).

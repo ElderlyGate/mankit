@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/helpout/helptest"
-	"github.com/tugbayatilla/mankit/v4/usercmd"
+	"go.naywee.com/mankit/v5/helpout"
+	"go.naywee.com/mankit/v5/helpout/helptest"
+	"go.naywee.com/mankit/v5/usercmd"
 )
 
 const starter = "commands:\n  - {id: hello, key: h, label: say hello, run: echo hi}\n  - {id: quit2, key: q, label: clash, run: echo}\n"

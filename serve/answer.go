@@ -12,8 +12,8 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // App is what an app tells serve about itself.

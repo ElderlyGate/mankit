@@ -12,10 +12,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/logs"
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/logs"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // The words of a request: the header a reader asks a contract with, and the query that carries the user's yes to a change.

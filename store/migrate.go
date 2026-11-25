@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // Migrate copies each named file the app kept before in the system's config folder (<config dir>/<id>/<name>) to home.File(id, name), once per file:

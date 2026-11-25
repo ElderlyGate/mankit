@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/logs"
+	"go.naywee.com/mankit/v5/logs"
 )
 
 // ErrRefused is wrapped by every refusal, so a caller can tell a refusal from a failure.

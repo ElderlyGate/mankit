@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/events"
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
-	"github.com/tugbayatilla/mankit/v4/store/queue"
+	"go.naywee.com/mankit/v5/events"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
+	"go.naywee.com/mankit/v5/store/queue"
 )
 
 // A contract still on envelope/v1 keeps the bytes mankit v2.0.0 wrote (CT-RULE-1): testdata/v1-golden holds what v2.0.0 wrote for each refusal.

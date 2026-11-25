@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/encode"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/internal/encode"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // A record is a claim a detached server leaves, never proof: a process can die without removing it, and a pid is reused.

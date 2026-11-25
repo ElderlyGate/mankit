@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // wantsPage says whether r comes from a person's browser, which reads a page, rather than a program, which reads the envelope: a navigation, or an Accept that ranks text/html above application/json, as a browser's does.

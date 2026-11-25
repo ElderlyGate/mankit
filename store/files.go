@@ -18,10 +18,10 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
-	"github.com/tugbayatilla/mankit/v4/store/internal/queue"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store/internal/disk"
+	"go.naywee.com/mankit/v5/store/internal/queue"
 )
 
 // files keeps a scope's things as files in its folder, opened once, through the safety core; a change of more than one write is logged ahead in this user's journal and marked in every queue it holds a turn of (contracts mankit/v1 store-journal, store-unfinished).

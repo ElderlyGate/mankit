@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
 )
 
 // The server token renew command: a new token, taken by the running servers without a restart.

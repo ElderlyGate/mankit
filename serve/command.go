@@ -22,11 +22,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/logs"
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/helpout"
+	"go.naywee.com/mankit/v5/logs"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // The kinds of the answers the commands print with -o json or yaml.

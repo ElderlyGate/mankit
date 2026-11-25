@@ -13,8 +13,8 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
 )
 
 // moved is designer answering v1 in envelope/v1 and v2 in envelope/v2, as an app that moved with its next contract.

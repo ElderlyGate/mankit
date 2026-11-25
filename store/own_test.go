@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // Own changes nothing it did not make: a project's folder and what is in it keep their modes, and only the file written is this user's alone.

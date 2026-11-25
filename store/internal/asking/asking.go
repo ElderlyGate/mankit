@@ -4,7 +4,7 @@ package asking
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
+	"go.naywee.com/mankit/v5/ask"
 )
 
 // Name asks for the thing's name before a clear, whatever style the app's config picks for delete: a clear may lose a cut-short change, so it is a change to the system itself (G-STACK-6), and no remembered answer silences it.

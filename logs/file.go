@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/tugbayatilla/mankit/v4/home"
+	"go.naywee.com/mankit/v5/home"
 )
 
 // A log file is rotated once it would pass rotateAt, and the keep files before it stay as <name>.1 (the newest) to <name>.<keep> (G-STACK-8); vars only so a test can shorten them.

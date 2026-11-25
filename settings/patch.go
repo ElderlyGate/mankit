@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v4/theme"
+	"go.naywee.com/mankit/v5/theme"
 )
 
 // errByHand is the end of every refusal to patch a value in place.

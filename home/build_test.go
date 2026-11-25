@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/build"
-	"github.com/tugbayatilla/mankit/v4/home"
+	"go.naywee.com/mankit/v5/build"
+	"go.naywee.com/mankit/v5/home"
 )
 
 // A test binary is stamped with nothing, so it is a dev build: its products' folders end in -dev, and the org's own files are in <Org>-dev beside the org's config folder.
@@ -50,7 +50,7 @@ func TestTheStampDecidesReleaseAndFolders(t *testing.T) {
 			bin := filepath.Join(t.TempDir(), "folders")
 			args := []string{"build", "-o", bin}
 			if c.stamp != "" {
-				args = append(args, "-ldflags", "-X github.com/tugbayatilla/mankit/v4/build.version="+c.stamp)
+				args = append(args, "-ldflags", "-X go.naywee.com/mankit/v5/build.version="+c.stamp)
 			}
 			if out, err := exec.Command("go", append(args, "./testdata/folders")...).CombinedOutput(); err != nil {
 				t.Fatalf("go build: %v\n%s", err, out)

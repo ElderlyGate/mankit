@@ -12,10 +12,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/store"
-	"github.com/tugbayatilla/mankit/v4/theme"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/store"
+	"go.naywee.com/mankit/v5/theme"
 )
 
 // Key is one setting of config.yaml.

@@ -21,7 +21,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	rw "github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
-	"github.com/tugbayatilla/mankit/v4/desktop"
+	"go.naywee.com/mankit/v5/desktop"
 )
 
 // Internal messages for clipboard operations.

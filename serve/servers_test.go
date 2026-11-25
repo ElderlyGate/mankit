@@ -12,10 +12,10 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/helpout/helptest"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
+	"go.naywee.com/mankit/v5/helpout"
+	"go.naywee.com/mankit/v5/helpout/helptest"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
 )
 
 // The servers command: every server of the app on this machine.

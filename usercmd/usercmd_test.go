@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/home"
+	"go.naywee.com/mankit/v5/home"
 )
 
 var spec = Spec{Views: []string{"log", "status"}, Placeholders: []string{"hash", "file"}}

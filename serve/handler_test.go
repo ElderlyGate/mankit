@@ -19,10 +19,10 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
 )
 
 // The HTTP door of every app: App.Handler and what it answers.

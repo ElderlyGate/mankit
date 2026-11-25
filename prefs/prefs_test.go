@@ -12,12 +12,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/helpout/helptest"
-	"github.com/tugbayatilla/mankit/v4/home"
-	settingscli "github.com/tugbayatilla/mankit/v4/settings/cli"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/helpout"
+	"go.naywee.com/mankit/v5/helpout/helptest"
+	"go.naywee.com/mankit/v5/home"
+	settingscli "go.naywee.com/mankit/v5/settings/cli"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // sandbox gives the test its own home and returns the app's config file.

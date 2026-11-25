@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/tugbayatilla/mankit/v4/features"
+	"go.naywee.com/mankit/v5/features"
 )
 
 // adapter is how a scope keeps its things; files is the one every build has, always on.

@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
-	"github.com/tugbayatilla/mankit/v4/settings"
-	engine "github.com/tugbayatilla/mankit/v4/store/internal/queue"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
+	"go.naywee.com/mankit/v5/settings"
+	engine "go.naywee.com/mankit/v5/store/internal/queue"
 )
 
 // The reasons of the queue's Problems, each with the type failed; a program decides by type and reason, never by the detail (G-STACK-15).

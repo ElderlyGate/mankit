@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/logs"
-	"github.com/tugbayatilla/mankit/v4/logs/otlp"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/logs"
+	"go.naywee.com/mankit/v5/logs/otlp"
 )
 
 // The telemetry feature sends nothing off, or on without its endpoint, and sends once both are there (ADR-E5, E9).

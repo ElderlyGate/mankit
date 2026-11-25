@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store/internal/disk"
 )
 
 // Command is the name of the CLI the scope's app runs as, which the unfinished_change refusal and store unfinished name: App.Command, else its ID.

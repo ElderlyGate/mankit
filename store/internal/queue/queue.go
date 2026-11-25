@@ -21,10 +21,10 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/internal/encode"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/internal/encode"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store/internal/disk"
 )
 
 // The reasons of the queue's Problems, each with the type failed: the request was fine and the app could not do it; a program decides by type and reason, never by the detail (G-STACK-15).

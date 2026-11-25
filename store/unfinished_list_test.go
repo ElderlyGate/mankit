@@ -15,13 +15,13 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/serve"
-	"github.com/tugbayatilla/mankit/v4/store"
-	storecli "github.com/tugbayatilla/mankit/v4/store/cli"
-	"github.com/tugbayatilla/mankit/v4/store/internal/asking"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/helpout"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/serve"
+	"go.naywee.com/mankit/v5/store"
+	storecli "go.naywee.com/mankit/v5/store/cli"
+	"go.naywee.com/mankit/v5/store/internal/asking"
 )
 
 // The tests of <app> store unfinished list, in ADR-S19's six parts; the helpers are shared with the remove tests.

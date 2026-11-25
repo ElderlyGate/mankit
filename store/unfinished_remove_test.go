@@ -12,11 +12,11 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store"
-	storecli "github.com/tugbayatilla/mankit/v4/store/cli"
-	"github.com/tugbayatilla/mankit/v4/store/internal/asking"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store"
+	storecli "go.naywee.com/mankit/v5/store/cli"
+	"go.naywee.com/mankit/v5/store/internal/asking"
 )
 
 // The tests of <app> store unfinished remove, in ADR-S19's six parts.

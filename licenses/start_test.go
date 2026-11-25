@@ -11,7 +11,7 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v4/licenses"
+	"go.naywee.com/mankit/v5/licenses"
 )
 
 // installed is the time the throwaway binary was written; a reinstall writes it anew.

@@ -20,11 +20,11 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store"
-	"github.com/tugbayatilla/mankit/v4/store/queue"
-	"github.com/tugbayatilla/mankit/v4/store/storetest"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store"
+	"go.naywee.com/mankit/v5/store/queue"
+	"go.naywee.com/mankit/v5/store/storetest"
 )
 
 var ctx = context.Background()

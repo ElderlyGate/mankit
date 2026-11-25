@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // ShowKind is the kind of the `<app> license show` answer; contracts mankit/v1 license-show says what each field of Show means.

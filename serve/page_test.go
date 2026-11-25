@@ -10,8 +10,8 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/serve"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/serve"
 )
 
 // shop is an app of the tests' own, whose CLI is shop.

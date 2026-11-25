@@ -6,7 +6,7 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // Every envelope serve says it writes has its branch in MarshalJSON and meets its contracts schema, so envelopes and the writer cannot drift apart.

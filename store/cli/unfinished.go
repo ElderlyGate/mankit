@@ -12,11 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
-	"github.com/tugbayatilla/mankit/v4/store"
-	"github.com/tugbayatilla/mankit/v4/store/internal/asking"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
+	"go.naywee.com/mankit/v5/store"
+	"go.naywee.com/mankit/v5/store/internal/asking"
 )
 
 // The kinds of the answers store unfinished list and clear give, on the CLI and over HTTP alike (contracts mankit/v1 store-unfinished-list, store-unfinished-cleared).

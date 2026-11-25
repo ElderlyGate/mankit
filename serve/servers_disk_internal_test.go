@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // The servers folder is in the app's own data folder, written through the store: one that is a link is refused, and nothing is written where it leads.

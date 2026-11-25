@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/features"
+	"go.naywee.com/mankit/v5/features"
 )
 
 var all = []features.Feature{{ID: "edit", Title: "Edit", Covers: "changes"}, {ID: "export", Title: "Export", Covers: "files"}}

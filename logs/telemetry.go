@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/tugbayatilla/mankit/v4/features"
+	"go.naywee.com/mankit/v5/features"
 )
 
 // Endpoint is the standard variable naming where telemetry is sent (ADR-E5).

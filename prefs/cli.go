@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/helpout"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/helpout"
 )
 
 // confirmKey starts a key of `config set` that sets a type's style.

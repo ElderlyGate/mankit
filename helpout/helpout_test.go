@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
+	"go.naywee.com/mankit/v5/ask"
 )
 
 var info = Info{

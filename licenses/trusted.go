@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tugbayatilla/mankit/v4/build"
+	"go.naywee.com/mankit/v5/build"
 )
 
 // trusted is the one home of the public keys every app trusts, prod and dev (ADR-L6); a key change is a mankit release.

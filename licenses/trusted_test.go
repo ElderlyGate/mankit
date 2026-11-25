@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/build"
-	"github.com/tugbayatilla/mankit/v4/licenses"
+	"go.naywee.com/mankit/v5/build"
+	"go.naywee.com/mankit/v5/licenses"
 )
 
 func TestTheShippedTrustedKeysLoad(t *testing.T) {

@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/internal/testhome"
+	"go.naywee.com/mankit/v5/internal/testhome"
 )
 
 // TestMain runs the tests in a home of their own (testhome.Run).

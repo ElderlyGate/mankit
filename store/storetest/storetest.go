@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // Harness is how an adapter is handed to the suite.

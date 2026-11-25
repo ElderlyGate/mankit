@@ -9,8 +9,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tugbayatilla/mankit/v4/internal/encode"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/internal/encode"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // Section is the key of an app's config.yaml that holds a style per type: confirm: {delete: name, move: never}.

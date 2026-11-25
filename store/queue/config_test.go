@@ -13,13 +13,13 @@ import (
 	"github.com/ElderlyGate/contracts"
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/helpout/helptest"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
-	"github.com/tugbayatilla/mankit/v4/settings"
-	"github.com/tugbayatilla/mankit/v4/store/queue"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/helpout"
+	"go.naywee.com/mankit/v5/helpout/helptest"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
+	"go.naywee.com/mankit/v5/settings"
+	"go.naywee.com/mankit/v5/store/queue"
 )
 
 // configRun runs `queue` words, the thing an app mounts at its root, against the config.yaml at path.

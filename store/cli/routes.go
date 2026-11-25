@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // The paths of store unfinished over HTTP (G-STACK-4).

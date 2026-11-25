@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // Another site the user visits can send requests to a port on this machine; the guard takes only the page's own.

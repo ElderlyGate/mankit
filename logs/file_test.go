@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/logs"
+	"go.naywee.com/mankit/v5/logs"
 )
 
 // A rotation that cannot open the new file leaves no closed file behind: the next write opens it, and nothing is written to a closed file.

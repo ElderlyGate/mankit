@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/usercmd"
+	"go.naywee.com/mankit/v5/helpout"
+	"go.naywee.com/mankit/v5/usercmd"
 )
 
 // Command builds the thing `<app> command`, each verb with its old form under commands for one release (G-STACK-5). starter is the file the app ships; taken

@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v4/build"
+	"go.naywee.com/mankit/v5/build"
 )
 
 // Org is the name of the org's folders, written only here so a rename changes one line.

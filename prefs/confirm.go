@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
+	"go.naywee.com/mankit/v5/ask"
 )
 
 // UseDefault, given as a style, removes the type, so its default holds.

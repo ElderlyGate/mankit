@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/helpout"
+	"go.naywee.com/mankit/v5/helpout"
 )
 
 // T is what Check reports to: a *testing.T.

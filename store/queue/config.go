@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tugbayatilla/mankit/v4/ask"
-	"github.com/tugbayatilla/mankit/v4/helpout"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
-	"github.com/tugbayatilla/mankit/v4/settings"
+	"go.naywee.com/mankit/v5/ask"
+	"go.naywee.com/mankit/v5/helpout"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
+	"go.naywee.com/mankit/v5/settings"
 )
 
 // SettingsKind is the kind of the answer <app> queue show, set and unset give (contracts mankit/v1 queue-settings).

@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // Record is one log record in OpenTelemetry's log data model, the fields a local reader and an OTLP collector both know.

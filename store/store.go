@@ -19,12 +19,12 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/logs"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
-	"github.com/tugbayatilla/mankit/v4/store/internal/queue"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/logs"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store/internal/disk"
+	"go.naywee.com/mankit/v5/store/internal/queue"
 )
 
 // The reasons of the store's Problems (contracts problem/v1); a program decides by type and reason, never by the detail (G-STACK-15).

@@ -4,7 +4,7 @@ package build
 import "regexp"
 
 // version is the tag a release is built from, stamped by goreleaser and by nothing else:
-// -ldflags "-X github.com/tugbayatilla/mankit/v4/build.version=v1.2.3". It is unexported, so no code can change it after the build.
+// -ldflags "-X go.naywee.com/mankit/v5/build.version=v1.2.3". It is unexported, so no code can change it after the build.
 var version string
 
 // tag is a release tag vX.Y.Z (V-4).

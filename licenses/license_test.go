@@ -12,8 +12,8 @@ import (
 
 	"github.com/ElderlyGate/contracts"
 
-	"github.com/tugbayatilla/mankit/v4/licenses"
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/licenses"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 // keys is a signer held in the test, as nw-license's would hold its keys.

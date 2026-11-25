@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
 )
 
 // Path is where the stream is served, one per server (ADR-E3).

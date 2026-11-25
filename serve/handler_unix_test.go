@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/serve"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/serve"
 )
 
 // A pipe exists on Linux and macOS only.

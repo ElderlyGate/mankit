@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/features"
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/licenses"
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/features"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/licenses"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 var all = []features.Feature{

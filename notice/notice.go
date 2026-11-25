@@ -6,7 +6,7 @@ package notice
 import (
 	"time"
 
-	"github.com/tugbayatilla/mankit/v4/theme"
+	"go.naywee.com/mankit/v5/theme"
 )
 
 // For is how long a new notice comes first on the status line.

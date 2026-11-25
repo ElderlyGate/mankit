@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/logs"
-	"github.com/tugbayatilla/mankit/v4/problem"
+	"go.naywee.com/mankit/v5/logs"
+	"go.naywee.com/mankit/v5/problem"
 )
 
 func records(t *testing.T, b *bytes.Buffer) []map[string]any {

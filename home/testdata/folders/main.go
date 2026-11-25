@@ -4,8 +4,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/tugbayatilla/mankit/v4/build"
-	"github.com/tugbayatilla/mankit/v4/home"
+	"go.naywee.com/mankit/v5/build"
+	"go.naywee.com/mankit/v5/home"
 )
 
 func main() {

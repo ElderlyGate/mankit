@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store"
 )
 
 // TestTwoUsers is one step of testdata/twouser.sh, which runs each step as one of two users on one of two machines sharing a served folder.

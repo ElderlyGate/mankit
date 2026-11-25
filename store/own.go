@@ -8,9 +8,9 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/problem"
-	"github.com/tugbayatilla/mankit/v4/store/internal/disk"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/problem"
+	"go.naywee.com/mankit/v5/store/internal/disk"
 )
 
 // Own is the folder dir opened for app as one of its own, as Config and Data open theirs: for mankit's packages whose API names a file by its path, such as settings.Set and the split's width, so what they write goes through the port too (ADR-S22).
@@ -89,11 +89,11 @@ func editIn(tx Tx, key Key, edit func(body []byte, there bool) ([]byte, error)) 
 func version() string {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, m := range info.Deps {
-			if strings.HasPrefix(m.Path, "github.com/tugbayatilla/mankit/") {
+			if strings.HasPrefix(m.Path, "go.naywee.com/mankit/") {
 				return m.Version
 			}
 		}
-		if strings.HasPrefix(info.Main.Path, "github.com/tugbayatilla/mankit/") && info.Main.Version != "" {
+		if strings.HasPrefix(info.Main.Path, "go.naywee.com/mankit/") && info.Main.Version != "" {
 			return info.Main.Version
 		}
 	}

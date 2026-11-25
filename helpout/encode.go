@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tugbayatilla/mankit/v4/internal/encode"
+	"go.naywee.com/mankit/v5/internal/encode"
 )
 
 // Encode writes v to w as -o json or -o yaml prints it: indented by two, the one form every app's output has (internal/encode); another format is an error naming it.

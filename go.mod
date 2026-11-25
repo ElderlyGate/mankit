@@ -1,4 +1,4 @@
-module github.com/tugbayatilla/mankit/v4
+module go.naywee.com/mankit/v5
 
 go 1.27.3
 

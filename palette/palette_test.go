@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/tugbayatilla/mankit/v4/home"
-	"github.com/tugbayatilla/mankit/v4/settings"
+	"go.naywee.com/mankit/v5/home"
+	"go.naywee.com/mankit/v5/settings"
 )
 
 type cmd struct{ id, key, label string }
