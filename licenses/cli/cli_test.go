@@ -327,13 +327,13 @@ func TestShowSaysTheAppsName(t *testing.T) {
 	}
 }
 
-// A running trial warns from TrialWarnDays days left, not a day before.
+// A running trial warns from license-expiring's trial point, not a day before.
 func TestShowWarnsInATrialsLastDays(t *testing.T) {
 	last := day("2026-12-16")
 	for _, c := range []struct {
 		left int
 		warn bool
-	}{{licenses.TrialWarnDays + 1, false}, {licenses.TrialWarnDays, true}} {
+	}{{licenses.LicenseExpiring.Trial + 1, false}, {licenses.LicenseExpiring.Trial, true}} {
 		w := newWorld(t, last.AddDate(0, 0, 1-c.left).Format("2006-01-02"))
 		w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
 		if s := w.show(); s.State != licenses.StateTrial || s.Licenses[0].DaysLeft != c.left || s.Warn != c.warn {

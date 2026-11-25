@@ -20,9 +20,6 @@ const (
 	StateEnded      = "ended"
 )
 
-// TrialWarnDays is how many last days of a running trial warn, the last day among them (the owner's license-badge decision of 25 Nov).
-const TrialWarnDays = 3
-
 // Show is the `<app> license show` answer, the same for the CLI, its JSON and the License group of the app's Settings page (ADR-L8).
 type Show struct {
 	State    string       `json:"state" yaml:"state"`
@@ -153,7 +150,7 @@ func says(s Show, name string) (string, bool) {
 			if l.DaysLeft == 1 {
 				days = "day"
 			}
-			return fmt.Sprintf("Trial: %d %s left (ends %s)", l.DaysLeft, days, ends), l.DaysLeft <= TrialWarnDays
+			return fmt.Sprintf("Trial: %d %s left (ends %s)", l.DaysLeft, days, ends), LicenseExpiring.Warns(l.Kind, l.DaysLeft)
 		}
 	case StateTrialEnded:
 		return "Your trial has ended. Buy a license to keep the paid features.", true
