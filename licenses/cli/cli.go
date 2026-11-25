@@ -122,7 +122,7 @@ func answer(cc *cobra.Command, out serve.Printer, name string, c *licenses.Check
 		if len(s.Licenses) > 0 {
 			fmt.Fprintln(tw, "KIND\tFOR\tUNTIL\tDAYS LEFT\tKEY")
 			for _, l := range s.Licenses {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", l.Kind, l.For, l.Until, l.DaysLeft, l.KeyID)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", l.Kind, l.For, ends(l), l.DaysLeft, l.KeyID)
 			}
 			fmt.Fprintln(tw)
 		}
@@ -180,4 +180,15 @@ func says(s licenses.Show, name string) string {
 		}
 	}
 	return ""
+}
+
+// ends is the day a row's UNTIL column shows: a release-trial's trial end once started, else its offer end, as contracts mankit/v1 license-show says; every other kind's until.
+func ends(l licenses.ShownFile) string {
+	switch {
+	case l.Kind != licenses.ReleaseTrial:
+		return l.Until
+	case l.TrialEnds != "":
+		return l.TrialEnds
+	}
+	return l.OfferEnds
 }

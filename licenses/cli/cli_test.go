@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -243,6 +244,18 @@ func TestShowAReleaseTrialsOfferAndTrialEnds(t *testing.T) {
 		w.put(home.Folder("designer")+"/license", w.releaseTrial(c.started))
 		if l := w.show().Licenses[0]; l.OfferEnds != "2027-11-23" || l.TrialEnds != c.trialEnds {
 			t.Fatalf("started %q: row = %+v", c.started, l)
+		}
+	}
+}
+
+// The text table's UNTIL for a release-trial is its trial's end once started, else its offer's end.
+func TestShowTableUntilOfAReleaseTrial(t *testing.T) {
+	for _, c := range []struct{ started, until string }{{"", "2027-11-23"}, {"2026-12-03", "2026-12-16"}} {
+		w := newWorld(t, "2026-12-07")
+		w.put(home.Folder("designer")+"/license", w.releaseTrial(c.started))
+		out, err := w.run("show")
+		if err != nil || !regexp.MustCompile(`(?m)^release-trial +designer v1\.2\.0 +`+c.until+` `).MatchString(out) {
+			t.Fatalf("started %q: err = %v, out =\n%s", c.started, err, out)
 		}
 	}
 }
