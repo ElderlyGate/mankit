@@ -37,13 +37,15 @@ type Build struct {
 
 // ShownFile is one license taken.
 type ShownFile struct {
-	Kind     Kind    `json:"kind" yaml:"kind"`
-	For      string  `json:"for" yaml:"for"`
-	Until    string  `json:"until" yaml:"until"`
-	DaysLeft int     `json:"daysLeft" yaml:"daysLeft"`
-	Ended    bool    `json:"ended" yaml:"ended"`
-	KeyID    string  `json:"keyId" yaml:"keyId"`
-	Window   *Window `json:"window,omitempty" yaml:"window,omitempty"`
+	Kind      Kind    `json:"kind" yaml:"kind"`
+	For       string  `json:"for" yaml:"for"`
+	Until     string  `json:"until" yaml:"until"`
+	TrialEnds string  `json:"trialEnds,omitempty" yaml:"trialEnds,omitempty"`
+	OfferEnds string  `json:"offerEnds,omitempty" yaml:"offerEnds,omitempty"`
+	DaysLeft  int     `json:"daysLeft" yaml:"daysLeft"`
+	Ended     bool    `json:"ended" yaml:"ended"`
+	KeyID     string  `json:"keyId" yaml:"keyId"`
+	Window    *Window `json:"window,omitempty" yaml:"window,omitempty"`
 }
 
 // Window is the countdown the License group's bar shows; its days left are the license's DaysLeft.
@@ -90,6 +92,12 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	}
 	for _, t := range f.Taken {
 		row := ShownFile{Kind: t.Kind, For: t.For, Until: t.LastDay.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
+		if t.Kind == ReleaseTrial {
+			row.OfferEnds = t.Until.Format(day)
+			if t.Started != nil {
+				row.TrialEnds = t.LastDay.Format(day)
+			}
+		}
 		// A paid license's window waits for the threshold (ADR-S23); only a running trial key's or release-trial's shows.
 		if (t.Kind == Trial || t.Kind == ReleaseTrial) && t.Running() {
 			row.Window = &Window{Of: t.Days()}

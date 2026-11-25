@@ -395,3 +395,13 @@ func TestDetachPrintsTheLinkOnlyToATerminal(t *testing.T) {
 		t.Fatalf("it does not say which command prints the link:\n%s", out)
 	}
 }
+
+// An app's name people read is its Title, and its ID when it gives none.
+func TestAnAppsNameIsItsTitleElseItsID(t *testing.T) {
+	if n := (serve.App{ID: "designer", Title: "Designer"}).Name(); n != "Designer" {
+		t.Fatalf("Name = %q", n)
+	}
+	if n := (serve.App{ID: "designer"}).Name(); n != "designer" {
+		t.Fatalf("Name = %q", n)
+	}
+}

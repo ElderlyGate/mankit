@@ -20,6 +20,7 @@ import (
 type App struct {
 	ID        string     // the product ID: source.app, apiVersion, the cookie name
 	Command   string     // the CLI's name, such as e-designer; empty is ID
+	Title     string     // the app's name people read, such as Designer; empty is ID
 	Folder    string     // its folder under the org's config and data folders, where an app's folders are named apart from its ID until the rename; empty is ID
 	Version   string     // the app's version
 	Contracts []Contract // the contract versions it answers, each with its envelope, oldest first; the last is the default
@@ -259,6 +260,14 @@ func Encode(w io.Writer, e Envelope) error {
 func (a App) folder() string {
 	if a.Folder != "" {
 		return a.Folder
+	}
+	return a.ID
+}
+
+// Name is the app's name people read in its texts: its Title, else its ID.
+func (a App) Name() string {
+	if a.Title != "" {
+		return a.Title
 	}
 	return a.ID
 }

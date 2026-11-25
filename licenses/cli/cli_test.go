@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -92,7 +93,7 @@ func (w *world) run(words ...string) (string, error) {
 	}
 	store := features.Store{Off: func() ([]string, error) { return nil, nil }, Keep: func(string, bool) error { return nil }, On: func() ([]string, error) { return []string{"events"}, nil }}
 	list := features.New(all, store, c.Closer(all))
-	app := serve.App{ID: "designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
+	app := serve.App{ID: "designer", Title: "Designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 	asked := func(cc *cobra.Command, a ask.Action) error {
 		w.asked = a.What
 		if f := cc.Flags().Lookup("yes"); f == nil || f.Value.String() != "true" {
@@ -233,6 +234,87 @@ func TestShowAReleaseTrialNotStarted(t *testing.T) {
 	w.today = "2027-11-24"
 	if s := w.show(); s.State != licenses.StateNone || !s.Licenses[0].Ended || s.Licenses[0].DaysLeft != 0 {
 		t.Fatalf("after its last day to start one = %+v", s)
+	}
+}
+
+// A release-trial always shows its offer's end, the key's own until, and its trial's end only once started (contracts mankit/v1 license-show).
+func TestShowAReleaseTrialsOfferAndTrialEnds(t *testing.T) {
+	for _, c := range []struct{ started, trialEnds string }{{"", ""}, {"2026-12-03", "2026-12-16"}} {
+		w := newWorld(t, "2026-12-07")
+		w.put(home.Folder("designer")+"/license", w.releaseTrial(c.started))
+		if l := w.show().Licenses[0]; l.OfferEnds != "2027-11-23" || l.TrialEnds != c.trialEnds {
+			t.Fatalf("started %q: row = %+v", c.started, l)
+		}
+	}
+}
+
+// The text table's UNTIL for a release-trial is its trial's end once started, else its offer's end.
+func TestShowTableUntilOfAReleaseTrial(t *testing.T) {
+	for _, c := range []struct{ started, until string }{{"", "2027-11-23"}, {"2026-12-03", "2026-12-16"}} {
+		w := newWorld(t, "2026-12-07")
+		w.put(home.Folder("designer")+"/license", w.releaseTrial(c.started))
+		out, err := w.run("show")
+		if err != nil || !regexp.MustCompile(`(?m)^release-trial +designer v1\.2\.0 +`+c.until+` `).MatchString(out) {
+			t.Fatalf("started %q: err = %v, out =\n%s", c.started, err, out)
+		}
+	}
+}
+
+// Only a release-trial has an offer's end or a trial's end.
+func TestShowNoOfferOrTrialEndOnOtherKinds(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+	w.put(home.Folder("designer")+"/license", w.sign(licenses.Trial, nil, "2026-12-01", "2026-12-30"))
+	for _, l := range w.show().Licenses {
+		if l.OfferEnds != "" || l.TrialEnds != "" {
+			t.Fatalf("row = %+v", l)
+		}
+	}
+}
+
+// The text of license show opens with the owner's sentence for its state, naming the app by its title.
+func TestShowSaysTheStateInTheOwnersWords(t *testing.T) {
+	for _, c := range []struct {
+		name, today, says string
+		put               func(*world)
+	}{
+		{"a trial key running", "2026-11-23", "Trial: 10 days left (ends 2026-12-02)", func(w *world) {
+			w.put(home.Folder("designer")+"/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
+		}},
+		{"a release-trial running", "2026-12-07", "Trial: 10 days left (ends 2026-12-16)", func(w *world) {
+			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
+		}},
+		{"a release-trial on its last day", "2026-12-16", "Trial: 1 day left (ends 2026-12-16)", func(w *world) {
+			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
+		}},
+		{"a release-trial ended", "2026-12-17", "Your trial has ended. Buy a license to keep the paid features.", func(w *world) {
+			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
+		}},
+		{"a key past its offer", "2027-11-24", "This version doesn't include a free trial anymore. Download the latest version to try Designer.", func(w *world) {
+			w.put(home.Folder("designer")+"/license", w.releaseTrial(""))
+		}},
+		{"a bought license", "2026-12-07", "Licensed to Acme Ltd · Designer", func(w *world) {
+			w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+		}},
+	} {
+		w := newWorld(t, c.today)
+		c.put(w)
+		out, err := w.run("show")
+		if err != nil || !strings.HasPrefix(out, c.says+"\n\nSTATE") {
+			t.Fatalf("%s: err = %v, out =\n%s", c.name, err, out)
+		}
+		w.show()
+	}
+}
+
+// A state with no sentence opens with its table: no license, and a release-trial still on offer.
+func TestShowSaysNothingWithoutASentence(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	for _, put := range []func(){func() {}, func() { w.put(home.Folder("designer")+"/license", w.releaseTrial("")) }} {
+		put()
+		if out, err := w.run("show"); err != nil || !strings.HasPrefix(out, "STATE") {
+			t.Fatalf("err = %v, out =\n%s", err, out)
+		}
 	}
 }
 
