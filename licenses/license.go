@@ -15,7 +15,7 @@ import (
 	"go.naywee.com/mankit/v5/problem"
 )
 
-// Kind is what a license covers (ADR-L8, L9); contracts mankit/v1 license-show says what each means.
+// Kind is what a license covers (ADR-L8, L9); contracts mankit/v2 license-show says what each means.
 type Kind string
 
 // The kinds of license.
@@ -36,7 +36,7 @@ const (
 	ReasonIDMismatch   = "id_mismatch"
 )
 
-// License is what a license file says, all of it signed but Started; contracts mankit/v1 license-payload says what each field means, license-file the file around it.
+// License is what a license file says, all of it signed but Started; contracts mankit/v2 license-payload says what each field means, license-file the file around it.
 type License struct {
 	ID        string
 	Kind      Kind
@@ -49,7 +49,7 @@ type License struct {
 	Started   *Started // unsigned, beside the payload; nil when the file has none
 }
 
-// Started is the trial a release-trial's file started, which the app writes beside the signed payload (contracts mankit/v1 license-file spec.started).
+// Started is the trial a release-trial's file started, which the app writes beside the signed payload (contracts mankit/v2 license-file spec.started).
 type Started struct {
 	Day      time.Time
 	Binary   string
@@ -97,7 +97,7 @@ func (t Trust) check() error {
 	return nil
 }
 
-// file is a license file on disk (contracts mankit/v1 license-file).
+// file is a license file on disk (contracts mankit/v2 license-file).
 type file struct {
 	APIVersion string `json:"apiVersion"`
 	Kind       string `json:"kind"`

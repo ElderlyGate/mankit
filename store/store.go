@@ -38,14 +38,14 @@ const (
 // APIVersion is the form of the store's own files, a journal's lines and a change's marks, told apart by kind; two app versions share them, so it never changes (ADR-S15).
 func APIVersion() string { return home.Org + "/mankit/store/v1" }
 
-// The kinds of the store's files (contracts mankit/v1).
+// The kinds of the store's files (contracts mankit/v2).
 const (
 	JournalKind       = "StoreJournal"
 	JournalChangeKind = "StoreJournalChange"
 	UnfinishedKind    = "StoreUnfinished"
 )
 
-// Key names a thing inside a scope: a slash path, never a machine path (ADR-S21); ParseKey makes one, in the one form the store writes (contracts mankit/v1 storeKey).
+// Key names a thing inside a scope: a slash path, never a machine path (ADR-S21); ParseKey makes one, in the one form the store writes (contracts mankit/v2 storeKey).
 type Key string
 
 // The steps no key may hold: the store's own folders inside a scope.

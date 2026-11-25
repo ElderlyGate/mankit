@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// journalHead is a journal's first line (contracts mankit/v1 store-journal).
+// journalHead is a journal's first line (contracts mankit/v2 store-journal).
 type journalHead struct {
 	APIVersion string `json:"apiVersion"`
 	Kind       string `json:"kind"`
@@ -32,7 +32,7 @@ type journalHead struct {
 	} `json:"spec"`
 }
 
-// journalLine is one write of a change, logged before it is made (contracts mankit/v1 store-journal-change).
+// journalLine is one write of a change, logged before it is made (contracts mankit/v2 store-journal-change).
 type journalLine struct {
 	APIVersion string `json:"apiVersion"`
 	Kind       string `json:"kind"`
@@ -65,7 +65,7 @@ func content(body []byte) *[]byte {
 	return &b
 }
 
-// mark is the file .unfinished-<id>.json the store writes in the .queue/ of every turn a change holds (contracts mankit/v1 store-unfinished).
+// mark is the file .unfinished-<id>.json the store writes in the .queue/ of every turn a change holds (contracts mankit/v2 store-unfinished).
 type mark struct {
 	APIVersion string `json:"apiVersion"`
 	Kind       string `json:"kind"`
@@ -82,7 +82,7 @@ type mark struct {
 }
 
 // Unfinished is a change cut short that waits to be put back: whose it is, where its journal is, and the keys it holds back.
-// Its JSON is contracts mankit/v1 storeUnfinishedChange, which <app> store unfinished answers with.
+// Its JSON is contracts mankit/v2 storeUnfinishedChange, which <app> store unfinished answers with.
 type Unfinished struct {
 	ID      string `json:"id"`
 	User    string `json:"user"`

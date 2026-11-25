@@ -242,7 +242,7 @@ func readFile(path string) ([]byte, error) {
 	return raw, err
 }
 
-// From is where a feature is unlocked from (ADR-L8, L9); contracts mankit/v1 license-show says what each means.
+// From is where a feature is unlocked from (ADR-L8, L9); contracts mankit/v2 license-show says what each means.
 type From string
 
 // The places a feature is unlocked from.

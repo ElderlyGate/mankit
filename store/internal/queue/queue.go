@@ -44,13 +44,13 @@ const (
 	DefaultLimit = 2 * time.Minute
 )
 
-// Kind is the kind of a ticket, and ListKind the kind of the answer <app> queue gives (contracts mankit/v1).
+// Kind is the kind of a ticket, and ListKind the kind of the answer <app> queue gives (contracts mankit/v2).
 const (
 	Kind     = "QueueTicket"
 	ListKind = "QueueList"
 )
 
-// BackendKind is the kind of .queue/backend, the marker naming the backend every writer of the folder uses (contracts mankit/v1).
+// BackendKind is the kind of .queue/backend, the marker naming the backend every writer of the folder uses (contracts mankit/v2).
 const BackendKind = "QueueBackend"
 
 // The backends a marker may name; this build runs files alone.
@@ -59,7 +59,7 @@ const (
 	BackendLockService = "lock-service"
 )
 
-// The names in the queue's folder; every app version sharing a queue relies on them (contracts mankit/v1).
+// The names in the queue's folder; every app version sharing a queue relies on them (contracts mankit/v2).
 const (
 	folderName  = ".queue"
 	badName     = "bad"
@@ -70,7 +70,7 @@ const (
 	backendName = "backend"
 )
 
-// staleAfter and touchEvery are fixed by contracts mankit/v1, so every app sharing a queue agrees; vars only so tests can shorten them.
+// staleAfter and touchEvery are fixed by contracts mankit/v2, so every app sharing a queue agrees; vars only so tests can shorten them.
 var (
 	staleAfter = 30 * time.Second
 	touchEvery = 5 * time.Second
@@ -101,7 +101,7 @@ type Queue struct {
 	proc *inProcess // this process's locks on the folder, found once per Change or List
 }
 
-// Ticket is one change waiting its turn, as written in the queue's folder (contracts mankit/v1 queue-ticket).
+// Ticket is one change waiting its turn, as written in the queue's folder (contracts mankit/v2 queue-ticket).
 type Ticket struct {
 	APIVersion string   `json:"apiVersion"`
 	Kind       string   `json:"kind"`

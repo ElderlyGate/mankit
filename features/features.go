@@ -17,7 +17,7 @@ type Feature struct {
 	Tier      Tier    `json:"tier,omitempty" yaml:"tier,omitempty"`
 }
 
-// Tier says whether a license can lock a feature; contracts mankit/v1 featureState.tier says what each means (ADR-L2).
+// Tier says whether a license can lock a feature; contracts mankit/v2 featureState.tier says what each means (ADR-L2).
 type Tier string
 
 // The tiers; the zero value is Free, left out of an answer as contracts allows.

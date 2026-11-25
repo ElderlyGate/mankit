@@ -19,7 +19,7 @@ import (
 	"go.naywee.com/mankit/v5/store/internal/asking"
 )
 
-// The kinds of the answers store unfinished list and clear give, on the CLI and over HTTP alike (contracts mankit/v1 store-unfinished-list, store-unfinished-cleared).
+// The kinds of the answers store unfinished list and clear give, on the CLI and over HTTP alike (contracts mankit/v2 store-unfinished-list, store-unfinished-cleared).
 const (
 	UnfinishedListKind = "StoreUnfinishedList"
 	ClearedKind        = "StoreUnfinishedCleared"

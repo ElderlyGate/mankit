@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// HelpKind is the kind of the answer <app> help -o json gives (contracts mankit/v1 help).
+// HelpKind is the kind of the answer <app> help -o json gives (contracts mankit/v2 help).
 const HelpKind = "Help"
 
 // Answerer prints a command's answer as the app's other commands do: rows as a table, or the envelope with -o json or yaml. serve.App.Printer gives one.
@@ -18,7 +18,7 @@ type Answerer interface {
 	Print(w io.Writer, name, kind string, data any, rows func(io.Writer)) error
 }
 
-// The data of <app> help -o json; contracts mankit/v1 help says what each field is.
+// The data of <app> help -o json; contracts mankit/v2 help says what each field is.
 type (
 	HelpData struct {
 		Name     string        `json:"name"`
@@ -27,7 +27,7 @@ type (
 		Commands []HelpCommand `json:"commands"`
 		Flags    []HelpFlag    `json:"flags"`
 		More     string        `json:"more"`
-		Old      []OldForm     `json:"old"` // always there, empty when there is none: once the old forms go at the next major it stays an empty list, as mankit/v1 requires it
+		Old      []OldForm     `json:"old"` // always there, empty when there is none: once the old forms go at the next major it stays an empty list, as mankit/v2 requires it
 	}
 	HelpCommand struct {
 		Name     string        `json:"name"`

@@ -153,7 +153,7 @@ func answer(cc *cobra.Command, out serve.Printer, c *licenses.Checker, list *fea
 	})
 }
 
-// ends is the day a row's UNTIL column shows: a release-trial's trial end once started, else its offer end, as contracts mankit/v1 license-show says; every other kind's until.
+// ends is the day a row's UNTIL column shows: a release-trial's trial end once started, else its offer end, as contracts mankit/v2 license-show says; every other kind's until.
 func ends(l licenses.ShownFile) string {
 	switch {
 	case l.Kind != licenses.ReleaseTrial:

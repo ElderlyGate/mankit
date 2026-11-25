@@ -30,7 +30,7 @@ const (
 	DefaultLimit = engine.DefaultLimit
 )
 
-// Kind is the kind of a ticket, ListKind the kind of the answer <app> queue gives, and BackendKind the kind of .queue/backend (contracts mankit/v1).
+// Kind is the kind of a ticket, ListKind the kind of the answer <app> queue gives, and BackendKind the kind of .queue/backend (contracts mankit/v2).
 const (
 	Kind        = engine.Kind
 	ListKind    = engine.ListKind
@@ -46,7 +46,7 @@ const (
 // APIVersion is the apiVersion of the queue's files, a ticket or the backend marker.
 func APIVersion() string { return engine.APIVersion() }
 
-// The forms List gives (contracts mankit/v1 queue-list); their home is the queue itself.
+// The forms List gives (contracts mankit/v2 queue-list); their home is the queue itself.
 type (
 	Listing  = engine.Listing
 	Ticket   = engine.Ticket
@@ -70,7 +70,7 @@ var (
 	LimitKey = settings.Key{Name: "queue.limit", Default: DefaultLimit.String(), Help: "how long a change may hold its turn before it is stopped"}
 )
 
-// Duration is a value of queue.wait or queue.limit as the queue takes it: a duration of at least a second in whole seconds, the one rule contracts mankit/v1 queue-settings states; its d.String() (45s, 2m0s) is the form written and shown.
+// Duration is a value of queue.wait or queue.limit as the queue takes it: a duration of at least a second in whole seconds, the one rule contracts mankit/v2 queue-settings states; its d.String() (45s, 2m0s) is the form written and shown.
 // What it refuses is said with ADR-S21's reasons: wrong_type for no duration, out_of_range for one under a second or not in whole seconds, empty for nothing.
 func Duration(key settings.Key, value string) (time.Duration, error) {
 	if value == "" {

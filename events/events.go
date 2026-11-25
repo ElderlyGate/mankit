@@ -42,7 +42,7 @@ type Event struct {
 	TraceState      string          `json:"tracestate,omitempty"`
 }
 
-// Gapped ends the type of the event a stream gets when it missed events: <product>.stream.gapped, subject stream (contracts mankit/v1).
+// Gapped ends the type of the event a stream gets when it missed events: <product>.stream.gapped, subject stream (contracts mankit/v2).
 const Gapped = "stream.gapped"
 
 // Gap is the data of the gapped event: the last event this server knows the client had (empty when it is not one of this server's),

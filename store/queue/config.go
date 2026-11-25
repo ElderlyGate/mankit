@@ -15,10 +15,10 @@ import (
 	"go.naywee.com/mankit/v5/settings"
 )
 
-// SettingsKind is the kind of the answer <app> queue show, set and unset give (contracts mankit/v1 queue-settings).
+// SettingsKind is the kind of the answer <app> queue show, set and unset give (contracts mankit/v2 queue-settings).
 const SettingsKind = "QueueSettings"
 
-// Setting is one of the queue's two settings as the app takes it now; contracts mankit/v1 queue-settings describes each field.
+// Setting is one of the queue's two settings as the app takes it now; contracts mankit/v2 queue-settings describes each field.
 type Setting struct {
 	Value   string `json:"value"`
 	Default string `json:"default"`

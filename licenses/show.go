@@ -8,7 +8,7 @@ import (
 	"go.naywee.com/mankit/v5/problem"
 )
 
-// ShowKind is the kind of the `<app> license show` answer; contracts mankit/v1 license-show says what each field of Show means.
+// ShowKind is the kind of the `<app> license show` answer; contracts mankit/v2 license-show says what each field of Show means.
 const ShowKind = "LicenseShow"
 
 // The words of Show.State.

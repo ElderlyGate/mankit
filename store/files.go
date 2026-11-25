@@ -24,7 +24,7 @@ import (
 	"go.naywee.com/mankit/v5/store/internal/queue"
 )
 
-// files keeps a scope's things as files in its folder, opened once, through the safety core; a change of more than one write is logged ahead in this user's journal and marked in every queue it holds a turn of (contracts mankit/v1 store-journal, store-unfinished).
+// files keeps a scope's things as files in its folder, opened once, through the safety core; a change of more than one write is logged ahead in this user's journal and marked in every queue it holds a turn of (contracts mankit/v2 store-journal, store-unfinished).
 type files struct {
 	s *Scope
 	r *os.Root
