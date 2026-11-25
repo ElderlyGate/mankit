@@ -159,7 +159,7 @@ short line first, then its verbs and its own things, its flags and `More:`.
 `<app> <verb> --help` keep cobra's full help.
 
 `<app> help -o json` (or `-o yaml`) prints the same commands and flags as
-data, with the hidden old forms marked old: contracts mankit/v1 `Help`.
+data, with the hidden old forms marked old: contracts mankit/v2 `Help`.
 `<app> help <thing> -o json` holds only that thing. It is the app's answer, in
 the app's envelope, so the app hands helpout its printer:
 
@@ -415,17 +415,11 @@ link carries never reaches it; it is not kept (`no-store`) and sends no
 referrer. `serve.WriteError` gives it too.
 
 Each of `App.Contracts` is a `serve.Contract{Version, Envelope}`, oldest
-first, the last the default. Envelope is `v1` or `v2`; empty is `v1`. A
-contract an app has released keeps its shape (contracts CT-RULE-1), so an app
-moves to envelope/v2 with its next contract, such as
-`[]serve.Contract{{Version: "v1"}, {Version: "v2", Envelope: "v2"}}`. A
-contract on envelope/v1 is written as mankit v2 wrote it, byte for byte: `ran`,
-and error/v1 items with the code each refusal had before Problems
-(`token_refused` …) and `supported` for `unsupported_contract`. A reader
-decoding `serve.Envelope` reads either. `Handler` and `Commands` refuse an
-envelope serve does not write, a version given twice, no contract, and an
-envelope going back, since a reader moving forward never meets an older one.
-When envelope/v3 comes, it is a new Envelope value, never a new field.
+first, the last the default, such as `[]serve.Contract{{Version: "v2"}}`.
+Every answer is in contracts envelope/v2: Envelope is `v2`, and empty is `v2`.
+`Handler` and `Commands` refuse, when they start, any other envelope (such as
+`v1`), a version given twice and no contract. When envelope/v3 comes, it is a
+new Envelope value, never a new field.
 
 One server may serve many things, such as one per project: it names each
 answer's thing with `serve.WriteNamed` / `serve.WriteErrorNamed`; an empty name,
@@ -443,7 +437,7 @@ What serve does for every app:
   `not_json`) is in the contract the reader asked for when the app answers it;
 - answers the contract asked for in `Accept-Contract`, else 406
   `unsupported_contract`; `GET /api/version` is never refused a contract: it is
-  the one version answer (contracts `version/v1`, on envelope/v1 for good),
+  the one version answer (contracts `version/v1`, on envelope/v2),
   listing the contracts the app answers in `data.supportedContracts`, in the
   contract asked for when served, else the newest;
 - answers a change (POST, PUT, PATCH, DELETE) that asks with 428 and a
@@ -487,7 +481,7 @@ What serve does for every app:
 Each error has a code (`serve.Code…`); a program decides by the code, never by
 the message. `<app> serve --help` and `<app> server help` are the reference
 for the commands. Every server, detached or in the foreground, leaves a record
-in `<data folder>/<folder>/servers/`, in the shape of contracts `mankit/v1`;
+in `<data folder>/<folder>/servers/`, in the shape of contracts `mankit/v2`;
 `server list` lists them and says which is detached. The link that carries the
 token is printed only when asked for: by `serve` (to a terminal only, since a
 running server's output may be its log), `serve --detach`, `server link` and
@@ -575,7 +569,7 @@ never opens what another closer closed. A list with a feature that needs values
 needs `WithLookup`, and one with a feature that starts off needs `Store.On`;
 `Attach` refuses a list without them, so a wrong wiring shows at start.
 Each feature has a `Tier`, `features.Free` (the zero value) or
-`features.Enterprise`, answered as `tier` (contracts mankit/v1
+`features.Enterprise`, answered as `tier` (contracts mankit/v2
 `featureState.tier` says what each means). Only an enterprise feature can be
 locked (ADR-L2): a closer `By: features.License` never closes a free one. A
 tier the list does not know is a wrong wiring too. `events.Feature` is
@@ -603,7 +597,7 @@ at build, beside its own version stamp:
 
 ```yaml
 ldflags:
-  - -X github.com/tugbayatilla/mankit/v4/build.version=v{{.Version}}
+  - -X go.naywee.com/mankit/v5/build.version=v{{.Version}}
 ```
 
 Only a stamp of the form `vX.Y.Z` makes a release. A build without it, such as
@@ -629,11 +623,11 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
   they were signed and the Ed25519 signature over them. Its one Go type is
   `licenses.License` (`ID`, `Kind`, `For`, `Products`, `Issued`, `Until`,
   `TrialDays`, `KeyID`, and `Started`, the unsigned record of the trial a
-  release-trial started); what each field means is in contracts mankit/v1
+  release-trial started); what each field means is in contracts mankit/v2
   `license-file` and `license-payload`. `licenses.Sign(l, signer)` writes one,
   `licenses.Verify(raw, trust)` reads one.
 - `License.Check` refuses what `Sign` refuses, without a signer; see its
-  [Go doc](https://pkg.go.dev/github.com/tugbayatilla/mankit/v4/licenses#License.Check).
+  [Go doc](https://pkg.go.dev/go.naywee.com/mankit/v5/licenses#License.Check).
 - A release takes licenses signed by a prod key only, any other build by a dev
   key only. A file it cannot read or verify is refused with its file and a
   Problem reason (`licenses.Reason…`, meanings in contracts problem/v1), never
@@ -644,7 +638,7 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
   closer of the feature list. `Taken.LastDay`, `DaysLeft` and `Ended` are all
   it says about time, a release-trial's counted from its started day; when to
   warn is a threshold's (ADR-S23).
-- `<app> license show` answers contracts mankit/v1 `LicenseShow`
+- `<app> license show` answers contracts mankit/v2 `LicenseShow`
   (`Checker.Show`, the same for a Settings page). `<app> license add <file>`
   keeps a product license or trial key for the app, `--org` an org license for
   every app: it checks the file, asks, naming the license it replaces, and
@@ -765,7 +759,7 @@ answers 404 until the owner switches it on. Taking events out is taking out
   back with `Last-Event-ID`.
 - A client that missed events gets `<product>.stream.gapped`, subject
   `stream`, with data `{"lastKnown": "<id>", "oldestKept": "<id>"}` (contracts
-  `mankit/v1`), and reloads its state. A stream gets it first when what came
+  `mankit/v2`), and reloads its state. A stream gets it first when what came
   after its `Last-Event-ID` is no longer kept: too old, from another server, or
   from before the feature was off (`lastKnown` is empty when the id is not
   this server's, `oldestKept` left out when nothing is kept); coming back with
@@ -789,7 +783,7 @@ kept in `<served folder>/<app folder>/.queue/`, which only this user may enter
 and which ignores itself in git. It holds tickets, never commands: each
 process runs its own change, and nothing in the folder is ever executed. The
 rules every app sharing a queue follows on disk are fixed in contracts
-`mankit/v1`. One process may hold the queues of many served things at once:
+`mankit/v2`. One process may hold the queues of many served things at once:
 each folder has its own line, so a change in one never waits for another.
 
 The queue is the store's own (ADR-S22): a change takes its turn through
@@ -813,14 +807,14 @@ Every app adds `queue.WaitKey` and `queue.LimitKey` to its settings keys, so a
 user sets `queue.wait` (30s) and `queue.limit` (2m) the same way in each.
 `queue.Settings` refuses a value that is not a duration of at least a second in whole
 seconds, naming the row; `queue.Duration` is that one rule, the one contracts
-mankit/v1 queue-settings states, and `d.String()` (`45s`, `2m0s`) is the form
+mankit/v2 queue-settings states, and `d.String()` (`45s`, `2m0s`) is the form
 written and shown. Each bounds only this process's own waiting and holding, so apps
 sharing a queue may set them apart. `queue.Waits(path)` reads the two rows from
 the app's config.yaml for `queue.Settings`.
 
 `queue.Command(app, path, confirm)` is the thing `<app> queue`, which each app
 mounts at its root: `queue show` shows both rows with the value in effect, the
-default and whether the config sets it (`-o json` answers contracts mankit/v1
+default and whether the config sets it (`-o json` answers contracts mankit/v2
 `QueueSettings`), `queue set wait 45s` or `queue set limit 3m` sets one after
 the app's confirm asks, written as `d.String()` gives it, and `queue unset wait`
 puts the default back. An argument the queue would refuse is refused with
@@ -852,7 +846,7 @@ ticket leaves the line before the process does.
   `.queue/bad/`, said on stderr with the file and why, and skipped. A change
   still running when its ticket is set aside keeps the turn.
 - `.queue/backend`, when present, names how every writer of the folder takes
-  turns (contracts `mankit/v1/queue-backend`): `files`, as above, is the only
+  turns (contracts `mankit/v2/queue-backend`): `files`, as above, is the only
   one this build runs, and the one without a marker. A marker naming another
   backend, such as `lock-service`, or one that cannot be read, makes a change
   and `queue.List` refuse with `queue_backend_unsupported`; they never fall back to
@@ -866,8 +860,8 @@ ticket leaves the line before the process does.
   holds the turn: its ticket, pid, host and how long it has held it.
 - `queue.List(ctx, folder, app, version)` is what `<app> queue` shows: the tickets in order, which one's
   change runs now and since when, and the files in `bad/`. Answered as kind
-  `queue.ListKind` it meets contracts `mankit/v1/queue-list`; every ticket meets
-  `mankit/v1/queue-ticket` (apiVersion `elderlygate/mankit/queue/v1`, kind `QueueTicket`, whose header
+  `queue.ListKind` it meets contracts `mankit/v2/queue-list`; every ticket meets
+  `mankit/v2/queue-ticket` (apiVersion `elderlygate/mankit/queue/v1`, kind `QueueTicket`, whose header
   never changes, ADR-S15).
 
 What it holds for:
@@ -905,7 +899,7 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
 })
 ```
 
-- `ParseKey` gives a key in its one form (contracts `mankit/v1` `storeKey`); a
+- `ParseKey` gives a key in its one form (contracts `mankit/v2` `storeKey`); a
   `..` step, a backslash, a machine path's start are refused as `outside`, and
   so is a step named `.queue` or `.store`, the store's own folders: stricter
   than `storeKey`, which allows them.
@@ -926,7 +920,7 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   mark goes into the `.queue/` of every turn it holds, its journal into this
   user's data folder (`<data>/<app>/.store/<machine>/`, 0700, one per machine),
   then the writes, the read-back, the journal removed, the marks last. The
-  shapes and their lifetime are contracts `mankit/v1` `store-journal`,
+  shapes and their lifetime are contracts `mankit/v2` `store-journal`,
   `store-journal-change` and `store-unfinished`.
 - Putting a change back removes the core's temporary files, named
   `.<file>.~disk-<random>`, beside each file it puts back and inside each
@@ -955,7 +949,7 @@ err = s.Change(ctx, "shop", "design apply", func(tx store.Tx) error {
   opens (the folder's own turn, every thing's, and those the folder's marks and
   this user's journals name; a mark only in the turn of a thing that is gone
   shows with `list <thing>`, as the refusal names the thing), with this
-  user's journal file, and this user's left journals (contracts mankit/v1
+  user's journal file, and this user's left journals (contracts mankit/v2
   `StoreUnfinishedList`). `store unfinished remove <thing>` shows each change
   holding the thing (user, machine, mark, journal, keys and, for this user's
   journal, what each write was to do, or that the journal cannot be read) and
@@ -1011,6 +1005,22 @@ copying or pasting. Keep atotto out of the Linux build:
 go list -deps ./... | grep atotto   # prints nothing on Linux
 ```
 
+## Moving from v4
+
+v5 keeps only the latest version of each contract. What an app changes:
+
+- Imports: `github.com/tugbayatilla/mankit/v4/...` becomes
+  `go.naywee.com/mankit/v5/...`; the build stamp ldflag becomes
+  `-X go.naywee.com/mankit/v5/build.version=v{{.Version}}`.
+- Tests that check answers import `go.naywee.com/contracts/v2` (was
+  `github.com/ElderlyGate/contracts`) and check `envelope/v2` and `mankit/v2`
+  schemas; `envelope/v1`, `mankit/v1` and the upgrade steps are gone from it.
+- Every answer is on envelope/v2 (`source`, Problems), also for a
+  `serve.Contract` with an empty Envelope, which was envelope/v1 in v4, and
+  for `GET /api/version`. `Envelope: "v1"` stops serve at start with one
+  error. A reader decoding `serve.Envelope` reads envelope/v2 only.
+- No old file or answer is read or moved: there is no migration step.
+
 ## Develop alongside the apps
 
 A `go.work` in the folder above the four repos points the apps at this
@@ -1021,14 +1031,16 @@ go work init ./mankit ./gitman ./dcman ./checkman
 ```
 
 A merge to `main` releases mankit: the pipeline tags the next version. Then in
-each app `go get github.com/tugbayatilla/mankit/v4@vX.Y.Z && go mod tidy`. The
-module path is `github.com/tugbayatilla/mankit/v4` until a later migration moves
-it with the org rename; the repository itself lives at
-`github.com/nayweelabs/mankit`.
+each app `go get go.naywee.com/mankit/v5@vX.Y.Z && go mod tidy`. The module
+path is `go.naywee.com/mankit/v5`, served from the repository
+`github.com/nayweelabs/mankit`. mankit checks its answers against
+`go.naywee.com/contracts/v2`.
 
 CI runs [gorelease](https://pkg.go.dev/golang.org/x/exp/cmd/gorelease) on every
 pull request: a change that breaks the public API fails it, unless the module
-path itself moves to the next major (`/v4`), which is how a major is declared.
+path itself moves to the next major (`/v5`), which is how a major is declared;
+the first release of a major is compared with the last release of the one
+before, at the module path that release's go.mod names.
 
 ## License
 
