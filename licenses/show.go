@@ -1,6 +1,7 @@
 package licenses
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/features"
@@ -16,6 +17,7 @@ const (
 	StateTrial      = "trial"
 	StateTrialEnded = "trial-ended"
 	StateLicensed   = "licensed"
+	StateEnding     = "ending"
 	StateEnded      = "ended"
 )
 
@@ -23,6 +25,8 @@ const (
 type Show struct {
 	State    string       `json:"state" yaml:"state"`
 	EndedOn  string       `json:"endedOn,omitempty" yaml:"endedOn,omitempty"`
+	Sentence string       `json:"sentence,omitempty" yaml:"sentence,omitempty"`
+	Warn     bool         `json:"warn" yaml:"warn"`
 	Build    Build        `json:"build" yaml:"build"`
 	Licenses []ShownFile  `json:"licenses" yaml:"licenses"`
 	Refused  []RefusedRow `json:"refused" yaml:"refused"`
@@ -75,7 +79,7 @@ type FeatureRow struct {
 	Until          string `json:"until,omitempty" yaml:"until,omitempty"`
 }
 
-// Show is the answer for the features list holds, which the Checker's Closer closes: its licenses as read now, and each feature's state and where it is unlocked from.
+// Show is the answer for the features list holds, which the Checker's Closer closes: its licenses as read now, and each feature's state and where it is unlocked from; any running paid license within LicenseExpiring's paid point makes it ending, as ADR-L3 counts per license and a product license may cover features the org license does not.
 func (c *Checker) Show(list *features.List) (Show, error) {
 	states, err := list.States()
 	if err != nil {
@@ -98,9 +102,11 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 				row.TrialEnds = t.LastDay.Format(day)
 			}
 		}
-		// A paid license's window waits for the threshold (ADR-S23); only a running trial key's or release-trial's shows.
-		if (t.Kind == Trial || t.Kind == ReleaseTrial) && t.Running() {
+		switch {
+		case (t.Kind == Trial || t.Kind == ReleaseTrial) && t.Running():
 			row.Window = &Window{Of: t.Days()}
+		case (t.Kind == Org || t.Kind == Product) && t.Running() && LicenseExpiring.Warns(t.Kind, t.DaysLeft):
+			row.Window = &Window{Of: LicenseExpiring.Paid}
 		}
 		out.Licenses = append(out.Licenses, row)
 	}
@@ -126,12 +132,53 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 		}
 		out.Features = append(out.Features, row)
 	}
+	out.Sentence, out.Warn = says(out, c.c.Title)
 	return out, nil
 }
 
-// state is one word for the app: a running paid license, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key or release-trial, else an ended one, else none; one not begun, or a release-trial not started, counts as none. When it is ended, the day is the latest last day of the ended paid licenses.
+// says is the owner's sentence for the state of s, naming the app as name, empty for a state it has none for, and whether that state warns.
+func says(s Show, name string) (string, bool) {
+	switch s.State {
+	case StateTrial:
+		for _, l := range s.Licenses {
+			// Only a running trial's row has a window.
+			if l.Window == nil {
+				continue
+			}
+			ends := l.Until
+			if l.TrialEnds != "" {
+				ends = l.TrialEnds
+			}
+			days := "days"
+			if l.DaysLeft == 1 {
+				days = "day"
+			}
+			return fmt.Sprintf("Trial: %d %s left (ends %s)", l.DaysLeft, days, ends), LicenseExpiring.Warns(l.Kind, l.DaysLeft)
+		}
+	case StateTrialEnded:
+		return "Your trial has ended. Buy a license to keep the paid features.", true
+	case StateEnded, StateEnding:
+		return "", true
+	case StateLicensed:
+		for _, l := range s.Licenses {
+			// The license names no product line yet (ADR-L10), so the line waits for the purchase MVP.
+			if (l.Kind == Org || l.Kind == Product) && !l.Ended {
+				return fmt.Sprintf("Licensed to %s · %s", l.For, name), false
+			}
+		}
+	case StateNone:
+		for _, l := range s.Licenses {
+			if l.Kind == ReleaseTrial && l.TrialEnds == "" && l.Ended {
+				return "This version doesn't include a free trial anymore. Download the latest version to try " + name + ".", false
+			}
+		}
+	}
+	return "", false
+}
+
+// state is one word for the app: a running paid license, ending once any running one is within LicenseExpiring's paid point, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key or release-trial, else an ended one, else none; one not begun, or a release-trial not started, counts as none. When it is ended, the day is the latest last day of the ended paid licenses.
 func (f Found) state() (string, time.Time) {
-	var paid, ended, trial, trialEnded bool
+	var paid, ending, ended, trial, trialEnded bool
 	var endedOn time.Time
 	for _, t := range f.Taken {
 		isTrial := t.Kind == Trial || t.Kind == ReleaseTrial
@@ -148,9 +195,12 @@ func (f Found) state() (string, time.Time) {
 			}
 		case t.Running():
 			paid = true
+			ending = ending || LicenseExpiring.Warns(t.Kind, t.DaysLeft)
 		}
 	}
 	switch {
+	case ending:
+		return StateEnding, time.Time{}
 	case paid:
 		return StateLicensed, time.Time{}
 	case ended:

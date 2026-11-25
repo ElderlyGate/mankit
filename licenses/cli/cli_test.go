@@ -49,6 +49,7 @@ type world struct {
 	trust licenses.Trust
 	today string
 	asked string // what the last question said
+	app   serve.App
 }
 
 func newWorld(t *testing.T, today string) *world {
@@ -56,7 +57,8 @@ func newWorld(t *testing.T, today string) *world {
 	t.Setenv("XDG_CONFIG_HOME", base)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	return &world{t: t, dir: filepath.Join(base, "elderlygate"), org: filepath.Join(base, "elderlygate-dev"), keys: keys{"prod-2026": priv}, today: today,
-		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"prod-2026": pub}}}
+		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"prod-2026": pub}},
+		app:   serve.App{ID: "designer", Title: "Designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}}
 }
 
 func day(s string) time.Time { d, _ := time.Parse("2006-01-02", s); return d }
@@ -87,13 +89,13 @@ func (w *world) putIn(dir, rel string, raw []byte) {
 // run runs `license` words as an app mounts the thing; the events feature is switched on, as an owner would.
 func (w *world) run(words ...string) (string, error) {
 	w.t.Helper()
-	c, err := licenses.New(licenses.Config{ID: "designer", Trust: w.trust, Now: func() time.Time { return day(w.today) }})
+	cli.SetNow(w.t, func() time.Time { return day(w.today) })
+	c, err := cli.Checker(w.app, w.trust)
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	store := features.Store{Off: func() ([]string, error) { return nil, nil }, Keep: func(string, bool) error { return nil }, On: func() ([]string, error) { return []string{"events"}, nil }}
 	list := features.New(all, store, c.Closer(all))
-	app := serve.App{ID: "designer", Title: "Designer", Version: "9.0.0", Contracts: []serve.Contract{{Version: "v1"}}}
 	asked := func(cc *cobra.Command, a ask.Action) error {
 		w.asked = a.What
 		if f := cc.Flags().Lookup("yes"); f == nil || f.Value.String() != "true" {
@@ -102,7 +104,7 @@ func (w *world) run(words ...string) (string, error) {
 		return nil
 	}
 	root := &cobra.Command{Use: "e-designer", SilenceUsage: true, SilenceErrors: true}
-	root.AddCommand(cli.Command(app, c, list, asked))
+	root.AddCommand(cli.Command(w.app, c, list, asked))
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetArgs(append([]string{"license"}, words...))
@@ -272,48 +274,130 @@ func TestShowNoOfferOrTrialEndOnOtherKinds(t *testing.T) {
 	}
 }
 
-// The text of license show opens with the owner's sentence for its state, naming the app by its title.
+// The answer carries the owner's sentence for its state, naming the app by its title, and whether the state warns; the text opens with that sentence.
 func TestShowSaysTheStateInTheOwnersWords(t *testing.T) {
 	for _, c := range []struct {
 		name, today, says string
+		warn              bool
 		put               func(*world)
 	}{
-		{"a trial key running", "2026-11-23", "Trial: 10 days left (ends 2026-12-02)", func(w *world) {
+		{"a trial key running", "2026-11-23", "Trial: 10 days left (ends 2026-12-02)", false, func(w *world) {
 			w.put(home.Folder("designer")+"/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
 		}},
-		{"a release-trial running", "2026-12-07", "Trial: 10 days left (ends 2026-12-16)", func(w *world) {
+		{"a release-trial running", "2026-12-07", "Trial: 10 days left (ends 2026-12-16)", false, func(w *world) {
 			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
 		}},
-		{"a release-trial on its last day", "2026-12-16", "Trial: 1 day left (ends 2026-12-16)", func(w *world) {
+		{"a release-trial on its last day", "2026-12-16", "Trial: 1 day left (ends 2026-12-16)", true, func(w *world) {
 			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
 		}},
-		{"a release-trial ended", "2026-12-17", "Your trial has ended. Buy a license to keep the paid features.", func(w *world) {
+		{"a release-trial ended", "2026-12-17", "Your trial has ended. Buy a license to keep the paid features.", true, func(w *world) {
 			w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
 		}},
-		{"a key past its offer", "2027-11-24", "This version doesn't include a free trial anymore. Download the latest version to try Designer.", func(w *world) {
+		{"a trial key ended", "2026-12-03", "Your trial has ended. Buy a license to keep the paid features.", true, func(w *world) {
+			w.put(home.Folder("designer")+"/license", w.sign(licenses.Trial, nil, "2026-11-19", "2026-12-02"))
+		}},
+		{"a key past its offer", "2027-11-24", "This version doesn't include a free trial anymore. Download the latest version to try Designer.", false, func(w *world) {
 			w.put(home.Folder("designer")+"/license", w.releaseTrial(""))
 		}},
-		{"a bought license", "2026-12-07", "Licensed to Acme Ltd · Designer", func(w *world) {
+		{"a bought license", "2026-12-07", "Licensed to Acme Ltd · Designer", false, func(w *world) {
 			w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
 		}},
 	} {
 		w := newWorld(t, c.today)
 		c.put(w)
+		if s := w.show(); s.Sentence != c.says || s.Warn != c.warn {
+			t.Fatalf("%s: sentence %q, warn %t", c.name, s.Sentence, s.Warn)
+		}
 		out, err := w.run("show")
 		if err != nil || !strings.HasPrefix(out, c.says+"\n\nSTATE") {
 			t.Fatalf("%s: err = %v, out =\n%s", c.name, err, out)
 		}
-		w.show()
 	}
 }
 
-// A state with no sentence opens with its table: no license, and a release-trial still on offer.
+// The sentence names the app as serve.App does: its title, else its ID.
+func TestShowSaysTheAppsName(t *testing.T) {
+	for _, c := range []struct{ title, says string }{{"Designer", "Licensed to Acme Ltd · Designer"}, {"", "Licensed to Acme Ltd · designer"}} {
+		w := newWorld(t, "2026-12-07")
+		w.app.Title = c.title
+		w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+		if s := w.show(); s.Sentence != c.says {
+			t.Fatalf("title %q: sentence %q", c.title, s.Sentence)
+		}
+	}
+}
+
+// A running trial warns from license-expiring's trial point, not a day before.
+func TestShowWarnsInATrialsLastDays(t *testing.T) {
+	last := day("2026-12-16")
+	for _, c := range []struct {
+		left int
+		warn bool
+	}{{licenses.LicenseExpiring.Trial + 1, false}, {licenses.LicenseExpiring.Trial, true}} {
+		w := newWorld(t, last.AddDate(0, 0, 1-c.left).Format("2006-01-02"))
+		w.put(home.Folder("designer")+"/license", w.releaseTrial("2026-12-03"))
+		if s := w.show(); s.State != licenses.StateTrial || s.Licenses[0].DaysLeft != c.left || s.Warn != c.warn {
+			t.Fatalf("%d days left: show = %+v", c.left, s)
+		}
+	}
+}
+
+// A running paid license is ending from license-expiring's paid point, which warns and has no sentence, and licensed a day before.
+func TestShowAPaidLicenseEndingFromItsPoint(t *testing.T) {
+	last := day("2027-03-01")
+	for _, c := range []struct {
+		left        int
+		state, says string
+	}{
+		{licenses.LicenseExpiring.Paid + 1, licenses.StateLicensed, "Licensed to Acme Ltd · Designer"},
+		{licenses.LicenseExpiring.Paid, licenses.StateEnding, ""},
+		{licenses.LicenseExpiring.Paid - 1, licenses.StateEnding, ""},
+	} {
+		w := newWorld(t, last.AddDate(0, 0, 1-c.left).Format("2006-01-02"))
+		w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", "2027-03-01"))
+		s := w.show()
+		if s.State != c.state || s.Licenses[0].DaysLeft != c.left || s.Warn != (c.state == licenses.StateEnding) || s.Sentence != c.says {
+			t.Fatalf("%d days left: show = %+v", c.left, s)
+		}
+	}
+}
+
+// A running paid license shows a window of license-expiring's paid point from that point on, and none a day before.
+func TestShowAPaidLicensesWindowFromItsPoint(t *testing.T) {
+	last := day("2027-03-01")
+	for _, c := range []struct {
+		left   int
+		window *licenses.Window
+	}{{licenses.LicenseExpiring.Paid + 1, nil}, {licenses.LicenseExpiring.Paid, &licenses.Window{Of: licenses.LicenseExpiring.Paid}}} {
+		w := newWorld(t, last.AddDate(0, 0, 1-c.left).Format("2006-01-02"))
+		w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", "2027-03-01"))
+		got := w.show().Licenses[0]
+		if got.DaysLeft != c.left || (got.Window == nil) != (c.window == nil) || (got.Window != nil && *got.Window != *c.window) {
+			t.Fatalf("%d days left: row = %+v", c.left, got)
+		}
+	}
+}
+
+// A state with no sentence has none in its answer and its text opens with its table: no license, a release-trial still on offer, and an ended paid license, which warns.
 func TestShowSaysNothingWithoutASentence(t *testing.T) {
-	w := newWorld(t, "2026-12-07")
-	for _, put := range []func(){func() {}, func() { w.put(home.Folder("designer")+"/license", w.releaseTrial("")) }} {
-		put()
+	for _, c := range []struct {
+		name, today string
+		warn        bool
+		put         func(*world)
+	}{
+		{"no license", "2026-12-07", false, func(*world) {}},
+		{"a release-trial on offer", "2026-12-07", false, func(w *world) { w.put(home.Folder("designer")+"/license", w.releaseTrial("")) }},
+		{"an ended license", "2027-12-01", true, func(w *world) {
+			w.putOrg(w.sign(licenses.Org, map[string][]string{"designer": {"events"}}, "2026-11-06", "2027-11-06"))
+		}},
+	} {
+		w := newWorld(t, c.today)
+		c.put(w)
+		if s := w.show(); s.Sentence != "" || s.Warn != c.warn {
+			t.Fatalf("%s: sentence %q, warn %t", c.name, s.Sentence, s.Warn)
+		}
 		if out, err := w.run("show"); err != nil || !strings.HasPrefix(out, "STATE") {
-			t.Fatalf("err = %v, out =\n%s", err, out)
+			t.Fatalf("%s: err = %v, out =\n%s", c.name, err, out)
 		}
 	}
 }
