@@ -79,7 +79,7 @@ type FeatureRow struct {
 	Until          string `json:"until,omitempty" yaml:"until,omitempty"`
 }
 
-// Show is the answer for the features list holds, which the Checker's Closer closes: its licenses as read now, and each feature's state and where it is unlocked from.
+// Show is the answer for the features list holds, which the Checker's Closer closes: its licenses as read now, and each feature's state and where it is unlocked from; any running paid license within LicenseExpiring's paid point makes it ending, as ADR-L3 counts per license and a product license may cover features the org license does not.
 func (c *Checker) Show(list *features.List) (Show, error) {
 	states, err := list.States()
 	if err != nil {
@@ -102,9 +102,11 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 				row.TrialEnds = t.LastDay.Format(day)
 			}
 		}
-		// A paid license's window waits for the threshold (ADR-S23); only a running trial key's or release-trial's shows.
-		if (t.Kind == Trial || t.Kind == ReleaseTrial) && t.Running() {
+		switch {
+		case (t.Kind == Trial || t.Kind == ReleaseTrial) && t.Running():
 			row.Window = &Window{Of: t.Days()}
+		case (t.Kind == Org || t.Kind == Product) && t.Running() && LicenseExpiring.Warns(t.Kind, t.DaysLeft):
+			row.Window = &Window{Of: LicenseExpiring.Paid}
 		}
 		out.Licenses = append(out.Licenses, row)
 	}

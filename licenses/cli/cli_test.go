@@ -362,6 +362,22 @@ func TestShowAPaidLicenseEndingFromItsPoint(t *testing.T) {
 	}
 }
 
+// A running paid license shows a window of license-expiring's paid point from that point on, and none a day before.
+func TestShowAPaidLicensesWindowFromItsPoint(t *testing.T) {
+	last := day("2027-03-01")
+	for _, c := range []struct {
+		left   int
+		window *licenses.Window
+	}{{licenses.LicenseExpiring.Paid + 1, nil}, {licenses.LicenseExpiring.Paid, &licenses.Window{Of: licenses.LicenseExpiring.Paid}}} {
+		w := newWorld(t, last.AddDate(0, 0, 1-c.left).Format("2006-01-02"))
+		w.put(home.Folder("designer")+"/license", w.sign(licenses.Product, map[string][]string{"designer": {"sync"}}, "2026-03-01", "2027-03-01"))
+		got := w.show().Licenses[0]
+		if got.DaysLeft != c.left || (got.Window == nil) != (c.window == nil) || (got.Window != nil && *got.Window != *c.window) {
+			t.Fatalf("%d days left: row = %+v", c.left, got)
+		}
+	}
+}
+
 // A state with no sentence has none in its answer and its text opens with its table: no license, a release-trial still on offer, and an ended paid license, which warns.
 func TestShowSaysNothingWithoutASentence(t *testing.T) {
 	for _, c := range []struct {
