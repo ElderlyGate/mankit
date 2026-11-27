@@ -114,9 +114,10 @@ type Found struct {
 	Trial   *TrialRun // nil when the app has no trial
 	Chosen  string    // the id of the license chosen in this app; empty when no choice is made
 	product string
+	unread  string // why the choice cannot be read, when it cannot: a choice that names nothing, so no license is active
 }
 
-// Active is the app's active license (ADR-L8), nil when there is none: the chosen one, else the newest by issued. A chosen license that is refused or not there leaves none, as the app never takes another by itself.
+// Active is the app's active license (ADR-L8), nil when there is none: the chosen one, else the newest by issued. A chosen license that is refused or not there, or a choice that cannot be read, leaves none, as the app never takes another by itself.
 func (f Found) Active() *Taken {
 	for i := range f.Taken {
 		if f.Taken[i].Active {
@@ -126,7 +127,7 @@ func (f Found) Active() *Taken {
 	return nil
 }
 
-// Read reads the app's own licenses and the org's that name it, the old single files among them for one release, the app's choice and its trial (ADR-L8, L9); a missing file is none, and a license file it cannot read or verify is Refused. It fails only when the folders cannot be found or the choice cannot be read.
+// Read reads the app's own licenses and the org's that name it, the old single files among them for one release, the app's choice and its trial (ADR-L8, L9); a missing file is none, and a license file it cannot read or verify is Refused, and a choice it cannot read names nothing, so no license is active. It fails only when the folders cannot be found.
 func (c *Checker) Read() (Found, error) {
 	f := Found{product: c.c.ID}
 	for _, pl := range []Place{PlaceApp, PlaceOrg} {
@@ -141,14 +142,15 @@ func (c *Checker) Read() (Found, error) {
 			c.read(&f, path, pl)
 		}
 	}
-	chosen, err := c.chosen()
+	chosen, unread, err := c.chosen()
 	if err != nil {
 		return Found{}, err
 	}
-	f.Chosen = chosen
+	f.Chosen, f.unread = chosen, unread
 	i := -1
 	for j, t := range f.Taken {
 		switch {
+		case unread != "":
 		case chosen != "" && t.ID == chosen && i < 0:
 			i = j
 		case chosen == "" && (i < 0 || t.Issued.After(f.Taken[i].Issued)):
@@ -164,7 +166,7 @@ func (c *Checker) Read() (Found, error) {
 	return f, nil
 }
 
-// read adds the license file at path to f, taken or refused; a missing file, and an org license that does not name the app, add nothing.
+// read adds the license file at path to f, taken or refused; a missing file, and an org license that does not name the app, add nothing. A file in a licenses folder is named by its id, so one named otherwise is refused as id_mismatch.
 func (c *Checker) read(f *Found, path string, pl Place) {
 	raw, err := readFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -180,6 +182,9 @@ func (c *Checker) read(f *Found, path string, pl Place) {
 		}
 		err = refused(ReasonWrongPlace, fmt.Sprintf("it is a license for other products, not %s; an app's folder keeps its own licenses only", c.c.ID))
 	}
+	if base := filepath.Base(path); err == nil && inFolder(path) && base != l.ID+ext {
+		err = refused(ReasonIDMismatch, fmt.Sprintf("its file is named %s but its id is %q; a license file in a licenses folder is named <id>%s", base, l.ID, ext))
+	}
 	if err != nil {
 		f.Refused = append(f.Refused, refusal(path, raw, err))
 		return
@@ -187,18 +192,18 @@ func (c *Checker) read(f *Found, path string, pl Place) {
 	f.Taken = append(f.Taken, c.taken(l, path, pl))
 }
 
-// refusal is the Refused of the file at path for err, naming the id the file gives: its metadata.id, else its name in a licenses folder.
+// refusal is the Refused of the file at path for err, naming the id the file gives: its name in a licenses folder, as the unsigned metadata.id of a refused file proves nothing, else, in an old single file, its metadata.id.
 func refusal(path string, raw []byte, err error) Refused {
-	r := Refused{File: path, ID: strings.TrimSuffix(filepath.Base(path), ext), Reason: ReasonUnreadable, Detail: err.Error()}
-	if filepath.Base(filepath.Dir(path)) != folder {
-		r.ID = ""
-	}
+	r := Refused{File: path, Reason: ReasonUnreadable, Detail: err.Error()}
 	var head struct {
 		Metadata struct {
 			ID string `json:"id"`
 		} `json:"metadata"`
 	}
-	if decode(raw, &head, false) == nil && head.Metadata.ID != "" {
+	switch {
+	case inFolder(path):
+		r.ID = strings.TrimSuffix(filepath.Base(path), ext)
+	case decode(raw, &head, false) == nil:
 		r.ID = head.Metadata.ID
 	}
 	var p *problem.Problem
@@ -207,6 +212,9 @@ func refusal(path string, raw []byte, err error) Refused {
 	}
 	return r
 }
+
+// inFolder reports whether path is a file of a licenses folder, not an old single file.
+func inFolder(path string) bool { return filepath.Base(filepath.Dir(path)) == folder }
 
 // files is the license files of the place in the order Read takes them: its licenses folder's, by name, then the old single file; a licenses folder that cannot be listed is Refused. It fails only when the folder cannot be found.
 func (c *Checker) files(pl Place) ([]string, *Refused, error) {
@@ -229,25 +237,28 @@ func (c *Checker) files(pl Place) ([]string, *Refused, error) {
 	return append(paths, filepath.Join(dir, old)), nil, nil
 }
 
-// chosen is the id of the license chosen in this app, empty when none is.
-func (c *Checker) chosen() (string, error) {
+// chosen is the id of the license chosen in this app, empty when none is, and why the choice cannot be read when it cannot (a folder, a pipe, no permission): a choice that names nothing, which use and add write over. It fails only when the app's folder cannot be found.
+func (c *Checker) chosen() (string, string, error) {
 	path, err := home.File(c.c.Folder, choice)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	raw, err := readFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", "", nil
+	case err != nil:
+		return "", err.Error(), nil
 	}
-	if err != nil {
-		return "", fmt.Errorf("licenses: the chosen license cannot be read: %w", err)
-	}
-	return strings.TrimSpace(string(raw)), nil
+	return strings.TrimSpace(string(raw)), "", nil
 }
+
+// noTrial reports whether the build runs no trial: a release with no line stamped (ADR-L9, L10).
+func (c *Checker) noTrial() bool { return c.c.Trust.Release && c.c.Line == 0 }
 
 // trial is the app's trial as its note says, nil when it has none: no note, or one missing, broken, of another app or future-dated (ADR-L9), or a release with no line stamped, which runs no trial.
 func (c *Checker) trial() (*TrialRun, error) {
-	if c.c.Trust.Release && c.c.Line == 0 {
+	if c.noTrial() {
 		return nil, nil
 	}
 	path, err := home.File(c.c.Folder, note)
@@ -344,21 +355,38 @@ func (f Found) Find(id string) (Taken, error) {
 	return Taken{}, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s for %s", id, f.product))
 }
 
-// choose keeps id as this app's choice, through the store.
+// choose keeps id as this app's choice, through the store, writing over a choice that cannot be read: a folder is removed first, in a change of the scope's own turn, and a pipe or a file it may not read, which the store cannot read either, is removed first, as it names nothing.
 func (c *Checker) choose(ctx context.Context, id, what string) error {
+	path, err := home.File(c.c.Folder, choice)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	isDir := err == nil && info.IsDir()
+	if _, rerr := readFile(path); err == nil && !isDir && rerr != nil {
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("licenses: the choice that cannot be read cannot be removed: %w", err)
+		}
+	}
 	s, err := c.scope(false)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
+	if isDir {
+		if err := s.Change(ctx, "", what, func(tx store.Tx) error { return tx.Remove(choice, store.Anything()) }); err != nil {
+			return err
+		}
+	}
 	return s.Change(ctx, choice, what, func(tx store.Tx) error { return tx.Put(choice, []byte(id+"\n"), store.Anything()) })
 }
 
-// Removal is one file license remove takes away, the license id it holds and the sum it held when Removing read it, so Remove takes away only what was shown.
+// Removal is one file license remove takes away, the license id it holds, its place and the sum it held when Removing read it, so Remove takes away only what was shown.
 type Removal struct {
-	ID   string
-	File string
-	Sum  string
+	ID    string
+	File  string
+	Place Place
+	Sum   string
 }
 
 // Removing is the files Remove takes away for the license id: every file of this app's licenses, taken or refused, that holds it. With none it is a Problem not_found.
@@ -391,7 +419,7 @@ func (c *Checker) Removing(id string) ([]Removal, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Removal{ID: id, File: file, Sum: sum})
+		out = append(out, Removal{ID: id, File: file, Place: placeOf(at.org), Sum: sum})
 	}
 	return out, nil
 }
@@ -479,7 +507,7 @@ func (c *Checker) Remove(ctx context.Context, shown []Removal) error {
 	return s.Change(ctx, "", "license remove", func(tx store.Tx) error {
 		it, ok, err := tx.Get(choice)
 		if err != nil || !ok || !slices.ContainsFunc(shown, func(r Removal) bool { return r.ID == strings.TrimSpace(string(it.Body)) }) {
-			return err
+			return nil // a choice that cannot be read names nothing removed
 		}
 		return tx.Remove(choice, store.Holds(it.Sum))
 	})

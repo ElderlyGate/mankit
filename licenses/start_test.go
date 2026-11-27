@@ -320,3 +320,26 @@ func TestStartsAtOnceWriteOneTrial(t *testing.T) {
 		t.Fatalf("trial = %+v", tr)
 	}
 }
+
+// Only an active license that runs in this build means no trial: one of another line, as after an upgrade, or one not begun leaves the trial to start (ADR-L9, L10).
+func TestAnActiveLicenseThatDoesNotRunHereLeavesTheTrial(t *testing.T) {
+	for name, c := range map[string]struct {
+		l     licenses.License
+		line  int
+		today string
+	}{
+		"of an older line": {perpetual, 2, "2026-12-03"},
+		"not begun":        {license, 1, "2026-11-01"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bin := install(t)
+			k, release, _ := signer(t)
+			put(t, appFile(t, "designer", c.l.ID), sign(t, k, c.l))
+			ch := checkerOf(t, "designer", release, c.today, c.line)
+			if f, _ := ch.Read(); active(f) != c.l.ID {
+				t.Fatalf("active = %q", active(f))
+			}
+			want(t, ch.StartTrial(context.Background(), nil, bin), licenses.TrialStarted)
+		})
+	}
+}

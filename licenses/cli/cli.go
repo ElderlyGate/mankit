@@ -146,7 +146,7 @@ func adding(c *licenses.Checker, raw []byte, org bool) (ask.Action, error) {
 	if org {
 		where = "shared by every app it names"
 	}
-	what := fmt.Sprintf("keep the license %s for %s%s in %s, %s%s, and make it the active license of this app", t.ID, t.For, runs(t), t.File, where, replacing(found, t.File))
+	what := fmt.Sprintf("keep the license %s for %s%s%s in %s, %s%s, and make it the active license of this app", t.ID, t.For, runs(t), idle(t), t.File, where, replacing(found, t.File))
 	return ask.Action{Type: ask.Settings, What: what, Name: "license"}, nil
 }
 
@@ -160,14 +160,14 @@ func using(c *licenses.Checker, id string) (ask.Action, error) {
 	if err != nil {
 		return ask.Action{}, err
 	}
-	what := fmt.Sprintf("make the license %s for %s%s the active license of this app", t.ID, t.For, runs(t))
+	what := fmt.Sprintf("make the license %s for %s%s%s the active license of this app", t.ID, t.For, runs(t), idle(t))
 	if a := found.Active(); a != nil && a.ID != id {
 		what += ", in place of " + a.ID
 	}
 	return ask.Action{Type: ask.Settings, What: what, Name: "license"}, nil
 }
 
-// removing is what license remove takes away for the license id and the question it asks first, from the CLI and over HTTP alike; with nothing to remove it is a Problem not_found.
+// removing is what license remove takes away for the license id and the question it asks first, naming each file's place, from the CLI and over HTTP alike; with nothing to remove it is a Problem not_found.
 func removing(c *licenses.Checker, id string) ([]licenses.Removal, ask.Action, error) {
 	shown, err := c.Removing(id)
 	if err != nil {
@@ -175,9 +175,12 @@ func removing(c *licenses.Checker, id string) ([]licenses.Removal, ask.Action, e
 	}
 	files := make([]string, len(shown))
 	for i, r := range shown {
-		files[i] = r.File
+		files[i] = "the file " + r.File + " of this app"
+		if r.Place == licenses.PlaceOrg {
+			files[i] = "the file " + r.File + " in the org's licenses, shared by every app it names"
+		}
 	}
-	what := fmt.Sprintf("remove the license %s, the file %s; the trial stays", id, strings.Join(files, " and "))
+	what := fmt.Sprintf("remove the license %s, %s; the trial stays", id, strings.Join(files, " and "))
 	return shown, ask.Action{Type: ask.Settings, What: what, Name: "license"}, nil
 }
 
@@ -187,6 +190,17 @@ func runs(t licenses.Taken) string {
 		return ", which never ends"
 	}
 	return " until " + t.LastDay.Format("2006-01-02")
+}
+
+// idle says why t opens nothing here, as the question says it, the clause closed: it has ended, or it does not run in this build; empty while it runs.
+func idle(t licenses.Taken) string {
+	switch {
+	case t.Ended:
+		return ", which has ended,"
+	case !t.Running():
+		return ", which opens nothing in this build,"
+	}
+	return ""
 }
 
 // replacing names what add replaces at path, so the question says it (G-STACK-13).

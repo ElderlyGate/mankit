@@ -32,7 +32,7 @@ const (
 	TrialStarted TrialOutcome = "started" // no note: the trial's note is written, from today
 	TrialRenewed TrialOutcome = "renewed" // a note that is not this install's: a fresh note is written over it
 	TrialKept    TrialOutcome = "kept"    // the note this install wrote is left as it is, its trial ended or not
-	TrialSkipped TrialOutcome = "skipped" // an active license that has not ended: no trial, and nothing is written
+	TrialSkipped TrialOutcome = "skipped" // an active license that runs in this build: no trial, and nothing is written
 	TrialFailed  TrialOutcome = "failed"  // a release with no line, the binary or the write failed: nothing is written and the old note is whole
 )
 
@@ -46,14 +46,14 @@ type TrialStart struct {
 
 func (s TrialStart) String() string { return fmt.Sprintf("license: trial %s: %s", s.Outcome, s.Reason) }
 
-// StartTrial is the call an app makes at start with its executable's path, as os.Executable gives it (ADR-L9). An active license that has not ended means no trial. Else a note of this app whose stamp is this binary's is kept, and any other, missing, broken or future-dated, gives way to a new note from today, stamped with the binary's path and file time. A release build with no line stamped starts no trial.
+// StartTrial is the call an app makes at start with its executable's path, as os.Executable gives it (ADR-L9). An active license that runs in this build (Taken.Running: it has started, has not ended and names this app and line) means no trial; one that does not run, such as a license of an older line after an upgrade, leaves the trial to run. Else a note of this app whose stamp is this binary's is kept, and any other, missing, broken or future-dated, gives way to a new note from today, stamped with the binary's path and file time. A release build with no line stamped starts no trial.
 // The key parameter is deprecated and ignored, as the trial is a rule in mankit and nothing about it is signed; pass nil.
 func (c *Checker) StartTrial(ctx context.Context, key []byte, binary string) TrialStart {
 	path, err := home.File(c.c.Folder, note)
 	if err != nil {
 		return failed("", "the app's folder cannot be found", err)
 	}
-	if c.c.Trust.Release && c.c.Line == 0 {
+	if c.noTrial() {
 		return failed(path, "no trial", errors.New("this release build has no product line stamped (build.line), so it starts no trial"))
 	}
 	stamp, err := stampOf(binary)
@@ -97,7 +97,7 @@ func (c *Checker) plan(path string, stamp Started) (TrialStart, store.Want) {
 	if err != nil {
 		return failed(path, "the app's licenses cannot be read", err), store.Want{}
 	}
-	if a := f.Active(); a != nil && !a.Ended {
+	if a := f.Active(); a != nil && a.Running() {
 		r.Outcome, r.Reason = TrialSkipped, fmt.Sprintf("the license %s is active, so there is no trial", a.ID)
 		return r, store.Want{}
 	}

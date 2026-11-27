@@ -187,7 +187,7 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 		}
 		out.Features = append(out.Features, row)
 	}
-	out.Sentence = f.says(v, c.name())
+	out.Sentence = f.says(v, c.c.Title, c.name())
 	return out, nil
 }
 
@@ -222,8 +222,8 @@ func (f Found) verdict() verdict {
 	return v
 }
 
-// says is the sentence for the verdict v of f, naming the app as name: licensed names whom for; otherwise why the active license does not run when it has ended or the chosen one is refused or gone, then the trial while it runs, or that it ended.
-func (f Found) says(v verdict, name string) string {
+// says is the sentence for the verdict v of f, naming the app as name and its lines by title: licensed names whom for; otherwise why the active license does not run when it has ended, has not started or is for another line, or why none is active when the chosen one is refused or gone or the choice cannot be read, then the trial while it runs, or that it ended.
+func (f Found) says(v verdict, title, name string) string {
 	a, t := f.Active(), f.Trial
 	if v.state == StateLicensed {
 		return fmt.Sprintf("Licensed to %s · %s", a.For, name)
@@ -232,6 +232,16 @@ func (f Found) says(v verdict, name string) string {
 	switch {
 	case a != nil && a.Ended:
 		parts = append(parts, fmt.Sprintf("The license for %s ended on %s", a.For, a.Until.Format(day)))
+	case a != nil && a.Early:
+		parts = append(parts, fmt.Sprintf("The license %s starts on %s", a.ID, a.Issued.Format(day)))
+	case a != nil && a.Elsewhere:
+		lines := make([]string, len(a.Lines[f.product]))
+		for i, n := range a.Lines[f.product] {
+			lines[i] = strconv.Itoa(n)
+		}
+		parts = append(parts, fmt.Sprintf("The license %s is for %s %s, not this build", a.ID, title, strings.Join(lines, ", ")))
+	case f.unread != "":
+		parts = append(parts, "The choice of license cannot be read ("+f.unread+"), so no license is active")
 	case a == nil && f.Chosen != "":
 		why := "is not among this app's licenses"
 		for _, r := range f.Refused {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -582,5 +583,106 @@ func TestADevBuildNeverTouchesTheReleasesLicenses(t *testing.T) {
 	}
 	if _, err := os.Stat(orgFile(t, "acme-2026")); err != nil || !strings.HasSuffix(filepath.Dir(filepath.Dir(orgFile(t, "acme-2026"))), "-dev") {
 		t.Fatalf("the dev license is not in the dev folder: %v", err)
+	}
+}
+
+// A choice that cannot be read, a folder, a pipe or a file it may not read, names nothing: Read does not fail, no license is active, and use, add and remove write over it.
+func TestAChoiceThatCannotBeReadNamesNothing(t *testing.T) {
+	for name, spoil := range map[string]func(t *testing.T, path string){
+		"a folder": func(t *testing.T, path string) {
+			if err := os.MkdirAll(filepath.Join(path, "inside"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a pipe": func(t *testing.T, path string) {
+			if err := syscall.Mkfifo(path, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"no permission": func(t *testing.T, path string) {
+			put(t, path, []byte("acme-2026\n"))
+			if err := os.Chmod(path, 0); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			org(t)
+			k, release, _ := signer(t)
+			ctx := context.Background()
+			put(t, orgFile(t, "acme-2026"), sign(t, k, license))
+			path := appPath(t, "designer", "license-active")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			spoil(t, path)
+			c := checker(t, release, "2026-11-19")
+			f, err := c.Read()
+			if err != nil || active(f) != "" || f.Chosen != "" || len(f.Taken) != 1 {
+				t.Fatalf("found = %+v, %v", f, err)
+			}
+			if got := on(t, list(c)); !slices.Equal(got, []string{"edit"}) {
+				t.Fatalf("on = %v, want no license active", got)
+			}
+			shown, err := c.Removing("acme-2026")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Remove(ctx, shown); err != nil {
+				t.Fatalf("remove beside the choice: %v", err)
+			}
+			if _, err := c.Add(ctx, sign(t, k, license), true); err != nil {
+				t.Fatalf("add over the choice: %v", err)
+			}
+			if f := found(t, release, "2026-11-19"); active(f) != "acme-2026" || f.Chosen != "acme-2026" {
+				t.Fatalf("found after add = %+v", f)
+			}
+		})
+	}
+	t.Run("use", func(t *testing.T) {
+		org(t)
+		k, release, _ := signer(t)
+		put(t, orgFile(t, "acme-2026"), sign(t, k, license))
+		path := appPath(t, "designer", "license-active")
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := checker(t, release, "2026-11-19").Use(context.Background(), "acme-2026"); err != nil {
+			t.Fatalf("use over the choice: %v", err)
+		}
+		if f := found(t, release, "2026-11-19"); active(f) != "acme-2026" {
+			t.Fatalf("found after use = %+v", f)
+		}
+	})
+}
+
+// A file in a licenses folder is named by its id: one named otherwise is refused as id_mismatch under its file's name, in the app's folder and the org's; the old single file is not named by its id.
+func TestAFileNotNamedByItsIDIsRefused(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	put(t, appFile(t, "designer", "other"), sign(t, k, license))
+	put(t, orgFile(t, "elsewhere"), sign(t, k, named("ada-2026", "2026-11-01", "sync")))
+	put(t, oldAppFile(t), sign(t, k, named("old-2026", "2026-11-01", "sync")))
+	f := found(t, release, "2026-11-19")
+	if len(f.Taken) != 1 || f.Taken[0].ID != "old-2026" || len(f.Refused) != 2 {
+		t.Fatalf("found = %+v", f)
+	}
+	for _, r := range f.Refused {
+		if r.Reason != licenses.ReasonIDMismatch || (r.ID != "other" && r.ID != "elsewhere") {
+			t.Fatalf("refused = %+v", r)
+		}
+	}
+}
+
+// A refused file in a licenses folder is known by its file's name, never by the metadata.id nothing signed; the old single file, which has no name of its own, by its metadata.id.
+func TestARefusedFileIsKnownByItsName(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	bad := edit(t, sign(t, k, license), func(f map[string]any) { f["spec"].(map[string]any)["signature"] = "AAAA" })
+	put(t, appFile(t, "designer", "mine"), bad)
+	put(t, oldOrgFile(t), bad)
+	f := found(t, release, "2026-11-19")
+	if len(f.Refused) != 2 || f.Refused[0].ID != "mine" || f.Refused[1].ID != "acme-2026" {
+		t.Fatalf("refused = %+v", f.Refused)
 	}
 }

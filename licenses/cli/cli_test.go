@@ -222,17 +222,17 @@ func TestShowTheStateAndWarnOfEachCase(t *testing.T) {
 		{"a license in its warning", "2027-10-24", running, licenses.StateLicensed, true, "", licensed},
 		{"a license on its last day", "2027-11-06", running, licenses.StateLicensed, true, "", licensed},
 		{"a license ended", "2027-11-07", running, licenses.StateFree, true, "2027-11-06", "The license for Acme Ltd ended on 2027-11-06"},
-		{"a license not begun", "2026-11-01", running, licenses.StateFree, false, "", ""},
+		{"a license not begun", "2026-11-01", running, licenses.StateFree, false, "", "The license acme-2026 starts on 2026-11-06"},
 		{"a license that never ends", "2040-01-01", func(w *world) { w.putOrg(w.perpetual()) }, licenses.StateLicensed, false, "", licensed},
 		{"a license of another line", "2040-01-01", func(w *world) {
 			w.line = 2
 			w.putOrg(w.perpetual())
-		}, licenses.StateFree, false, "", ""},
+		}, licenses.StateFree, false, "", "The license acme-perpetual is for Designer 1, not this build"},
 		{"a license of another line and a trial", "2026-12-07", func(w *world) {
 			w.line = 2
 			w.putApp(w.perpetual())
 			w.note("2026-12-03")
-		}, licenses.StateTrial, false, "", "Trial: 10 days left, until 2026-12-16"},
+		}, licenses.StateTrial, false, "", "The license acme-perpetual is for Designer 1, not this build · Trial: 10 days left, until 2026-12-16"},
 		{"a trial running", "2026-12-07", func(w *world) { w.note("2026-12-03") }, licenses.StateTrial, false, "", "Trial: 10 days left, until 2026-12-16"},
 		{"a trial a day before its last days", "2026-12-13", func(w *world) { w.note("2026-12-03") }, licenses.StateTrial, false, "", "Trial: 4 days left, until 2026-12-16"},
 		{"a trial in its last days", "2026-12-14", func(w *world) { w.note("2026-12-03") }, licenses.StateTrial, true, "", "Trial: 3 days left, until 2026-12-16"},
@@ -529,7 +529,7 @@ func TestRemoveAsksAndLeavesTheTrial(t *testing.T) {
 	if _, err := w.run("remove", "acme-2026"); !errors.Is(err, ask.ErrRefused) {
 		t.Fatalf("without a yes: %v", err)
 	}
-	if want := "remove the license acme-2026, the file " + filepath.Join(w.org, "licenses", "acme-2026.license") + "; the trial stays"; w.asked != want {
+	if want := "remove the license acme-2026, the file " + filepath.Join(w.org, "licenses", "acme-2026.license") + " in the org's licenses, shared by every app it names; the trial stays"; w.asked != want {
 		t.Fatalf("asked %q", w.asked)
 	}
 	out, err := w.run("remove", "acme-2026", "--yes", "-o", "json")
@@ -546,5 +546,48 @@ func TestRemoveAsksAndLeavesTheTrial(t *testing.T) {
 	var p *problem.Problem
 	if !errors.As(err, &p) || p.Type != problem.TypeNotFound {
 		t.Fatalf("with nothing to remove: %v", err)
+	}
+}
+
+// A choice that cannot be read, here a folder, names nothing: no license is active, the sentence says why, and use writes over it.
+func TestAChoiceThatCannotBeReadNamesNothing(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
+	at := filepath.Join(w.appDir(), "license-active")
+	if err := os.MkdirAll(at, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := w.show()
+	if want := "The choice of license cannot be read (" + at + " is not a regular file), so no license is active"; s.State != licenses.StateFree || active(s) != "" || s.Sentence != want {
+		t.Fatalf("show = state %s, active %q, sentence %q", s.State, active(s), s.Sentence)
+	}
+	w.mustRun("use", "acme-2026", "--yes")
+	if s := w.show(); s.State != licenses.StateLicensed || active(s) != "acme-2026" {
+		t.Fatalf("show after use = %+v", s)
+	}
+}
+
+// add and use say in their question when the license opens nothing here: it has ended, or it does not run in this build.
+func TestAddAndUseSayWhenTheLicenseDoesNotRunHere(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putApp(w.licenseOf("ada-2026", "Ada", []string{"sync"}, "2026-01-01", "2026-12-01"))
+	w.run("use", "ada-2026")
+	if want := "make the license ada-2026 for Ada until 2026-12-01, which has ended, the active license of this app"; w.asked != want {
+		t.Fatalf("asked %q", w.asked)
+	}
+	w.line = 2
+	w.run("add", w.file(w.perpetual()))
+	if want := ", which never ends, which opens nothing in this build, in "; !strings.Contains(w.asked, want) {
+		t.Fatalf("asked %q, want it to hold %q", w.asked, want)
+	}
+}
+
+// remove names a file of the app's own as this app's.
+func TestRemoveNamesTheAppsOwnFile(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putApp(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
+	w.run("remove", "acme-2026")
+	if want := "remove the license acme-2026, the file " + filepath.Join(w.appDir(), "licenses", "acme-2026.license") + " of this app; the trial stays"; w.asked != want {
+		t.Fatalf("asked %q", w.asked)
 	}
 }
