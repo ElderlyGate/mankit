@@ -114,6 +114,7 @@ type Found struct {
 	Trial   *TrialRun // nil when the app has no trial
 	Chosen  string    // the id of the license chosen in this app; empty when no choice is made
 	product string
+	stuck   error  // the Problem refused when the choice cannot be read and only a hand change fixes it, so use refuses before it asks
 	unread  string // why the choice cannot be read, when it cannot: a choice that names nothing, so no license is active
 }
 
@@ -147,6 +148,7 @@ func (c *Checker) Read() (Found, error) {
 		return Found{}, err
 	}
 	f.Chosen, f.unread = chosen, unread
+	f.stuck = c.stuck()
 	i := -1
 	for j, t := range f.Taken {
 		switch {
@@ -239,7 +241,7 @@ func (c *Checker) files(pl Place) ([]string, *Refused, error) {
 	return append(paths, filepath.Join(dir, old)), nil, nil
 }
 
-// chosen is the id of the license chosen in this app, empty when none is, and why the choice cannot be read when it cannot (a folder, a pipe, no permission, a link that leads nowhere): a choice that names nothing, which use and add write over. It fails only when the app's folder cannot be found.
+// chosen is the id of the license chosen in this app, empty when none is, and why the choice cannot be read when it cannot (a folder, a pipe, no permission, a link that leads nowhere): a choice that names nothing. It fails only when the app's folder cannot be found.
 func (c *Checker) chosen() (string, string, error) {
 	path, err := home.File(c.c.Folder, choice)
 	if err != nil {
@@ -321,6 +323,9 @@ func (c *Checker) Check(raw []byte, org bool) (Taken, error) {
 	if err != nil {
 		return Taken{}, err
 	}
+	if err := c.stuck(); err != nil {
+		return Taken{}, err
+	}
 	return c.taken(l, filepath.Join(dir, folder, l.ID+ext), pl), nil
 }
 
@@ -361,8 +366,11 @@ func (c *Checker) Use(ctx context.Context, id string) (Taken, error) {
 	return t, nil
 }
 
-// Find is the license id among f's, or the Problem why not: refused when the file of that id is refused, not_found when there is none.
+// Find is the license id among f's, or the Problem why not: refused when the choice cannot be read and only a hand change fixes it, refused when the file of that id is refused, not_found when there is none.
 func (f Found) Find(id string) (Taken, error) {
+	if f.stuck != nil {
+		return Taken{}, f.stuck
+	}
 	for _, t := range f.Taken {
 		if t.ID == id {
 			return t, nil
@@ -376,19 +384,33 @@ func (f Found) Find(id string) (Taken, error) {
 	return Taken{}, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s for %s", id, f.product))
 }
 
-// choose keeps id as this app's choice, through the store, writing over a choice that cannot be read: a folder is removed first, in a change of the scope's own turn, and a pipe or a file it may not read, which the store cannot read either, is removed first, as it names nothing.
+// stuck is the Problem refused when the choice file cannot be read and the store cannot replace it: a pipe, a file it may not read, or a link to nothing or to one it may not read, which only a hand change makes (the store never writes through a link), so nothing is written until it is removed or fixed by hand. A choice that is not there, a folder, and a readable file are the store's; it is nil for them.
+func (c *Checker) stuck() error {
+	path, err := home.File(c.c.Folder, choice)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.IsDir() {
+		return nil
+	}
+	if _, err := readFile(path); err != nil {
+		return problem.FailAt(problem.TypeRefused, ReasonUnreadable, path, fmt.Sprintf("the choice file at %s cannot be read (%v); remove or fix it by hand, then try again", path, err))
+	}
+	return nil
+}
+
+// choose keeps id as this app's choice, through the store, writing over a choice that names nothing: a folder is removed first, in a change of the scope's own turn. A choice that cannot be read and the store cannot replace is refused by stuck, with nothing written.
 func (c *Checker) choose(ctx context.Context, id, what string) error {
+	if err := c.stuck(); err != nil {
+		return err
+	}
 	path, err := home.File(c.c.Folder, choice)
 	if err != nil {
 		return err
 	}
 	info, err := os.Lstat(path)
 	isDir := err == nil && info.IsDir()
-	if _, rerr := readFile(path); err == nil && !isDir && rerr != nil {
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("licenses: the choice that cannot be read cannot be removed: %w", err)
-		}
-	}
 	s, err := c.scope(false)
 	if err != nil {
 		return err

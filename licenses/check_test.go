@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -586,14 +587,54 @@ func TestADevBuildNeverTouchesTheReleasesLicenses(t *testing.T) {
 	}
 }
 
-// A choice that cannot be read, a folder, a pipe or a file it may not read, names nothing: Read does not fail, no license is active, and use, add and remove write over it.
-func TestAChoiceThatCannotBeReadNamesNothing(t *testing.T) {
+// A choice that is a folder names nothing: Read does not fail, no license is active, and use, add and remove write over it through the store.
+func TestAChoiceThatIsAFolderNamesNothing(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	ctx := context.Background()
+	put(t, orgFile(t, "acme-2026"), sign(t, k, license))
+	path := appPath(t, "designer", "license-active")
+	if err := os.MkdirAll(filepath.Join(path, "inside"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := checker(t, release, "2026-11-19")
+	f, err := c.Read()
+	if err != nil || active(f) != "" || f.Chosen != "" || len(f.Taken) != 1 {
+		t.Fatalf("found = %+v, %v", f, err)
+	}
+	if got := on(t, list(c)); !slices.Equal(got, []string{"edit"}) {
+		t.Fatalf("on = %v, want no license active", got)
+	}
+	shown, err := c.Removing("acme-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Remove(ctx, shown); err != nil {
+		t.Fatalf("remove beside the choice: %v", err)
+	}
+	if _, err := c.Add(ctx, sign(t, k, license), true); err != nil {
+		t.Fatalf("add over the choice: %v", err)
+	}
+	if f := found(t, release, "2026-11-19"); active(f) != "acme-2026" || f.Chosen != "acme-2026" {
+		t.Fatalf("found after add = %+v", f)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Use(ctx, "acme-2026"); err != nil {
+		t.Fatalf("use over the choice: %v", err)
+	}
+	if f := found(t, release, "2026-11-19"); active(f) != "acme-2026" {
+		t.Fatalf("found after use = %+v", f)
+	}
+}
+
+// A choice the store cannot read, a pipe or a file it may not read, names nothing, and only a hand change makes it: use and add refuse, naming the path and saying to remove or fix it by hand, and write nothing.
+func TestAChoiceTheStoreCannotReadRefusesUseAndAdd(t *testing.T) {
 	for name, spoil := range map[string]func(t *testing.T, path string){
-		"a folder": func(t *testing.T, path string) {
-			if err := os.MkdirAll(filepath.Join(path, "inside"), 0o700); err != nil {
-				t.Fatal(err)
-			}
-		},
 		"a pipe": func(t *testing.T, path string) {
 			if err := syscall.Mkfifo(path, 0o600); err != nil {
 				t.Fatal(err)
@@ -609,7 +650,6 @@ func TestAChoiceThatCannotBeReadNamesNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			org(t)
 			k, release, _ := signer(t)
-			ctx := context.Background()
 			put(t, orgFile(t, "acme-2026"), sign(t, k, license))
 			path := appPath(t, "designer", "license-active")
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -624,36 +664,40 @@ func TestAChoiceThatCannotBeReadNamesNothing(t *testing.T) {
 			if got := on(t, list(c)); !slices.Equal(got, []string{"edit"}) {
 				t.Fatalf("on = %v, want no license active", got)
 			}
-			shown, err := c.Removing("acme-2026")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := c.Remove(ctx, shown); err != nil {
-				t.Fatalf("remove beside the choice: %v", err)
-			}
-			if _, err := c.Add(ctx, sign(t, k, license), true); err != nil {
-				t.Fatalf("add over the choice: %v", err)
-			}
-			if f := found(t, release, "2026-11-19"); active(f) != "acme-2026" || f.Chosen != "acme-2026" {
-				t.Fatalf("found after add = %+v", f)
-			}
+			refusesByHand(t, c, path, sign(t, k, license))
 		})
 	}
-	t.Run("use", func(t *testing.T) {
-		org(t)
-		k, release, _ := signer(t)
-		put(t, orgFile(t, "acme-2026"), sign(t, k, license))
-		path := appPath(t, "designer", "license-active")
-		if err := os.MkdirAll(path, 0o700); err != nil {
-			t.Fatal(err)
+}
+
+// refusesByHand checks that use and add refuse the choice at path with a Problem refused that names it and says to fix it by hand, and that nothing was written.
+func refusesByHand(t *testing.T, c *licenses.Checker, path string, raw []byte) {
+	t.Helper()
+	before, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := func() []string {
+		var names []string
+		_ = filepath.WalkDir(filepath.Dir(path), func(p string, _ fs.DirEntry, _ error) error { names = append(names, p); return nil })
+		return names
+	}
+	was := entries()
+	for what, run := range map[string]func() error{
+		"use": func() error { _, err := c.Use(context.Background(), "acme-2026"); return err },
+		"add": func() error { _, err := c.Add(context.Background(), raw, false); return err },
+	} {
+		err := run()
+		var p *problem.Problem
+		if !errors.As(err, &p) || p.Type != problem.TypeRefused || !strings.Contains(p.Detail, path) || !strings.Contains(p.Detail, "remove or fix it by hand, then try again") {
+			t.Fatalf("%s: err = %v, want refused naming %s and saying to fix it by hand", what, err, path)
 		}
-		if _, err := checker(t, release, "2026-11-19").Use(context.Background(), "acme-2026"); err != nil {
-			t.Fatalf("use over the choice: %v", err)
-		}
-		if f := found(t, release, "2026-11-19"); active(f) != "acme-2026" {
-			t.Fatalf("found after use = %+v", f)
-		}
-	})
+	}
+	if after, err := os.Lstat(path); err != nil || after.Mode() != before.Mode() {
+		t.Fatalf("the choice changed: %v, %v", after, err)
+	}
+	if now := entries(); !slices.Equal(now, was) {
+		t.Fatalf("files written: %v, was %v", now, was)
+	}
 }
 
 // A file in a licenses folder is named by its id: one named otherwise is refused as id_mismatch under its file's name, in the app's folder and the org's; the old single file is not named by its id.
@@ -687,7 +731,7 @@ func TestARefusedFileIsKnownByItsName(t *testing.T) {
 	}
 }
 
-// A choice that is a link leading nowhere or to a file it may not read names nothing: no license is active, and use writes a file over the link, never touching what it leads to.
+// A choice that is a link leading nowhere or to a file it may not read names nothing, and the store never writes through a link: use and add refuse as for a pipe, and the link and what it led to stay.
 func TestAChoiceThatIsAnUnreadableLinkNamesNothing(t *testing.T) {
 	for name, target := range map[string]func(t *testing.T, path string){
 		"a link to nothing": func(*testing.T, string) {},
@@ -715,17 +759,9 @@ func TestAChoiceThatIsAnUnreadableLinkNamesNothing(t *testing.T) {
 			if f, err := c.Read(); err != nil || active(f) != "" || f.Chosen != "" {
 				t.Fatalf("found = %+v, %v", f, err)
 			}
-			if _, err := c.Use(context.Background(), "acme-2026"); err != nil {
-				t.Fatalf("use over the link: %v", err)
-			}
-			if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
-				t.Fatalf("the choice is not a file: %v, %v", info, err)
-			}
-			if f := found(t, release, "2026-11-19"); active(f) != "acme-2026" {
-				t.Fatalf("found after use = %+v", f)
-			}
-			if _, err := os.Lstat(to); err != nil && name != "a link to nothing" {
-				t.Fatalf("the file the link led to is gone: %v", err)
+			refusesByHand(t, c, path, sign(t, k, license))
+			if link, err := os.Readlink(path); err != nil || link != to {
+				t.Fatalf("the link changed: %q, %v", link, err)
 			}
 		})
 	}
