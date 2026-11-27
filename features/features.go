@@ -29,6 +29,14 @@ const (
 // Enterprise reports whether the feature's tier is enterprise, the only tier a license can lock.
 func (f Feature) Enterprise() bool { return f.Tier == Enterprise }
 
+// TierOrFree is the feature's tier as an answer names it, the one home of "an empty tier is free".
+func (f Feature) TierOrFree() Tier {
+	if f.Tier == "" {
+		return Free
+	}
+	return f.Tier
+}
+
 // Value is one value a feature needs, such as an environment variable or a settings row, and what it is for.
 type Value struct {
 	Name    string `json:"name" yaml:"name"`

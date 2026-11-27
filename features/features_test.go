@@ -375,3 +375,12 @@ func TestATierTheListDoesNotKnowIsRefused(t *testing.T) {
 		t.Fatal("attached to a list with an unknown tier")
 	}
 }
+
+// An empty tier is answered as free; a set tier as it is.
+func TestTierOrFreeNamesAnEmptyTierFree(t *testing.T) {
+	for tier, want := range map[features.Tier]features.Tier{"": features.Free, features.Free: features.Free, features.Enterprise: features.Enterprise} {
+		if got := (features.Feature{ID: "sync", Tier: tier}).TierOrFree(); got != want {
+			t.Errorf("tier %q: TierOrFree = %q, want %q", tier, got, want)
+		}
+	}
+}

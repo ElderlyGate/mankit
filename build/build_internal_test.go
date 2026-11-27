@@ -21,3 +21,24 @@ func TestOnlyAStampedReleaseTagIsReleased(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyAWholeNumberAboveZeroIsALine(t *testing.T) {
+	t.Cleanup(func() { line = "" })
+	for stamp, want := range map[string]int{
+		"":    0,
+		"1":   1,
+		"10":  10,
+		"0":   0,
+		"-1":  0,
+		"01":  0,
+		"+1":  0,
+		"1 ":  0,
+		"v1":  0,
+		"1.0": 0,
+	} {
+		line = stamp
+		if got := Line(); got != want {
+			t.Errorf("stamp %q: Line() = %d, want %d", stamp, got, want)
+		}
+	}
+}
