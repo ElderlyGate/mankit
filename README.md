@@ -22,13 +22,13 @@ three, instead of being made three times.
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> config list` and `<app> config set <key> <value>` |
 | `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. `usercmd/cli` is `<app> command path`, `create`, `check` and `edit`. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 | `helpout` | The one layout for `<app> help`, `<app> --help`, `<app> <thing> help` and a usage mistake: what the app is, how to start it, its commands, the repository; and the old forms of renamed commands, for one release |
-| `build` | Whether the running binary is a release or a dev build: `build.Released()`, set only by the release tag stamped at build (see [Release or dev build](#release-or-dev-build)) |
+| `build` | Whether the running binary is a release or a dev build: `build.Released()`, set only by the release tag stamped at build, and the product line it is sold as: `build.Line()` (see [Release or dev build](#release-or-dev-build)) |
 | `home` | Where the org's apps keep their files: the org's config and data folders and a folder per product, `<product id>-dev` in a dev build; it names paths and writes nothing |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 | `prefs` | What every app adds beside `settings/cli`: `<app> confirm list`, `<app> location list`, `config set confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
 | `serve` | The server every app shares: the token guard, the contract, answers in the contracts envelope, asking before a change over HTTP, and `serve [--detach]`, `server list`, `server stop`, `server link`, `server token renew` (see [Serve](#serve)) |
 | `features` | An app's list of switchable features: each starts on or off, names the values it needs and has a tier, free or enterprise; the owner's switch first, then each closer handed in (public mode, a license); it knows no app (see [Features](#features)) |
-| `licenses` | What unlocks an app's enterprise features: Ed25519-signed license files, checked offline against the keys the app's build trusts; the org license and the app's own; a closer for the feature list; `licenses/cli` is `<app> license show` and `license add [--org] <file>` (see [Licenses](#licenses)) |
+| `licenses` | What unlocks an app's enterprise features: Ed25519-signed license files, checked offline against the keys the app's build trusts; a closer for the feature list; `licenses/cli` is the thing `license` (see [Licenses](#licenses)) |
 | `events` | Live events: CloudEvents 1.0 checked against the app's catalog, sent on `GET /api/events` as Server-Sent Events through `serve`; a feature of the app's list, off means no stream (see [Events](#events)) |
 | `store/queue` | Shows the change queue and sets its waits: the tickets in a line, `queue.wait` and `queue.limit`, `<app> queue show`, `set` and `unset`. The turns are the store's own (see [Change queue](#change-queue)) |
 | `logs` | What every app logs: records in OpenTelemetry's log shape through `log/slog`, a detached server's rotated file in the logs folder, and the telemetry feature that sends them over OTLP (see [Logs](#logs)) |
@@ -86,7 +86,7 @@ but for its logs (G-STACK-8):
 | What | Where | `home` |
 |---|---|---|
 | the org's config folder | `$XDG_CONFIG_HOME/elderlygate`, else `~/.config/elderlygate` | `home.Dir()` |
-| the org's own files (the org license and its queue) | the org's config folder; in a dev build `elderlygate-dev` beside it | `home.OrgDir()` |
+| the org's own files (the license and its queue) | the org's config folder; in a dev build `elderlygate-dev` beside it | `home.OrgDir()` |
 | one app's config (the app folder) | `<config folder>/<product id>/`, `<product id>-dev/` in a dev build | `home.Product(id)` |
 | the org's data folder | `$XDG_DATA_HOME/elderlygate`, else `~/.local/share/elderlygate` | `home.Data()` |
 | one app's data | `<data folder>/<product id>/`, `<product id>-dev/` in a dev build | `home.ProductData(id)` |
@@ -98,7 +98,7 @@ line. A relative `XDG_*` value is ignored, as the XDG rules say.
 `home.Folder(id)` is the name of an app's config and data folders: the product
 ID in a release, `<product id>-dev` in a dev build (ADR-L5), so a dev build
 never reads or writes a release's config and data. The org's own files, the
-org license among them, are in `home.OrgDir()`: the org's config folder in a
+license among them, are in `home.OrgDir()`: the org's config folder in a
 release, `elderlygate-dev` beside it in a dev build. The logs folders are the
 same in both.
 
@@ -576,7 +576,8 @@ needs `WithLookup`, and one with a feature that starts off needs `Store.On`;
 `Attach` refuses a list without them, so a wrong wiring shows at start.
 Each feature has a `Tier`, `features.Free` (the zero value) or
 `features.Enterprise`, answered as `tier` (contracts mankit/v1
-`featureState.tier` says what each means). Only an enterprise feature can be
+`featureState.tier` says what each means); `Feature.TierOrFree()` names an
+empty tier free, so no app restates it. Only an enterprise feature can be
 locked (ADR-L2): a closer `By: features.License` never closes a free one. A
 tier the list does not know is a wrong wiring too. `events.Feature` is
 enterprise (ADR-E9).
@@ -604,19 +605,25 @@ at build, beside its own version stamp:
 ```yaml
 ldflags:
   - -X github.com/tugbayatilla/mankit/v4/build.version=v{{.Version}}
+  - -X github.com/tugbayatilla/mankit/v4/build.line=1
 ```
 
-Only a stamp of the form `vX.Y.Z` makes a release. A build without it, such as
+A product with lines (V-10) stamps its line too, the one constitution
+`product-lines.yaml` gives the release; `build.Line()` reads it, 0 for a
+build stamped with none. Only a stamp of the form `vX.Y.Z` makes a release. A build without it, such as
 `go build`, `go install` or `go test`, is dev, so an app that moves to this
 mankit adds the line in the same change, or its releases keep their files in
 the `-dev` folders. A dev build keeps its config and data in
-`<product id>-dev/` (`home.Folder`), the org license in `elderlygate-dev/`
+`<product id>-dev/` (`home.Folder`), the license in `elderlygate-dev/`
 (`home.OrgDir`), and takes licenses signed by a dev key only.
 
 ## Licenses
 
 An enterprise feature (`features.Enterprise`) is locked until a license opens
-it (ADR-L1, L2). `licenses` checks them for every app; nw-license signs them.
+it. `licenses` checks them for every app; nw-license signs them. What a license
+is, its kinds and where it is kept are the constitution's ADR-L1 to L10; what
+each field means is contracts mankit/v3 `license-payload`, `license-file` and
+`license-show`.
 
 ```go
 trust, err := licenses.Trusted() // the org's keys for this build
@@ -625,43 +632,28 @@ list := features.New(all, store, c.Closer(all))
 root.AddCommand(cli.Command(app, c, list, asker.Ask))
 ```
 
-- A license file is a Resource (ADR-S15) whose spec is the payload's bytes as
-  they were signed and the Ed25519 signature over them. Its one Go type is
-  `licenses.License` (`ID`, `Kind`, `For`, `Products`, `Issued`, `Until`,
-  `TrialDays`, `KeyID`, and `Started`, the unsigned record of the trial a
-  release-trial started); what each field means is in contracts mankit/v1
-  `license-file` and `license-payload`. `licenses.Sign(l, signer)` writes one,
-  `licenses.Verify(raw, trust)` reads one.
-- `License.Check` refuses what `Sign` refuses, without a signer; see its
-  [Go doc](https://pkg.go.dev/github.com/tugbayatilla/mankit/v4/licenses#License.Check).
-- A release takes licenses signed by a prod key only, any other build by a dev
-  key only. A file it cannot read or verify is refused with its file and a
-  Problem reason (`licenses.Reason…`, meanings in contracts problem/v1), never
-  taken for no license. A link is followed, as fleet puts the files in.
-- `Checker.Read` reads the org's `<home.OrgDir()>/license` and the app's
-  `<app folder>/license` anew on every call. `Found.Has` and `Found.From` say
-  whether and from where a feature is open; `Checker.Closer` is the license
-  closer of the feature list. `Taken.LastDay`, `DaysLeft` and `Ended` are all
-  it says about time, a release-trial's counted from its started day; when to
-  warn is a threshold's (ADR-S23).
-- `<app> license show` answers contracts mankit/v1 `LicenseShow`
-  (`Checker.Show`, the same for a Settings page). `<app> license add <file>`
-  keeps a product license or trial key for the app, `--org` an org license for
-  every app: it checks the file, asks, naming the license it replaces, and
-  writes it whole through the store.
+An app builds its Checker with `licenses/cli.Checker(app, trust)`, so its title
+comes from its `serve.App` and its line from the build stamp (`build.Line()`).
+
+- `licenses.License` is the one Go type of a license; `licenses.Sign(l,
+  signer)` writes a file, `licenses.Verify(raw, trust)` reads one, and
+  `License.Check` refuses what `Sign` refuses, without a signer. Old files
+  (`licenses.APIVersion`) are read for one release and never written.
+- A file it cannot read or verify is refused with its file and a Problem
+  reason (`licenses.Reason…`, meanings in contracts problem/v1), never taken
+  for no license. A link is followed, as fleet puts the files in.
+- `Checker.Read` reads the license in `home.OrgDir()` and the app's own file,
+  its trial, anew on every call. `Found.Has` and `Found.From` say whether and
+  from where a feature is open; `Checker.Closer` is the license closer of the
+  feature list.
+- `Checker.Show` is the `license show` answer, the same for a Settings page and
+  the top bar's badge; it works out the state and warn once.
+- `Checker.Add` and `Checker.Remove` are `license add` and `license remove`.
 - `Checker.StartTrial(ctx, key, binary)` is the one call an app makes at
-  start, with its built-in release-trial key and its executable's path
-  (`os.Executable()` as it is: StartTrial resolves links itself), so a trial
-  works with no other tool (ADR-L9). Two starts at once write one trial. With no
-  license it writes the key as the app's license file, through the store as
-  `license add` does, with `spec.started`: today and the binary's path and
-  file time. A new install, whose path or file time differs, gets a fresh
-  trial; the install that started it keeps it, ended or not. An org license,
-  a bought product license, a person's trial key, or a file it cannot take is
-  never touched, and after the key's `until` no trial starts. It returns a
-  `TrialStart` (`Outcome`: `started`, `renewed`, `kept`, `skipped` or
-  `failed`, and a `Reason`) for the start log; a failed write leaves the old
-  file whole and never stops the app.
+  start, with its built-in trial key and its executable's path
+  (`os.Executable()` as it is: StartTrial resolves links itself). What it does
+  is ADR-L9's and its Go doc's; it returns a `TrialStart` for the start log and
+  never stops the app.
 
 ### Trusted keys
 
