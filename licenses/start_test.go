@@ -191,7 +191,7 @@ func TestARemovedLicenseKeepsTheTrial(t *testing.T) {
 	key := sign(t, k, trial)
 	want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialStarted)
 	put(t, filepath.Join(dir, "license"), sign(t, k, license))
-	if _, err := checker(t, release, "2026-12-05").Remove(context.Background()); err != nil {
+	if _, err := remove(t, checker(t, release, "2026-12-05")); err != nil {
 		t.Fatal(err)
 	}
 	want(t, startTrial(t, key, release, "2026-12-30", bin), licenses.TrialKept)
@@ -230,6 +230,33 @@ func TestAFileItCannotTakeIsLeftAlone(t *testing.T) {
 	if after, _ := read(t); string(after) != "not a license\n" {
 		t.Fatalf("the file was touched: %q", after)
 	}
+}
+
+// A file refused in the app's folder keeps the trial from starting until license remove takes it away; then the trial starts.
+func TestARemovedRefusedFileLetsTheTrialStart(t *testing.T) {
+	bin, _ := install(t)
+	k, release, _ := signer(t)
+	key := sign(t, k, trial)
+	put(t, appLicense(t), []byte("not a license\n"))
+	want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialSkipped)
+	if files, err := remove(t, checker(t, release, "2026-12-03")); err != nil || len(files) != 1 || files[0] != appLicense(t) {
+		t.Fatalf("removed %v, %v", files, err)
+	}
+	want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialStarted)
+}
+
+// A key of another line than the build's fails and writes nothing; a build with no line takes the key's.
+func TestAKeyOfAnotherLineFails(t *testing.T) {
+	k, release, _ := signer(t)
+	key := sign(t, k, trial)
+	bin, _ := install(t)
+	if got := checkerOfLine(t, release, "2026-12-03", 2).StartTrial(context.Background(), key, bin); got.Outcome != licenses.TrialFailed {
+		t.Fatalf("line 2: %v", got)
+	}
+	if _, there := read(t); there {
+		t.Fatal("a key of another line was written")
+	}
+	want(t, checkerOfLine(t, release, "2026-12-03", 0).StartTrial(context.Background(), key, bin), licenses.TrialStarted)
 }
 
 // A trial's offer never ends: a key starts a trial on any day (ADR-L9).

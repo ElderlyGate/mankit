@@ -440,17 +440,33 @@ func TestATrialNotStartedOpensNothing(t *testing.T) {
 	}
 }
 
-// Remove takes away the license in the org's folder, and an old product license, and leaves the trial.
+// remove takes away what Removing shows, as license remove does, and says which files.
+func remove(t *testing.T, c *licenses.Checker) ([]string, error) {
+	t.Helper()
+	shown, err := c.Removing()
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, r := range shown {
+		files = append(files, r.File)
+	}
+	return files, c.Remove(context.Background(), shown)
+}
+
+// Remove takes away the license in the org's folder, an old product license, and a file refused in the app's folder, and leaves the trial.
 func TestRemoveTakesTheLicenseAndLeavesTheTrial(t *testing.T) {
 	k, release, _ := signer(t)
 	for name, tc := range map[string]struct {
 		at  func(*testing.T) string
 		raw []byte
 	}{
-		"a license":              {orgLicense, sign(t, k, license)},
-		"a refused file":         {orgLicense, []byte("garbage")},
-		"an old product license": {appLicense, signOld(t, k, oldProduct)},
-		"an old org license":     {orgLicense, signOld(t, k, oldOrg)},
+		"a license":                       {orgLicense, sign(t, k, license)},
+		"a refused file":                  {orgLicense, []byte("garbage")},
+		"an old product license":          {appLicense, signOld(t, k, oldProduct)},
+		"an old org license":              {orgLicense, signOld(t, k, oldOrg)},
+		"a file refused as the app's own": {appLicense, []byte("garbage")},
+		"a license as the app's own":      {appLicense, sign(t, k, license)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			org(t)
@@ -459,7 +475,7 @@ func TestRemoveTakesTheLicenseAndLeavesTheTrial(t *testing.T) {
 				put(t, appLicense(t), start(t, sign(t, k, trial), "2026-12-03"))
 			}
 			c := checker(t, release, "2026-12-05")
-			files, err := c.Remove(context.Background())
+			files, err := remove(t, c)
 			if err != nil || !slices.Equal(files, []string{tc.at(t)}) {
 				t.Fatalf("removed %v, %v", files, err)
 			}
@@ -485,12 +501,37 @@ func TestRemoveWithNoLicenseIsNotFound(t *testing.T) {
 	k, release, _ := signer(t)
 	raw := start(t, sign(t, k, trial), "2026-12-03")
 	put(t, appLicense(t), raw)
-	_, err := checker(t, release, "2026-12-05").Remove(context.Background())
+	_, err := remove(t, checker(t, release, "2026-12-05"))
 	var p *problem.Problem
 	if !errors.As(err, &p) || p.Type != problem.TypeNotFound {
 		t.Fatalf("err = %v", err)
 	}
 	if got, _ := os.ReadFile(appLicense(t)); !bytes.Equal(got, raw) {
 		t.Fatal("the trial was touched")
+	}
+}
+
+// Remove takes away only what was shown: a file changed since it was shown is left as it is, a Problem refused.
+func TestRemoveTakesOnlyWhatWasShown(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	put(t, orgLicense(t), sign(t, k, license))
+	c := checker(t, release, "2026-12-05")
+	shown, err := c.Removing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := sign(t, k, perpetual)
+	put(t, orgLicense(t), other)
+	err = c.Remove(context.Background(), shown)
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Type != problem.TypeRefused {
+		t.Fatalf("err = %v", err)
+	}
+	if got, _ := os.ReadFile(orgLicense(t)); !bytes.Equal(got, other) {
+		t.Fatal("the license put since was touched")
+	}
+	if err := c.Remove(context.Background(), []licenses.Removal{{File: filepath.Join(t.TempDir(), "license"), Sum: shown[0].Sum}}); err == nil {
+		t.Fatal("a file that is no license file of the app was taken")
 	}
 }

@@ -22,7 +22,7 @@ three, instead of being made three times.
 | `settings` | Every key of `config.yaml` to see and change: mankit's `theme`, `background` and `commands`, then the app's own. `settings/cli` adds `<app> config list` and `<app> config set <key> <value>` |
 | `usercmd` | Your own commands from `<app folder>/config.yaml` (an old `commands.yaml` is moved in on first load): palette entry, optional key, a shell line with the selection filled in. `usercmd/cli` is `<app> command path`, `create`, `check` and `edit`. One schema for all apps: [`usercmd/commands.schema.json`](usercmd/commands.schema.json) |
 | `helpout` | The one layout for `<app> help`, `<app> --help`, `<app> <thing> help` and a usage mistake: what the app is, how to start it, its commands, the repository; and the old forms of renamed commands, for one release |
-| `build` | Whether the running binary is a release or a dev build: `build.Released()`, set only by the release tag stamped at build (see [Release or dev build](#release-or-dev-build)) |
+| `build` | Whether the running binary is a release or a dev build: `build.Released()`, set only by the release tag stamped at build, and the product line it is sold as: `build.Line()` (see [Release or dev build](#release-or-dev-build)) |
 | `home` | Where the org's apps keep their files: the org's config and data folders and a folder per product, `<product id>-dev` in a dev build; it names paths and writes nothing |
 | `ask` | Asking before a CLI verb changes anything, in the style the user picked for that type of change (`name`, `yes-no`, `never`); refused without `--yes` when there is no terminal |
 | `prefs` | What every app adds beside `settings/cli`: `<app> confirm list`, `<app> location list`, `config set confirm.<type>`, and `prefs.Asker`, which asks in the app's styles and saves a remembered answer |
@@ -605,9 +605,12 @@ at build, beside its own version stamp:
 ```yaml
 ldflags:
   - -X github.com/tugbayatilla/mankit/v4/build.version=v{{.Version}}
+  - -X github.com/tugbayatilla/mankit/v4/build.line=1
 ```
 
-Only a stamp of the form `vX.Y.Z` makes a release. A build without it, such as
+A product with lines (V-10) stamps its line too, the one constitution
+`product-lines.yaml` gives the release; `build.Line()` reads it, 0 for a
+build stamped with none. Only a stamp of the form `vX.Y.Z` makes a release. A build without it, such as
 `go build`, `go install` or `go test`, is dev, so an app that moves to this
 mankit adds the line in the same change, or its releases keep their files in
 the `-dev` folders. A dev build keeps its config and data in
@@ -630,7 +633,7 @@ root.AddCommand(cli.Command(app, c, list, asker.Ask))
 ```
 
 An app builds its Checker with `licenses/cli.Checker(app, trust)`, so its title
-and line (`serve.App.Line`) come from its `serve.App`.
+comes from its `serve.App` and its line from the build stamp (`build.Line()`).
 
 - `licenses.License` is the one Go type of a license; `licenses.Sign(l,
   signer)` writes a file, `licenses.Verify(raw, trust)` reads one, and

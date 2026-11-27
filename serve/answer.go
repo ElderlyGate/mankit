@@ -21,7 +21,6 @@ type App struct {
 	ID        string     // the product ID: source.app, apiVersion, the cookie name
 	Command   string     // the CLI's name, such as e-designer; empty is ID
 	Title     string     // the app's name people read, such as Designer; empty is ID
-	Line      int        // the product line this build is sold as (V-10), such as 1 for Designer 1; 0 for an app with none
 	Folder    string     // its folder under the org's config and data folders, where an app's folders are named apart from its ID until the rename; empty is ID
 	Version   string     // the app's version
 	Contracts []Contract // the contract versions it answers, each with its envelope, oldest first; the last is the default

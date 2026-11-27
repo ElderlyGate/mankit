@@ -23,9 +23,12 @@ import (
 // now is the day the Checker reads by; nil is time.Now, and only a test hands in its own.
 var now func() time.Time
 
-// Checker is the one way an app builds its license Checker, so its ID, title, line and folder come from a alone; trust is licenses.Trusted() in every app.
+// line is the product line the Checker reads by; 0 is the build stamp (build.Line()), and only a test hands in its own.
+var line int
+
+// Checker is the one way an app builds its license Checker, so its ID, title and folder come from a alone and its line from the build stamp; trust is licenses.Trusted() in every app.
 func Checker(a serve.App, trust licenses.Trust) (*licenses.Checker, error) {
-	return licenses.New(licenses.Config{ID: a.ID, Title: a.Name(), Line: a.Line, Folder: a.Folder, Trust: trust, Now: now})
+	return licenses.New(licenses.Config{ID: a.ID, Title: a.Name(), Line: line, Folder: a.Folder, Trust: trust, Now: now})
 }
 
 // Command is the thing license of app a, printed through serve's Printer so every app answers alike: c reads its licenses, list holds its features closed by c's Closer, and add and remove ask with confirm.
@@ -95,15 +98,19 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		if err := removeOut.Check(); err != nil {
 			return err
 		}
-		files, err := c.Removing()
+		shown, err := c.Removing()
 		if err != nil {
 			return err
+		}
+		files := make([]string, len(shown))
+		for i, r := range shown {
+			files[i] = r.File
 		}
 		what := "remove the license file " + strings.Join(files, " and ") + "; the trial stays"
 		if err := confirm(cc, ask.Action{Type: ask.Settings, What: what, Name: "license"}); err != nil {
 			return err
 		}
-		if _, err := c.Remove(cc.Context()); err != nil {
+		if err := c.Remove(cc.Context(), shown); err != nil {
 			return err
 		}
 		return answer(cc, removeOut, c, list)

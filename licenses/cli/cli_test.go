@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.naywee.com/contracts/v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/tugbayatilla/mankit/v4/ask"
 	"github.com/tugbayatilla/mankit/v4/features"
@@ -50,6 +51,7 @@ type world struct {
 	today string
 	asked string // what the last question said
 	app   serve.App
+	line  int // the product line the build is stamped with (V-10)
 }
 
 func newWorld(t *testing.T, today string) *world {
@@ -58,7 +60,7 @@ func newWorld(t *testing.T, today string) *world {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	return &world{t: t, dir: filepath.Join(base, "elderlygate"), org: filepath.Join(base, "elderlygate-dev"), keys: keys{"test-2026": priv}, today: today,
 		trust: licenses.Trust{Release: true, Prod: map[string]ed25519.PublicKey{"test-2026": pub}},
-		app:   serve.App{ID: "designer", Title: "Designer", Line: 1, Version: "10.0.0", Contracts: []serve.Contract{{Version: "v1", Envelope: "v2"}}}}
+		app:   serve.App{ID: "designer", Title: "Designer", Version: "10.0.0", Contracts: []serve.Contract{{Version: "v1", Envelope: "v2"}}}, line: 1}
 }
 
 func day(s string) time.Time { d, _ := time.Parse("2006-01-02", s); return d }
@@ -127,6 +129,7 @@ func (w *world) putIn(dir string, raw []byte) {
 func (w *world) run(words ...string) (string, error) {
 	w.t.Helper()
 	cli.SetNow(w.t, func() time.Time { return day(w.today) })
+	cli.SetLine(w.t, w.line)
 	c, err := cli.Checker(w.app, w.trust)
 	if err != nil {
 		w.t.Fatal(err)
@@ -202,7 +205,7 @@ func TestShowTheStateAndWarnOfEachCase(t *testing.T) {
 		{"a license not begun", "2026-11-01", func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }, licenses.StateFree, false, "", ""},
 		{"a license that never ends", "2040-01-01", func(w *world) { w.putOrg(w.perpetual()) }, licenses.StateLicensed, false, "", licensed},
 		{"a license of another line", "2040-01-01", func(w *world) {
-			w.app.Line = 2
+			w.line = 2
 			w.putOrg(w.perpetual())
 		}, licenses.StateFree, false, "", ""},
 		{"a trial running", "2026-12-07", func(w *world) { w.putApp(w.trial("2026-12-03")) }, licenses.StateTrial, false, "", "Trial: 10 days left (ends 2026-12-16)"},
@@ -286,9 +289,18 @@ func TestShowALicenseThatNeverEnds(t *testing.T) {
 	if err != nil || strings.Contains(out, "daysLeft") || strings.Contains(out, `"until"`) {
 		t.Fatalf("err = %v, out =\n%s", err, out)
 	}
+	if y, err := w.run("show", "-o", "yaml"); err != nil || strings.Contains(y, "daysLeft") {
+		t.Fatalf("err = %v, yaml =\n%s", err, y)
+	}
 	s := w.show()
 	if l := s.Licenses[0]; l.Lines == nil || (*l.Lines)["designer"][0] != 1 || l.Ends() != "" || l.Window != nil || s.Features[1].From != licenses.FromLicense {
 		t.Fatalf("show = %+v", s)
+	}
+	if y, err := yaml.Marshal(s); err != nil || strings.Contains(string(y), "daysLeft") {
+		t.Fatalf("err = %v, yaml.Marshal =\n%s", err, y)
+	}
+	if y, err := yaml.Marshal(licenses.ShownFile{Kind: licenses.KindLicense, Until: "2027-11-06", DaysLeft: 3}); err != nil || !strings.Contains(string(y), "daysLeft: 3\n") {
+		t.Fatalf("err = %v, a license with a last day =\n%s", err, y)
 	}
 	table, err := w.run("show")
 	if err != nil || !regexp.MustCompile(`(?m)^license +Acme Ltd +– +– +test-2026`).MatchString(table) {
@@ -326,7 +338,7 @@ func TestShowALicensesWindowFromItsPoint(t *testing.T) {
 	}
 }
 
-// The sentence names the app as serve.App does, its title, else its ID, and its line when it has one.
+// The sentence names the app as serve.App does, its title, else its ID, and its line from the build stamp when it has one.
 func TestShowSaysTheAppsName(t *testing.T) {
 	for _, c := range []struct {
 		title string
@@ -334,7 +346,7 @@ func TestShowSaysTheAppsName(t *testing.T) {
 		says  string
 	}{{"Designer", 1, "Licensed to Acme Ltd · Designer 1"}, {"", 1, "Licensed to Acme Ltd · designer 1"}, {"Designer", 0, "Licensed to Acme Ltd · Designer"}} {
 		w := newWorld(t, "2026-12-07")
-		w.app.Title, w.app.Line = c.title, c.line
+		w.app.Title, w.line = c.title, c.line
 		w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
 		if s := w.show(); s.Sentence != c.says {
 			t.Fatalf("title %q, line %d: sentence %q", c.title, c.line, s.Sentence)

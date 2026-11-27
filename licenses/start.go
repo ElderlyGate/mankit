@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/problem"
@@ -35,7 +36,7 @@ type TrialStart struct {
 
 func (s TrialStart) String() string { return fmt.Sprintf("license: trial %s: %s", s.Outcome, s.Reason) }
 
-// StartTrial is the call an app makes at start with its built-in trial key and its executable's path, as os.Executable gives it (ADR-L9): with no license it writes the key as the app's license file, started today and stamped with the binary's path and file time; a new install, whose stamp differs, gets a fresh trial over a trial, an old release-trial among them; a license is never touched.
+// StartTrial is the call an app makes at start with its built-in trial key and its executable's path, as os.Executable gives it (ADR-L9); a key of another line than the build's fails. With no license it writes the key as the app's license file, started today and stamped with the binary's path and file time; a new install, whose stamp differs, gets a fresh trial over a trial, an old release-trial among them; a license is never touched.
 func (c *Checker) StartTrial(ctx context.Context, key []byte, binary string) TrialStart {
 	k, err := c.take(key, false)
 	switch {
@@ -44,6 +45,8 @@ func (c *Checker) StartTrial(ctx context.Context, key []byte, binary string) Tri
 		err = fmt.Errorf("it is a %s of the old license form %s, which mankit reads but never writes; a key is %s", k.old, APIVersion, FileAPIVersion)
 	case k.Kind != Trial:
 		err = fmt.Errorf("it is a %s, not a trial", k.Kind)
+	case c.c.Line > 0 && !slices.Contains(k.Lines[c.c.ID], c.c.Line):
+		err = fmt.Errorf("it is the trial of %s %v, not of this build's line %d", c.c.ID, k.Lines[c.c.ID], c.c.Line)
 	}
 	if err != nil {
 		return failed("", "the built-in trial key is refused", err)

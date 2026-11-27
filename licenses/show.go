@@ -82,6 +82,17 @@ func (r ShownFile) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
+// MarshalYAML writes the row as MarshalJSON does, so -o yaml and any YAML encoder leave daysLeft out alike.
+func (r ShownFile) MarshalYAML() (any, error) {
+	raw, err := r.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	err = json.Unmarshal(raw, &out)
+	return out, err
+}
+
 // Window is the countdown the License group's bar shows; its days left are the license's DaysLeft.
 type Window struct {
 	Of int `json:"of" yaml:"of"`
@@ -187,7 +198,7 @@ type verdict struct {
 	trialEnded bool
 }
 
-// verdict is the state contracts mankit/v3 license-show names: licensed while a license runs, warning once the one that ends last is within LicenseExpiring; else trial while a trial runs, warning in its last days; else free, warning once a trial or a license has ended, until it is replaced or removed, with the latest day an ended license ran.
+// verdict is the license state of f; contracts mankit/v3 license-show says what each state and warn mean (CT-RULE-5).
 func (f Found) verdict() verdict {
 	var v verdict
 	licenseEnded := false

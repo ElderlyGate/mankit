@@ -69,7 +69,7 @@ type Started struct {
 // Days is how many days the license runs, its first and last day included: the length of each trial a trial starts (ADR-L9), else issued to until, and 0 for a license that never ends.
 func (l License) Days() int {
 	switch {
-	case l.Kind == Trial || l.Kind == ReleaseTrial:
+	case l.Kind == Trial:
 		return l.TrialDays
 	case l.Until.IsZero():
 		return 0
@@ -382,7 +382,7 @@ func checkLines(lines map[string][]int) error {
 	return nil
 }
 
-// checkOld refuses what the old form (APIVersion) did not take: an unknown kind, a product license that names other than one product, an org license that names none, a release-trial that names other than its one product with no feature ids or runs no day, days or a started trial on another kind, or a trial started after a release-trial's last day to start one.
+// checkOld refuses what the old form (APIVersion) did not take; contracts mankit/v1 license-payload and license-file say what that is (CT-RULE-5).
 func (l License) checkOld() error {
 	switch {
 	case l.Kind != Org && l.Kind != Product && l.Kind != ReleaseTrial:

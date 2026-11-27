@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tugbayatilla/mankit/v4/build"
 	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/problem"
@@ -28,7 +29,7 @@ const most = 64 << 10
 type Config struct {
 	ID     string
 	Title  string           // the app's name people read, filled from serve.App.Name() by licenses/cli.Checker, the way apps build their Checker
-	Line   int              // the product line this build is (V-10), filled from serve.App.Line; 0 for an app with none, which no license naming lines opens
+	Line   int              // the product line this build is (V-10); 0 is build.Line(), the build stamp, and only a test sets its own. A build with none is opened by no license naming lines
 	Folder string           // empty is ID
 	Trust  Trust            // Trusted() in every app, as a hand-built one skips ADR-L5; only a test hands in its own
 	Now    func() time.Time // nil is time.Now
@@ -50,6 +51,9 @@ func New(c Config) (*Checker, error) {
 	}
 	if c.Now == nil {
 		c.Now = time.Now
+	}
+	if c.Line == 0 {
+		c.Line = build.Line()
 	}
 	return &Checker{c: c}, nil
 }
@@ -100,7 +104,7 @@ func (c *Checker) Read() (Found, error) {
 	return f, nil
 }
 
-// place is what the org's place or the app's own holds: nothing, a license taken with the bytes it was read from, or a file refused.
+// place is what the org's place or the app's own holds: nothing, a license taken, or a file refused, with the bytes it was read from when it could be read whole.
 type place struct {
 	path    string
 	raw     []byte
@@ -121,6 +125,7 @@ func (c *Checker) at(org bool) (place, error) {
 	}
 	var l License
 	if err == nil {
+		p.raw = raw
 		l, err = c.take(raw, org)
 	}
 	var pr *problem.Problem
@@ -130,7 +135,7 @@ func (c *Checker) at(org bool) (place, error) {
 	case err != nil:
 		p.refused = &Refused{File: path, Reason: ReasonUnreadable, Detail: err.Error()}
 	default:
-		p.raw, p.license = raw, &l
+		p.license = &l
 	}
 	return p, nil
 }
@@ -169,8 +174,14 @@ func (c *Checker) Add(ctx context.Context, raw []byte, org bool) (Taken, error) 
 	return t, err
 }
 
-// Removing is the files Remove takes away: the one in the org's folder, taken or refused, and an old product license kept as the app's own; never a trial. With none it is a Problem not_found.
-func (c *Checker) Removing() ([]string, error) {
+// Removal is one file license remove takes away, and the sum it held when Removing read it, so Remove takes away only what was shown.
+type Removal struct {
+	File string
+	Sum  string
+}
+
+// Removing is the files Remove takes away: the one in the org's folder, taken or refused, and in the app's own folder an old product license or a file refused, which would keep StartTrial from writing the trial; it never removes the trial file. With none it is a Problem not_found.
+func (c *Checker) Removing() ([]Removal, error) {
 	org, err := c.at(true)
 	if err != nil {
 		return nil, err
@@ -179,47 +190,63 @@ func (c *Checker) Removing() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var files []string
-	if org.license != nil || org.refused != nil {
-		files = append(files, org.path)
+	var out []Removal
+	for i, p := range []place{org, own} {
+		inOrg := i == 0
+		if p.refused == nil && (p.license == nil || (!inOrg && p.license.old != Product)) {
+			continue
+		}
+		sum, err := c.sum(p, inOrg)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Removal{File: p.path, Sum: sum})
 	}
-	if own.license != nil && own.license.old == Product {
-		files = append(files, own.path)
-	}
-	if len(files) == 0 {
+	if len(out) == 0 {
 		return nil, problem.Fail(problem.TypeNotFound, "", "there is no license to remove")
 	}
-	return files, nil
+	return out, nil
 }
 
-// Remove takes away the files Removing names, each through the store in the scope's own turn, as a removal takes, and says which. The trial stays, so a removed license never starts a fresh one.
-func (c *Checker) Remove(ctx context.Context) ([]string, error) {
-	files, err := c.Removing()
-	if err != nil {
-		return nil, err
+// sum is the sum of the file p read; a file it could not read whole is summed as the store reads it.
+func (c *Checker) sum(p place, org bool) (string, error) {
+	if p.raw != nil {
+		return store.SumOf(p.raw), nil
 	}
+	s, err := c.scope(org)
+	if err != nil {
+		return "", err
+	}
+	defer s.Close()
+	it, _, err := s.Get(name)
+	return it.Sum, err
+}
+
+// Remove takes away the files shown, as Removing gave them, each through the store in the scope's own turn and only while it holds the sum it was shown with; a file changed since is a Problem refused, changed. The trial stays, so a removed license never starts a fresh one.
+func (c *Checker) Remove(ctx context.Context, shown []Removal) error {
 	orgPath, err := c.path(true)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	for _, f := range files {
-		s, err := c.scope(f == orgPath)
-		if err != nil {
-			return nil, err
+	ownPath, err := c.path(false)
+	if err != nil {
+		return err
+	}
+	for _, r := range shown {
+		if r.File != orgPath && r.File != ownPath {
+			return fmt.Errorf("licenses: %s is not a license file of %s", r.File, c.c.ID)
 		}
-		err = s.Change(ctx, "", "license remove", func(tx store.Tx) error {
-			it, there, err := tx.Get(name)
-			if err != nil || !there {
-				return err
-			}
-			return tx.Remove(name, store.Holds(it.Sum))
-		})
+		s, err := c.scope(r.File == orgPath)
+		if err != nil {
+			return err
+		}
+		err = s.Change(ctx, "", "license remove", func(tx store.Tx) error { return tx.Remove(name, store.Holds(r.Sum)) })
 		s.Close()
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return files, nil
+	return nil
 }
 
 // scope is the store scope the license is kept in: the app's own config folder, or the org's (home.OrgDir), opened with store.Own as a folder private to this user.
