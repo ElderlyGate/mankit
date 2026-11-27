@@ -1,4 +1,4 @@
-// Package cli is the thing license every app mounts at its root: `license show` and `license add [--org] <file>`, above licenses, so licenses imports neither serve nor ask.
+// Package cli is the thing license every app mounts at its root: `license show`, `license add <file>` and `license remove`, above licenses, so licenses imports neither serve nor ask.
 package cli
 
 import (
@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -21,20 +23,20 @@ import (
 // now is the day the Checker reads by; nil is time.Now, and only a test hands in its own.
 var now func() time.Time
 
-// Checker is the one way an app builds its license Checker, so its ID, title and folder come from a alone; trust is licenses.Trusted() in every app.
+// Checker is the one way an app builds its license Checker, so its ID, title, line and folder come from a alone; trust is licenses.Trusted() in every app.
 func Checker(a serve.App, trust licenses.Trust) (*licenses.Checker, error) {
-	return licenses.New(licenses.Config{ID: a.ID, Title: a.Name(), Folder: a.Folder, Trust: trust, Now: now})
+	return licenses.New(licenses.Config{ID: a.ID, Title: a.Name(), Line: a.Line, Folder: a.Folder, Trust: trust, Now: now})
 }
 
-// Command is the thing license of app a, printed through serve's Printer so every app answers alike: c reads its licenses, list holds its features closed by c's Closer, and add asks with confirm.
+// Command is the thing license of app a, printed through serve's Printer so every app answers alike: c reads its licenses, list holds its features closed by c's Closer, and add and remove ask with confirm.
 func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "license",
-		Short: "The licenses that open this app's enterprise features",
-		Long: "A license names whom it is for, the enterprise features it opens and its last day.\n" +
-			"The org license is read by every app, a product license or trial key by this app alone.\n" +
+		Short: "The license and trial that open this app's enterprise features",
+		Long: "A license names whom it is for and the enterprise features it opens; one license file is read by every app.\n" +
+			"A trial is built into the app and starts by itself.\n" +
 			"`license show` lists them and every feature with where it is unlocked from;\n" +
-			"`license add <file>` keeps one for this app, `license add --org <file>` for every app.",
+			"`license add <file>` keeps the license, `license remove` takes it away, and the trial stays.",
 	}
 	show := &cobra.Command{
 		Use:   "show",
@@ -50,10 +52,11 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 	}
 	add := &cobra.Command{
 		Use:   "add <file>",
-		Short: "Check a license file and keep it for this app, or with --org for every app",
+		Short: "Check a license file and keep it as the license every app reads",
 		Args:  cobra.ExactArgs(1),
 	}
-	org := add.Flags().Bool("org", false, "keep it as the org license, which every app reads")
+	add.Flags().Bool("org", false, "the license is kept for every app")
+	_ = add.Flags().MarkDeprecated("org", "license add keeps the one license every app reads")
 	addOut := a.Printer(add)
 	ask.Flag(add)
 	add.RunE = func(cc *cobra.Command, args []string) error {
@@ -64,7 +67,7 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		if err != nil {
 			return problem.FailAt(problem.TypeRefused, licenses.ReasonUnreadable, args[0], fmt.Sprintf("%s cannot be read: %v", args[0], err))
 		}
-		t, err := c.Check(raw, *org)
+		t, err := c.Check(raw, true)
 		if err != nil {
 			return failAt(err, args[0])
 		}
@@ -72,31 +75,56 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		if err != nil {
 			return err
 		}
-		what := fmt.Sprintf("keep the %s license for %s until %s as %s, in %s%s", t.Kind, t.For, t.LastDay.Format("2006-01-02"), whose(*org, a.ID), t.File, replacing(found, t.File))
+		what := fmt.Sprintf("keep the license for %s%s, read by every app, in %s%s", t.For, runs(t), t.File, replacing(found, t.File))
 		if err := confirm(cc, ask.Action{Type: ask.Settings, What: what, Name: "license"}); err != nil {
 			return err
 		}
-		if _, err := c.Add(cc.Context(), raw, *org); err != nil {
+		if _, err := c.Add(cc.Context(), raw, true); err != nil {
 			return err
 		}
 		return answer(cc, addOut, c, list)
 	}
-	cmd.AddCommand(show, add)
+	remove := &cobra.Command{
+		Use:   "remove",
+		Short: "Remove the license every app reads; the trial stays",
+		Args:  cobra.NoArgs,
+	}
+	removeOut := a.Printer(remove)
+	ask.Flag(remove)
+	remove.RunE = func(cc *cobra.Command, _ []string) error {
+		if err := removeOut.Check(); err != nil {
+			return err
+		}
+		files, err := c.Removing()
+		if err != nil {
+			return err
+		}
+		what := "remove the license file " + strings.Join(files, " and ") + "; the trial stays"
+		if err := confirm(cc, ask.Action{Type: ask.Settings, What: what, Name: "license"}); err != nil {
+			return err
+		}
+		if _, err := c.Remove(cc.Context()); err != nil {
+			return err
+		}
+		return answer(cc, removeOut, c, list)
+	}
+	cmd.AddCommand(show, add, remove)
 	return cmd
 }
 
-func whose(org bool, app string) string {
-	if org {
-		return "the org's, for every app"
+// runs is how long t runs, as the question says it: until its last day, or on with none.
+func runs(t licenses.Taken) string {
+	if t.LastDay.IsZero() {
+		return ", which never ends"
 	}
-	return app + "'s own"
+	return " until " + t.LastDay.Format("2006-01-02")
 }
 
 // replacing names what add replaces at path, so the question says it (G-STACK-13).
 func replacing(f licenses.Found, path string) string {
 	for _, t := range f.Taken {
 		if t.File == path {
-			return fmt.Sprintf(", replacing the %s license for %s until %s", t.Kind, t.For, t.LastDay.Format("2006-01-02"))
+			return fmt.Sprintf(", replacing the license for %s%s", t.For, runs(t))
 		}
 	}
 	for _, r := range f.Refused {
@@ -131,7 +159,11 @@ func answer(cc *cobra.Command, out serve.Printer, c *licenses.Checker, list *fea
 		if len(s.Licenses) > 0 {
 			fmt.Fprintln(tw, "KIND\tFOR\tUNTIL\tDAYS LEFT\tKEY")
 			for _, l := range s.Licenses {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", l.Kind, l.For, ends(l), l.DaysLeft, l.KeyID)
+				until, left := "–", "–"
+				if l.Ends() != "" {
+					until, left = l.Ends(), strconv.Itoa(l.DaysLeft)
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", l.Kind, l.For, until, left, l.KeyID)
 			}
 			fmt.Fprintln(tw)
 		}
@@ -151,15 +183,4 @@ func answer(cc *cobra.Command, out serve.Printer, c *licenses.Checker, list *fea
 		}
 		_ = tw.Flush()
 	})
-}
-
-// ends is the day a row's UNTIL column shows: a release-trial's trial end once started, else its offer end, as contracts mankit/v1 license-show says; every other kind's until.
-func ends(l licenses.ShownFile) string {
-	switch {
-	case l.Kind != licenses.ReleaseTrial:
-		return l.Until
-	case l.TrialEnds != "":
-		return l.TrialEnds
-	}
-	return l.OfferEnds
 }
