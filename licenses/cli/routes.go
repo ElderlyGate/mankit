@@ -15,8 +15,11 @@ import (
 // Path is the thing license over HTTP (G-STACK-4).
 const Path = "/api/license"
 
+// ListPath is the app's licenses over HTTP: GET ListPath answers as `license list` does, GET ListPath/{id} as `license show <id>` does.
+const ListPath = "/api/licenses"
+
 // Routes are the thing license on the app's server, which every app adds to its Site's routes beside mounting Command, with the same c and list; each calls the Checker as the CLI does (ADR-L8):
-// GET Path answers LicenseShow as `license show` does; POST Path takes a license file as its body and keeps it as `license add <file>` does, with org=true for --org; POST Path/{id}/use makes the license active as `license use <id>` does; DELETE Path/{id} takes it away as `license remove <id>` does.
+// GET Path answers LicenseShow as `license show` does; GET ListPath answers LicenseList as `license list` does; GET ListPath/{id} answers License as `license show <id>` does; POST Path takes a license file as its body and keeps it as `license add <file>` does, with org=true for --org; POST Path/{id}/use makes the license active as `license use <id>` does; DELETE Path/{id} takes it away as `license remove <id>` does.
 // A change asks first, as serve asks every change (a Question, then confirm=<id>, or confirm=yes with Bearer), with the words the CLI asks; only a file refused, or a license that is not there, is answered without a question, and any other failure asks with the route's own words, so nothing is written without a yes (ADR-S04).
 // The yes covers the request, not what was shown: a license file replaced between the question and the yes is removed as it is then.
 func Routes(c *licenses.Checker, list *features.List) []serve.Route {
@@ -54,6 +57,22 @@ func Routes(c *licenses.Checker, list *features.List) []serve.Route {
 	remove := ask.Action{Type: ask.Settings, What: "remove a license; the trial stays", Name: "license"}
 	return []serve.Route{
 		{Pattern: http.MethodGet + " " + Path, Handler: show},
+		{Pattern: http.MethodGet + " " + ListPath, Handler: func(w http.ResponseWriter, r *http.Request) {
+			l, err := c.List()
+			if err != nil {
+				serve.WriteError(w, r, serve.StatusOf(err), err)
+				return
+			}
+			serve.Write(w, r, http.StatusOK, licenses.ListKind, l)
+		}},
+		{Pattern: http.MethodGet + " " + ListPath + "/{id}", Handler: func(w http.ResponseWriter, r *http.Request) {
+			l, err := c.License(r.PathValue("id"))
+			if err != nil {
+				serve.WriteError(w, r, serve.StatusOf(err), err)
+				return
+			}
+			serve.Write(w, r, http.StatusOK, licenses.LicenseKind, l)
+		}},
 		{
 			Pattern: http.MethodPost + " " + Path,
 			Action:  add,

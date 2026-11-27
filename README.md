@@ -664,14 +664,18 @@ licenses; an old trial file is refused (`retired_kind`).
   call; `Found.Active` is the active license, `Found.Has` and `Found.From`
   say whether and from where a feature is open, and `Checker.Closer` is the
   license closer of the feature list.
-- `Checker.Show` is the `license show` (and `license list`) answer, the same
-  for a Settings page and the top bar's badge; it works out the state and
-  warn once.
+- `Checker.Show` is the `license show` answer (`LicenseShow`), the same for a
+  Settings page and the top bar's badge; it works out the state and warn once
+  and gives the active license. `Checker.List` is `license list`
+  (`LicenseList`): every license and every refused file. `Checker.License(id)`
+  is `license show <id>` (`License`), not_found for an id with no license. All
+  three take a license's row from one place.
 - `Checker.Add`, `Checker.Use` and `Checker.Removing`/`Remove` are `license
   add <file> [--org]`, `license use <id>` and `license remove <id>`.
 - `cli.Routes(c, list)` is the thing over HTTP at `cli.Path`: GET, POST
   (`?org=true`), POST `{id}/use` and DELETE `{id}`, as its Go doc says, asking
-  the CLI's questions.
+  the CLI's questions; and at `cli.ListPath`: GET is `license list`, GET
+  `{id}` is `license show <id>`, each the CLI's `-o json` byte for byte.
 - `Checker.StartTrial(ctx, nil, binary)` is the one call an app makes at
   start, with its executable's path (`os.Executable()` as it is: StartTrial
   resolves links itself); its key argument is deprecated and ignored. What it

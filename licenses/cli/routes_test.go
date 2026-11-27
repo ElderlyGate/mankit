@@ -122,6 +122,40 @@ func TestHTTPShowIsTheCLIAnswer(t *testing.T) {
 	}
 }
 
+// GET .../licenses and .../licenses/{id} are the CLI's `license list -o json` and `license show <id> -o json`, byte for byte, a LicenseList and a License of contracts mankit/v3; an id with no license is a problem/v1 not_found.
+func TestHTTPListAndShowIDAreTheCLIAnswers(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
+	w.putApp(w.licenseOf("ada-2026", "Ada", []string{"sync"}, "2026-01-01", "2027-11-06"))
+	w.write(filepath.Join(w.appDir(), "licenses", "junk.license"), []byte("garbage"))
+	h := w.server()
+	for target, c := range map[string]struct {
+		schema string
+		words  []string
+	}{
+		cli.ListPath:                {listSchema, []string{"list"}},
+		cli.ListPath + "/acme-2026": {licenseSchema, []string{"show", "acme-2026"}},
+		cli.ListPath + "/ada-2026":  {licenseSchema, []string{"show", "ada-2026"}},
+	} {
+		rec := call(t, h, http.MethodGet, target, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d:\n%s", target, rec.Code, rec.Body)
+		}
+		if err := contracts.Validate(c.schema, rec.Body.Bytes()); err != nil {
+			t.Fatalf("%s: %v\n%s", target, err, rec.Body)
+		}
+		if out := w.mustRun(append(c.words, "-o", "json")...); rec.Body.String() != out {
+			t.Fatalf("%s: HTTP:\n%s\nCLI:\n%s", target, rec.Body, out)
+		}
+	}
+	if p := refusal(t, call(t, h, http.MethodGet, cli.ListPath+"/nobody", nil), http.StatusNotFound); p.Type != problem.TypeNotFound {
+		t.Fatalf("problem = %+v", p)
+	}
+	if p := refusal(t, call(t, h, http.MethodGet, cli.ListPath+"/junk", nil), http.StatusBadRequest); p.Type != problem.TypeRefused {
+		t.Fatalf("problem = %+v", p)
+	}
+}
+
 // POST keeps nothing without a yes, asks the CLI's question, and keeps the license on the yes to it, or on a script's confirm=yes; org=true is --org.
 func TestHTTPAddAsksAndKeeps(t *testing.T) {
 	for _, c := range []struct {
@@ -153,7 +187,7 @@ func TestHTTPAddAsksAndKeeps(t *testing.T) {
 		if got, err := os.ReadFile(c.kept(w)); err != nil || !bytes.Equal(got, raw) {
 			t.Fatalf("kept %q, %v", got, err)
 		}
-		if s := w.show(); s.State != licenses.StateLicensed || !s.Licenses[0].Active {
+		if s := w.show(); s.State != licenses.StateLicensed || !w.list().Licenses[0].Active {
 			t.Fatalf("show = %+v", s)
 		}
 		// A script's yes in one call keeps a license of the same id that replaces it.
@@ -214,8 +248,8 @@ func TestHTTPUseAsksAndChooses(t *testing.T) {
 	h := w.server()
 	use := cli.Path + "/ada-2026/use"
 	id, detail := question(t, call(t, h, http.MethodPost, use, nil))
-	if s := w.show(); s.Licenses[0].Active {
-		t.Fatalf("chose without a yes: %+v", s.Licenses)
+	if l := w.list(); l.Licenses[0].Active {
+		t.Fatalf("chose without a yes: %+v", l.Licenses)
 	}
 	if _, err := w.run("use", "ada-2026"); err == nil || detail != w.asked {
 		t.Fatalf("HTTP asked %q, the CLI %q", detail, w.asked)
@@ -224,16 +258,16 @@ func TestHTTPUseAsksAndChooses(t *testing.T) {
 	if rec.Code != http.StatusOK || contracts.Validate(schema, rec.Body.Bytes()) != nil {
 		t.Fatalf("status %d:\n%s", rec.Code, rec.Body)
 	}
-	if s := w.show(); !s.Licenses[0].Active || s.Licenses[0].ID != "ada-2026" {
-		t.Fatalf("show = %+v", s.Licenses)
+	if l := w.list(); !l.Licenses[0].Active || l.Licenses[0].ID != "ada-2026" {
+		t.Fatalf("list = %+v", l.Licenses)
 	}
 	for target, want := range map[string]int{cli.Path + "/nobody/use": http.StatusNotFound, cli.Path + "/broken/use": http.StatusBadRequest} {
 		for _, confirm := range []string{"", "?confirm=yes"} {
 			refusal(t, call(t, h, http.MethodPost, target+confirm, nil), want)
 		}
 	}
-	if s := w.show(); !s.Licenses[0].Active {
-		t.Fatalf("the choice changed: %+v", s.Licenses)
+	if l := w.list(); !l.Licenses[0].Active {
+		t.Fatalf("the choice changed: %+v", l.Licenses)
 	}
 }
 
@@ -255,7 +289,7 @@ func TestHTTPRemoveAsksAndLeavesTheTrial(t *testing.T) {
 	if rec.Code != http.StatusOK || contracts.Validate(schema, rec.Body.Bytes()) != nil {
 		t.Fatalf("status %d:\n%s", rec.Code, rec.Body)
 	}
-	if s := w.show(); s.State != licenses.StateTrial || len(s.Licenses) != 0 || s.Trial == nil {
+	if s := w.show(); s.State != licenses.StateTrial || len(w.list().Licenses) != 0 || s.Trial == nil {
 		t.Fatalf("show = %+v", s)
 	}
 	for _, confirm := range []string{"", "?confirm=yes"} {

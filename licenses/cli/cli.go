@@ -1,4 +1,4 @@
-// Package cli is the thing license every app mounts at its root: `license show`, `license list`, `license add <file>`, `license use <id>` and `license remove <id>`, above licenses, so licenses imports neither serve nor ask.
+// Package cli is the thing license every app mounts at its root: `license show`, `license show <id>`, `license list`, `license add <file>`, `license use <id>` and `license remove <id>`, above licenses, so licenses imports neither serve nor ask.
 package cli
 
 import (
@@ -38,19 +38,28 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		Short: "The licenses and the trial that open this app's enterprise features",
 		Long: "A license names whom it is for and the enterprise features it opens. Org licenses are shared by every app; an app keeps its own too.\n" +
 			"One license is active in each app: the one chosen here, else the newest. The trial is a rule built into the app.\n" +
-			"`license show` (or `license list`) lists them, marks the active one and shows every feature with where it is unlocked from;\n" +
+			"`license show` shows the license state, the active license, the trial and every feature with where it is unlocked from; `license show <id>` shows one license;\n" +
+			"`license list` lists every license, marks the active one, and every file refused with why;\n" +
 			"`license add <file> [--org]` keeps a license and makes it active here, `license use <id>` makes one active here, `license remove <id>` takes one away.",
 	}
-	view := func(use, short string) *cobra.Command {
-		v := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs}
-		out := a.Printer(v)
-		v.RunE = func(cc *cobra.Command, _ []string) error {
-			if err := out.Check(); err != nil {
-				return err
-			}
-			return answer(cc, out, c, list)
+	show := &cobra.Command{Use: "show [<id>]", Short: "Show the license state, the active license, the trial and where each feature is unlocked from, or the license id", Args: cobra.MaximumNArgs(1)}
+	showOut := a.Printer(show)
+	show.RunE = func(cc *cobra.Command, args []string) error {
+		if err := showOut.Check(); err != nil {
+			return err
 		}
-		return v
+		if len(args) == 1 {
+			return one(cc, showOut, c, args[0])
+		}
+		return answer(cc, showOut, c, list)
+	}
+	ls := &cobra.Command{Use: "list", Short: "List every license, the active one marked, and every file refused with why", Args: cobra.NoArgs}
+	lsOut := a.Printer(ls)
+	ls.RunE = func(cc *cobra.Command, _ []string) error {
+		if err := lsOut.Check(); err != nil {
+			return err
+		}
+		return listing(cc, lsOut, c)
 	}
 	add := &cobra.Command{
 		Use:   "add <file>",
@@ -127,8 +136,7 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		}
 		return answer(cc, removeOut, c, list)
 	}
-	cmd.AddCommand(view("show", "Show the licenses, the active one, the trial and where each feature is unlocked from"),
-		view("list", "List the licenses, the active one, the trial and where each feature is unlocked from, as show does"), add, use, remove)
+	cmd.AddCommand(show, ls, add, use, remove)
 	return cmd
 }
 
@@ -241,19 +249,8 @@ func answer(cc *cobra.Command, out serve.Printer, c *licenses.Checker, list *fea
 			fmt.Fprintf(tw, "%s\n\n", s.Sentence)
 		}
 		fmt.Fprintf(tw, "STATE\t%s\nRELEASE\t%t\n\n", s.State, s.Build.Release)
-		if len(s.Licenses) > 0 {
-			fmt.Fprintln(tw, "ACTIVE\tID\tPLACE\tFOR\tISSUED\tUNTIL\tDAYS LEFT\tKEY")
-			for _, l := range s.Licenses {
-				active, until, left := "", "–", "–"
-				if l.Active {
-					active = "*"
-				}
-				if l.Ends() != "" {
-					until, left = l.Ends(), strconv.Itoa(l.DaysLeft)
-				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", active, l.ID, l.Place, l.For, l.Issued, until, left, l.KeyID)
-			}
-			fmt.Fprintln(tw)
+		if s.License != nil {
+			rows(tw, []licenses.ShownFile{*s.License})
 		}
 		if s.Trial != nil {
 			fmt.Fprintf(tw, "TRIAL\tUNTIL\tDAYS LEFT\tENDED\n\t%s\t%d\t%t\n\n", s.Trial.Until, s.Trial.DaysLeft, s.Trial.Ended)
@@ -266,12 +263,62 @@ func answer(cc *cobra.Command, out serve.Printer, c *licenses.Checker, list *fea
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%s\n", f.ID, f.Tier, f.On, f.From, until)
 		}
-		if len(s.Refused) > 0 {
-			fmt.Fprintln(tw, "\nREFUSED\tREASON")
-			for _, r := range s.Refused {
-				fmt.Fprintf(tw, "%s\t%s\n", r.File, r.Reason)
+		_ = tw.Flush()
+	})
+}
+
+// listing prints the license list answer: the envelope with -o json or yaml, else its licenses and its refused files.
+func listing(cc *cobra.Command, out serve.Printer, c *licenses.Checker) error {
+	l, err := c.List()
+	if err != nil {
+		return err
+	}
+	return out.Print(cc.OutOrStdout(), "", licenses.ListKind, l, func(w io.Writer) {
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		if len(l.Licenses) == 0 {
+			fmt.Fprint(tw, "No licenses.\n\n")
+		} else {
+			rows(tw, l.Licenses)
+		}
+		if len(l.Refused) > 0 {
+			fmt.Fprintln(tw, "REFUSED\tID\tREASON")
+			for _, r := range l.Refused {
+				id := r.ID
+				if id == "" {
+					id = "–"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\n", r.File, id, r.Reason)
 			}
 		}
 		_ = tw.Flush()
 	})
+}
+
+// one prints the license show <id> answer: the envelope with -o json or yaml, else its row.
+func one(cc *cobra.Command, out serve.Printer, c *licenses.Checker, id string) error {
+	l, err := c.License(id)
+	if err != nil {
+		return err
+	}
+	return out.Print(cc.OutOrStdout(), "", licenses.LicenseKind, l, func(w io.Writer) {
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		rows(tw, []licenses.ShownFile{l})
+		_ = tw.Flush()
+	})
+}
+
+// rows writes licenses as the one table every answer shows a license in, the active one starred.
+func rows(tw io.Writer, ls []licenses.ShownFile) {
+	fmt.Fprintln(tw, "ACTIVE\tID\tPLACE\tFOR\tISSUED\tUNTIL\tDAYS LEFT\tKEY")
+	for _, l := range ls {
+		active, until, left := "", "–", "–"
+		if l.Active {
+			active = "*"
+		}
+		if l.Ends() != "" {
+			until, left = l.Ends(), strconv.Itoa(l.DaysLeft)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", active, l.ID, l.Place, l.For, l.Issued, until, left, l.KeyID)
+	}
+	fmt.Fprintln(tw)
 }

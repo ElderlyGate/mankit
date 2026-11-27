@@ -14,6 +14,12 @@ import (
 // ShowKind is the kind of the `<app> license show` answer; contracts mankit/v3 license-show says what each field of Show means.
 const ShowKind = "LicenseShow"
 
+// ListKind is the kind of the `<app> license list` answer; contracts mankit/v3 license-list says what each field of List means.
+const ListKind = "LicenseList"
+
+// LicenseKind is the kind of the `<app> license show <id>` answer, one row of List.Licenses; contracts mankit/v3 license says what it holds.
+const LicenseKind = "License"
+
 // The words of Show.State.
 const (
 	StateFree     = "free"
@@ -36,11 +42,20 @@ type Show struct {
 	Sentence string       `json:"sentence,omitempty" yaml:"sentence,omitempty"`
 	Warn     bool         `json:"warn" yaml:"warn"`
 	Build    Build        `json:"build" yaml:"build"`
-	Licenses []ShownFile  `json:"licenses" yaml:"licenses"`
+	License  *ShownFile   `json:"license,omitempty" yaml:"license,omitempty"` // the active license, List's row of it; nil when none is active
 	Trial    *ShownTrial  `json:"trial,omitempty" yaml:"trial,omitempty"`
-	Refused  []RefusedRow `json:"refused" yaml:"refused"`
 	Counts   Counts       `json:"counts" yaml:"counts"`
 	Features []FeatureRow `json:"features" yaml:"features"`
+	// Deprecated: every license is List's (Checker.List); still filled with List's rows, never written.
+	Licenses []ShownFile `json:"-" yaml:"-"`
+	// Deprecated: every refused file is List's (Checker.List); still filled with List's rows, never written.
+	Refused []RefusedRow `json:"-" yaml:"-"`
+}
+
+// List is the `<app> license list` answer: every license the app took, the active one marked, and every file it refused, the one home of a license's fields (ADR-L8).
+type List struct {
+	Licenses []ShownFile  `json:"licenses" yaml:"licenses"`
+	Refused  []RefusedRow `json:"refused" yaml:"refused"`
 }
 
 // Build is whether the app's build is a release.
@@ -111,6 +126,7 @@ type Window struct {
 
 // RefusedRow is one license file refused.
 type RefusedRow struct {
+	ID     string `json:"id,omitempty" yaml:"id,omitempty"` // the id license remove takes for it; empty for an old single file too broken to give one
 	File   string `json:"file" yaml:"file"`
 	Type   string `json:"type" yaml:"type"`
 	Reason string `json:"reason" yaml:"reason"`
@@ -131,7 +147,7 @@ type FeatureRow struct {
 	Until          string `json:"until,omitempty" yaml:"until,omitempty"`
 }
 
-// Show is the answer for the features list holds, which the Checker's Closer closes: its licenses and trial as read now, the state and warn as verdict works them out once, and each feature's state and where it is unlocked from.
+// Show is the answer for the features list holds, which the Checker's Closer closes: its active license as List's row, its trial as read now, the state and warn as verdict works them out once, and each feature's state and where it is unlocked from.
 func (c *Checker) Show(list *features.List) (Show, error) {
 	states, err := list.States()
 	if err != nil {
@@ -141,32 +157,21 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	if err != nil {
 		return Show{}, err
 	}
-	v := f.verdict()
-	out := Show{State: v.state, Warn: v.warn, Build: Build{Release: c.Release()}, Licenses: []ShownFile{}, Refused: []RefusedRow{}, Features: []FeatureRow{}}
+	v, rows := f.verdict(), f.list()
+	out := Show{State: v.state, Warn: v.warn, Build: Build{Release: c.Release()}, Licenses: rows.Licenses, Refused: rows.Refused, Features: []FeatureRow{}}
 	if !v.endedOn.IsZero() {
 		out.EndedOn = v.endedOn.Format(day)
 	}
-	for _, t := range f.Taken {
-		row := ShownFile{ID: t.ID, Place: t.Place, For: t.For, Issued: t.Issued.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID, Active: t.Active}
-		if len(t.Lines) > 0 {
-			row.Lines = &t.Lines
+	for i := range rows.Licenses {
+		if rows.Licenses[i].Active {
+			out.License = &rows.Licenses[i]
 		}
-		if !t.Until.IsZero() {
-			row.Until = t.Until.Format(day)
-		}
-		if t.Running() && !t.LastDay.IsZero() && t.DaysLeft <= LicenseExpiring.Paid {
-			row.Window = &Window{Of: LicenseExpiring.Paid}
-		}
-		out.Licenses = append(out.Licenses, row)
 	}
 	if t := f.Trial; t != nil {
 		out.Trial = &ShownTrial{Until: t.LastDay.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended}
 		if !t.Ended {
 			out.Trial.Window = &Window{Of: trialDays}
 		}
-	}
-	for _, r := range f.Refused {
-		out.Refused = append(out.Refused, RefusedRow{File: r.File, Type: problem.TypeRefused, Reason: r.Reason})
 	}
 	for _, s := range states {
 		if s.Tier = s.TierOrFree(); s.Enterprise() {
@@ -189,6 +194,60 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	}
 	out.Sentence = f.says(v, c.c.Title, c.name())
 	return out, nil
+}
+
+// List is the `<app> license list` answer: every license the app took and every file it refused, as read now.
+func (c *Checker) List() (List, error) {
+	f, err := c.Read()
+	if err != nil {
+		return List{}, err
+	}
+	return f.list(), nil
+}
+
+// License is the `<app> license show <id>` answer, List's row of the license id, or the Problem why there is none: refused when the file of that id is refused, not_found when there is no such license.
+func (c *Checker) License(id string) (ShownFile, error) {
+	f, err := c.Read()
+	if err != nil {
+		return ShownFile{}, err
+	}
+	for _, row := range f.list().Licenses {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	for _, r := range f.Refused {
+		if r.ID == id {
+			return ShownFile{}, problem.FailAt(problem.TypeRefused, r.Reason, r.File, fmt.Sprintf("the license %s is refused: %s", id, r.Detail))
+		}
+	}
+	return ShownFile{}, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s for %s", id, f.product))
+}
+
+// list is the rows of f's licenses and refused files, built here alone, so license list, show and show <id> give a license alike (ADR-L8): a refused file's id is its file name in a licenses folder, and none for an old single file too broken to give one.
+func (f Found) list() List {
+	out := List{Licenses: []ShownFile{}, Refused: []RefusedRow{}}
+	for _, t := range f.Taken {
+		row := ShownFile{ID: t.ID, Place: t.Place, For: t.For, Issued: t.Issued.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID, Active: t.Active}
+		if len(t.Lines) > 0 {
+			row.Lines = &t.Lines
+		}
+		if !t.Until.IsZero() {
+			row.Until = t.Until.Format(day)
+		}
+		if t.Running() && !t.LastDay.IsZero() && t.DaysLeft <= LicenseExpiring.Paid {
+			row.Window = &Window{Of: LicenseExpiring.Paid}
+		}
+		out.Licenses = append(out.Licenses, row)
+	}
+	for _, r := range f.Refused {
+		row := RefusedRow{ID: r.ID, File: r.File, Type: problem.TypeRefused, Reason: r.Reason}
+		if !inFolder(r.File) && (r.ID == oldID(PlaceApp) || r.ID == oldID(PlaceOrg)) {
+			row.ID = ""
+		}
+		out.Refused = append(out.Refused, row)
+	}
+	return out
 }
 
 // name is the app as the sentence names it: its title and, when it has one, its line, like Designer 1 (V-10).
