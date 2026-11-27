@@ -204,8 +204,8 @@ func TestHTTPRemoveAsksAndLeavesTheTrial(t *testing.T) {
 	if s := w.show(); s.State != licenses.StateLicensed {
 		t.Fatalf("removed without a yes: %+v", s)
 	}
-	if detail != "remove the license file "+filepath.Join(w.org, "license")+"; the trial stays" {
-		t.Fatalf("asked %q", detail)
+	if _, err := w.run("remove"); err == nil || detail != w.asked {
+		t.Fatalf("HTTP asked %q, the CLI %q", detail, w.asked)
 	}
 	rec := call(t, h, http.MethodDelete, cli.Path+"?confirm="+id, nil)
 	if rec.Code != http.StatusOK || contracts.Validate(schema, rec.Body.Bytes()) != nil {
@@ -218,5 +218,32 @@ func TestHTTPRemoveAsksAndLeavesTheTrial(t *testing.T) {
 		if p := refusal(t, call(t, h, http.MethodDelete, cli.Path+confirm, nil), http.StatusNotFound); p.Type != problem.TypeNotFound {
 			t.Fatalf("%q: %+v", confirm, p)
 		}
+	}
+}
+
+// A failure that is not a refusal or a missing license, here a config folder that cannot be found, still asks, and a script's yes is answered with the error: nothing is kept or removed.
+func TestHTTPChangeWithAnotherFailureWritesNothing(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	kept := w.license([]string{"events"}, "2026-11-06", "2027-11-06")
+	w.putOrg(kept)
+	h := w.server()
+	file := filepath.Join(w.org, "license")
+	config := os.Getenv("XDG_CONFIG_HOME")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		body := []byte(nil)
+		if method == http.MethodPost {
+			body = w.perpetual()
+		}
+		question(t, call(t, h, method, cli.Path, body))
+		if p := refusal(t, call(t, h, method, cli.Path+"?confirm=yes", body), http.StatusInternalServerError); p.Type == problem.TypeRefused || p.Type == problem.TypeNotFound {
+			t.Fatalf("%s: %+v", method, p)
+		}
+	}
+	t.Setenv("XDG_CONFIG_HOME", config)
+	if got, err := os.ReadFile(file); err != nil || !bytes.Equal(got, kept) {
+		t.Fatalf("the license changed: %q, %v", got, err)
 	}
 }
