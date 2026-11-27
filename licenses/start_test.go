@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ElderlyGate/contracts"
+	"go.naywee.com/contracts/v2"
 
 	"github.com/tugbayatilla/mankit/v4/licenses"
 )
@@ -57,7 +57,7 @@ func startTrial(t *testing.T, key []byte, release licenses.Trust, today, bin str
 // read is the app's license file, and whether it is there.
 func read(t *testing.T) ([]byte, bool) {
 	t.Helper()
-	raw, err := os.ReadFile(productLicense(t))
+	raw, err := os.ReadFile(appLicense(t))
 	if os.IsNotExist(err) {
 		return nil, false
 	}
@@ -91,13 +91,13 @@ func want(t *testing.T, got licenses.TrialStart, outcome licenses.TrialOutcome) 
 func TestWithNoLicenseTheBuiltInTrialStarts(t *testing.T) {
 	bin, _ := install(t)
 	k, release, _ := signer(t)
-	got := startTrial(t, sign(t, k, releaseTrial), release, "2026-12-03", bin)
+	got := startTrial(t, sign(t, k, trial), release, "2026-12-03", bin)
 	want(t, got, licenses.TrialStarted)
-	if got.File != productLicense(t) {
+	if got.File != appLicense(t) {
 		t.Fatalf("file = %s", got.File)
 	}
 	raw, _ := read(t)
-	if err := contracts.Validate("mankit/v1/license-file.schema.json", raw); err != nil {
+	if err := contracts.Validate("mankit/v3/license-file.schema.json", raw); err != nil {
 		t.Fatalf("the written file does not meet its schema: %v\n%s", err, raw)
 	}
 	tk := started(t, release, "2026-12-03")
@@ -110,7 +110,7 @@ func TestWithNoLicenseTheBuiltInTrialStarts(t *testing.T) {
 func TestAMatchingStampKeepsTheTrial(t *testing.T) {
 	bin, _ := install(t)
 	k, release, _ := signer(t)
-	key := sign(t, k, releaseTrial)
+	key := sign(t, k, trial)
 	want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialStarted)
 	before, _ := read(t)
 	for _, today := range []string{"2026-12-04", "2026-12-30"} {
@@ -142,7 +142,7 @@ func TestAChangedStampRenewsTheTrial(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			bin, _ := install(t)
 			k, release, _ := signer(t)
-			key := sign(t, k, releaseTrial)
+			key := sign(t, k, trial)
 			want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialStarted)
 			bin = change(t, bin)
 			want(t, startTrial(t, key, release, "2027-01-10", bin), licenses.TrialRenewed)
@@ -155,17 +155,15 @@ func TestAChangedStampRenewsTheTrial(t *testing.T) {
 	}
 }
 
-// A bought product license, or a person's trial key, at the app's place is never touched and no trial is written.
+// An old product license, or an old person's trial key, which is refused, at the app's place is never touched and no trial is written.
 func TestTheAppsOwnLicenseIsNeverTouched(t *testing.T) {
 	k, release, _ := signer(t)
-	product := licenses.License{ID: "acme-designer", Kind: licenses.Product, For: "Acme Ltd", Products: map[string][]string{"designer": {"events"}}, Issued: day("2026-11-06"), Until: day("2027-11-06"), KeyID: "test-2026"}
-	person := licenses.License{ID: "ada-trial", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "test-2026"}
-	for name, l := range map[string]licenses.License{"a bought product license": product, "a person's trial key, ended": person} {
+	for name, body := range map[string]string{"an old product license": oldProduct, "an old person's trial key": oldPersonTrial} {
 		t.Run(name, func(t *testing.T) {
 			bin, _ := install(t)
-			raw := sign(t, k, l)
-			put(t, productLicense(t), raw)
-			want(t, startTrial(t, sign(t, k, releaseTrial), release, "2026-12-03", bin), licenses.TrialSkipped)
+			raw := signOld(t, k, body)
+			put(t, appLicense(t), raw)
+			want(t, startTrial(t, sign(t, k, trial), release, "2026-12-03", bin), licenses.TrialSkipped)
 			if after, _ := read(t); !bytes.Equal(after, raw) {
 				t.Fatal("the license was touched")
 			}
@@ -173,14 +171,52 @@ func TestTheAppsOwnLicenseIsNeverTouched(t *testing.T) {
 	}
 }
 
-// An org license means no trial is written at the app's place.
-func TestAnOrgLicenseMeansNoTrial(t *testing.T) {
+// A license, of today's form or an old org license, means no trial is written at the app's place.
+func TestALicenseMeansNoTrial(t *testing.T) {
+	k, release, _ := signer(t)
+	for _, raw := range [][]byte{sign(t, k, license), signOld(t, k, oldOrg)} {
+		bin, dir := install(t)
+		put(t, filepath.Join(dir, "license"), raw)
+		want(t, startTrial(t, sign(t, k, trial), release, "2026-12-03", bin), licenses.TrialSkipped)
+		if _, there := read(t); there {
+			t.Fatal("a trial was written beside the license")
+		}
+	}
+}
+
+// A removed license leaves the trial this install started as it was: kept, never a fresh one.
+func TestARemovedLicenseKeepsTheTrial(t *testing.T) {
 	bin, dir := install(t)
 	k, release, _ := signer(t)
-	put(t, filepath.Join(dir, "license"), sign(t, k, orgLicense))
-	want(t, startTrial(t, sign(t, k, releaseTrial), release, "2026-12-03", bin), licenses.TrialSkipped)
-	if _, there := read(t); there {
-		t.Fatal("a trial was written beside the org license")
+	key := sign(t, k, trial)
+	want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialStarted)
+	put(t, filepath.Join(dir, "license"), sign(t, k, license))
+	if _, err := checker(t, release, "2026-12-05").Remove(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want(t, startTrial(t, key, release, "2026-12-30", bin), licenses.TrialKept)
+	if tk := started(t, release, "2026-12-30"); !tk.Ended || !tk.Started.Day.Equal(day("2026-12-03")) {
+		t.Fatalf("taken = %+v", tk)
+	}
+}
+
+// An old release-trial this install started is kept as it is; a new install renews it in today's form.
+func TestAnOldReleaseTrialIsKeptOrRenewed(t *testing.T) {
+	bin, _ := install(t)
+	k, release, _ := signer(t)
+	old := edit(t, signOld(t, k, oldReleaseTrial), func(f map[string]any) {
+		f["spec"].(map[string]any)["started"] = map[string]any{"day": "2026-12-03", "binary": bin, "fileTime": installed.Format(time.RFC3339)}
+	})
+	put(t, appLicense(t), old)
+	want(t, startTrial(t, sign(t, k, trial), release, "2026-12-05", bin), licenses.TrialKept)
+	if after, _ := read(t); !bytes.Equal(after, old) {
+		t.Fatal("the old trial was touched")
+	}
+	touch(t, bin, installed.Add(time.Hour))
+	want(t, startTrial(t, sign(t, k, trial), release, "2027-01-10", bin), licenses.TrialRenewed)
+	raw, _ := read(t)
+	if err := contracts.Validate("mankit/v3/license-file.schema.json", raw); err != nil {
+		t.Fatalf("the renewed file is not of today's form: %v\n%s", err, raw)
 	}
 }
 
@@ -188,40 +224,29 @@ func TestAnOrgLicenseMeansNoTrial(t *testing.T) {
 func TestAFileItCannotTakeIsLeftAlone(t *testing.T) {
 	bin, _ := install(t)
 	k, release, _ := signer(t)
-	put(t, productLicense(t), []byte("not a license\n"))
-	got := startTrial(t, sign(t, k, releaseTrial), release, "2026-12-03", bin)
+	put(t, appLicense(t), []byte("not a license\n"))
+	got := startTrial(t, sign(t, k, trial), release, "2026-12-03", bin)
 	want(t, got, licenses.TrialSkipped)
 	if after, _ := read(t); string(after) != "not a license\n" {
 		t.Fatalf("the file was touched: %q", after)
 	}
 }
 
-// After the key's until it starts no trial, and renews none.
-func TestAKeyPastItsUntilStartsNoTrial(t *testing.T) {
+// A trial's offer never ends: a key starts a trial on any day (ADR-L9).
+func TestATrialKeyStartsATrialOnAnyDay(t *testing.T) {
 	bin, _ := install(t)
 	k, release, _ := signer(t)
-	key := sign(t, k, releaseTrial)
-	want(t, startTrial(t, key, release, "2027-11-24", bin), licenses.TrialSkipped)
-	if _, there := read(t); there {
-		t.Fatal("a trial was written after the key's until")
-	}
-	want(t, startTrial(t, key, release, "2027-11-23", bin), licenses.TrialStarted)
-	before, _ := read(t)
-	touch(t, bin, installed.Add(time.Hour))
-	want(t, startTrial(t, key, release, "2027-11-24", bin), licenses.TrialSkipped)
-	if after, _ := read(t); !bytes.Equal(after, before) {
-		t.Fatal("the trial was renewed after the key's until")
-	}
+	want(t, startTrial(t, sign(t, k, trial), release, "2040-01-01", bin), licenses.TrialStarted)
 }
 
 // A write that fails leaves the old file whole and is reported, never a panic or an exit.
 func TestAFailedWriteLeavesTheOldFileWhole(t *testing.T) {
 	bin, _ := install(t)
 	k, release, _ := signer(t)
-	key := sign(t, k, releaseTrial)
+	key := sign(t, k, trial)
 	want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialStarted)
 	before, _ := read(t)
-	folder := filepath.Dir(productLicense(t))
+	folder := filepath.Dir(appLicense(t))
 	if err := os.Chmod(folder, 0o500); err != nil {
 		t.Fatal(err)
 	}
@@ -233,19 +258,23 @@ func TestAFailedWriteLeavesTheOldFileWhole(t *testing.T) {
 	}
 }
 
-// A key the build does not trust, or one that is no release-trial, is refused as any license is; nothing is written.
+// A key the build does not trust, one that is no trial, or one of the old form, which mankit never writes, is refused; nothing is written.
 func TestABuiltInKeyIsCheckedAsAnyLicense(t *testing.T) {
 	k, release, dev := signer(t)
-	devKey := releaseTrial
+	devKey := trial
 	devKey.KeyID = "dev-2026"
-	person := licenses.License{ID: "ada-trial", Kind: licenses.Trial, For: "ada@acme.example", Issued: day("2026-11-19"), Until: day("2026-12-02"), KeyID: "test-2026"}
+	other := trial
+	other.Lines = map[string][]int{"kanban": {1}}
 	for name, c := range map[string]struct {
 		key   []byte
 		trust licenses.Trust
 	}{
 		"a dev key in a release":    {sign(t, k, devKey), release},
-		"a prod key in a dev build": {sign(t, k, releaseTrial), dev},
-		"a person's trial key":      {sign(t, k, person), release},
+		"a prod key in a dev build": {sign(t, k, trial), dev},
+		"a license":                 {sign(t, k, license), release},
+		"another app's trial":       {sign(t, k, other), release},
+		"an old release-trial key":  {signOld(t, k, oldReleaseTrial), release},
+		"an old person's trial key": {signOld(t, k, oldPersonTrial), release},
 	} {
 		t.Run(name, func(t *testing.T) {
 			bin, _ := install(t)
@@ -261,7 +290,7 @@ func TestABuiltInKeyIsCheckedAsAnyLicense(t *testing.T) {
 func TestABinaryThatIsNotThereIsReported(t *testing.T) {
 	install(t)
 	k, release, _ := signer(t)
-	want(t, startTrial(t, sign(t, k, releaseTrial), release, "2026-12-03", filepath.Join(t.TempDir(), "gone")), licenses.TrialFailed)
+	want(t, startTrial(t, sign(t, k, trial), release, "2026-12-03", filepath.Join(t.TempDir(), "gone")), licenses.TrialFailed)
 	if _, there := read(t); there {
 		t.Fatal("a trial was written without a stamp")
 	}
@@ -271,7 +300,7 @@ func TestABinaryThatIsNotThereIsReported(t *testing.T) {
 func TestALinkToTheBinaryIsTheSameInstall(t *testing.T) {
 	bin, _ := install(t)
 	k, release, _ := signer(t)
-	key := sign(t, k, releaseTrial)
+	key := sign(t, k, trial)
 	link := filepath.Join(t.TempDir(), "designer-link")
 	if err := os.Symlink(bin, link); err != nil {
 		t.Fatal(err)
@@ -289,7 +318,7 @@ func TestAFileAtTheOrgsPlaceItCannotTakeMeansNoTrial(t *testing.T) {
 	bin, dir := install(t)
 	k, release, _ := signer(t)
 	put(t, filepath.Join(dir, "license"), []byte("not a license\n"))
-	want(t, startTrial(t, sign(t, k, releaseTrial), release, "2026-12-03", bin), licenses.TrialSkipped)
+	want(t, startTrial(t, sign(t, k, trial), release, "2026-12-03", bin), licenses.TrialSkipped)
 	if _, there := read(t); there {
 		t.Fatal("a trial was written beside an org file it cannot take")
 	}
@@ -299,7 +328,7 @@ func TestAFileAtTheOrgsPlaceItCannotTakeMeansNoTrial(t *testing.T) {
 func TestStartsAtOnceWriteOneTrial(t *testing.T) {
 	bin, _ := install(t)
 	k, release, _ := signer(t)
-	key := sign(t, k, releaseTrial)
+	key := sign(t, k, trial)
 	c := checker(t, release, "2026-12-03")
 	got := make([]licenses.TrialStart, 8)
 	var wg sync.WaitGroup

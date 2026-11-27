@@ -19,9 +19,9 @@ type TrialOutcome string
 // The outcomes of StartTrial.
 const (
 	TrialStarted TrialOutcome = "started" // no license: the built-in trial is written, from today
-	TrialRenewed TrialOutcome = "renewed" // a new install: a fresh trial is written over the release-trial
-	TrialKept    TrialOutcome = "kept"    // the release-trial this install started is left as it is, ended or not
-	TrialSkipped TrialOutcome = "skipped" // another license, a file it cannot take, or the key's last day to start a trial has passed: nothing is written
+	TrialRenewed TrialOutcome = "renewed" // a new install: a fresh trial is written over the trial
+	TrialKept    TrialOutcome = "kept"    // the trial this install started is left as it is, ended or not
+	TrialSkipped TrialOutcome = "skipped" // a license, or a file it cannot take: nothing is written
 	TrialFailed  TrialOutcome = "failed"  // the key, the binary or the write failed: nothing is written and the old file is whole
 )
 
@@ -35,11 +35,15 @@ type TrialStart struct {
 
 func (s TrialStart) String() string { return fmt.Sprintf("license: trial %s: %s", s.Outcome, s.Reason) }
 
-// StartTrial is the call an app makes at start with its built-in release-trial key and its executable's path, as os.Executable gives it (ADR-L9): with no license it writes the key as the app's license file, started today and stamped with the binary's path and file time; a new install, whose stamp differs, gets a fresh trial over a release-trial; a bought license, an org license or a person's trial key is never touched.
+// StartTrial is the call an app makes at start with its built-in trial key and its executable's path, as os.Executable gives it (ADR-L9): with no license it writes the key as the app's license file, started today and stamped with the binary's path and file time; a new install, whose stamp differs, gets a fresh trial over a trial, an old release-trial among them; a license is never touched.
 func (c *Checker) StartTrial(ctx context.Context, key []byte, binary string) TrialStart {
 	k, err := c.take(key, false)
-	if err == nil && k.Kind != ReleaseTrial {
-		err = fmt.Errorf("it is a %s license, not a release-trial", k.Kind)
+	switch {
+	case err != nil:
+	case k.old != "":
+		err = fmt.Errorf("it is a %s of the old license form %s, which mankit reads but never writes; a key is %s", k.old, APIVersion, FileAPIVersion)
+	case k.Kind != Trial:
+		err = fmt.Errorf("it is a %s, not a trial", k.Kind)
 	}
 	if err != nil {
 		return failed("", "the built-in trial key is refused", err)
@@ -102,21 +106,18 @@ func (c *Checker) plan(k License, stamp Started) (TrialStart, store.Want) {
 		}
 	}
 	if org.license != nil {
-		return skip(fmt.Sprintf("the org license %s is kept", org.license.ID))
+		return skip(fmt.Sprintf("the license %s is kept", org.license.ID))
 	}
 	want := store.Absent()
 	if l := own.license; l != nil {
 		switch {
-		case l.Kind != ReleaseTrial:
-			return skip(fmt.Sprintf("the %s license %s is kept", l.Kind, l.ID))
+		case l.Kind != Trial:
+			return skip(fmt.Sprintf("the %s license %s is kept", l.old, l.ID))
 		case l.Started != nil && stamp.same(*l.Started):
 			r.Outcome, r.Reason = TrialKept, fmt.Sprintf("this install started its trial on %s", l.Started.Day.Format(day))
 			return r, store.Want{}
 		}
 		want = store.Holds(store.SumOf(own.raw))
-	}
-	if today := date(c.c.Now()); today.After(date(k.Until)) {
-		return skip(fmt.Sprintf("the built-in key's last day to start a trial, %s, has passed", k.Until.Format(day)))
 	}
 	return r, want
 }
