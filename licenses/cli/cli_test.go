@@ -287,7 +287,7 @@ func TestShowALicenseThatNeverEnds(t *testing.T) {
 		t.Fatalf("err = %v, out =\n%s", err, out)
 	}
 	s := w.show()
-	if l := s.Licenses[0]; l.Lines["designer"][0] != 1 || l.Ends() != "" || l.Window != nil || s.Features[1].From != licenses.FromLicense {
+	if l := s.Licenses[0]; l.Lines == nil || (*l.Lines)["designer"][0] != 1 || l.Ends() != "" || l.Window != nil || s.Features[1].From != licenses.FromLicense {
 		t.Fatalf("show = %+v", s)
 	}
 	table, err := w.run("show")

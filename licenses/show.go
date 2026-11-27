@@ -48,15 +48,15 @@ type Build struct {
 
 // ShownFile is one license taken.
 type ShownFile struct {
-	Kind      Kind             `json:"kind" yaml:"kind"`
-	For       string           `json:"for" yaml:"for"`
-	Lines     map[string][]int `json:"lines,omitempty" yaml:"lines,omitempty"`
-	Until     string           `json:"until,omitempty" yaml:"until,omitempty"`
-	TrialEnds string           `json:"trialEnds,omitempty" yaml:"trialEnds,omitempty"`
-	DaysLeft  int              `json:"daysLeft" yaml:"daysLeft"` // written only when Ends has a day
-	Ended     bool             `json:"ended" yaml:"ended"`
-	KeyID     string           `json:"keyId" yaml:"keyId"`
-	Window    *Window          `json:"window,omitempty" yaml:"window,omitempty"`
+	Kind      Kind              `json:"kind" yaml:"kind"`
+	For       string            `json:"for" yaml:"for"`
+	Lines     *map[string][]int `json:"lines,omitempty" yaml:"lines,omitempty"` // a pointer, so a row stays comparable
+	Until     string            `json:"until,omitempty" yaml:"until,omitempty"`
+	TrialEnds string            `json:"trialEnds,omitempty" yaml:"trialEnds,omitempty"`
+	DaysLeft  int               `json:"daysLeft" yaml:"daysLeft"` // written only when Ends has a day
+	Ended     bool              `json:"ended" yaml:"ended"`
+	KeyID     string            `json:"keyId" yaml:"keyId"`
+	Window    *Window           `json:"window,omitempty" yaml:"window,omitempty"`
 	// Deprecated: a trial's offer never ends, so it is always empty and never written.
 	OfferEnds string `json:"-" yaml:"-"`
 }
@@ -125,7 +125,10 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 		out.EndedOn = v.endedOn.Format(day)
 	}
 	for _, t := range f.Taken {
-		row := ShownFile{Kind: t.Kind, For: t.For, Lines: t.Lines, DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
+		row := ShownFile{Kind: t.Kind, For: t.For, DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
+		if len(t.Lines) > 0 {
+			row.Lines = &t.Lines
+		}
 		switch {
 		case t.Kind == KindLicense && !t.Until.IsZero():
 			row.Until = t.Until.Format(day)
