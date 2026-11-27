@@ -114,10 +114,9 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 		out.Refused = append(out.Refused, RefusedRow{File: r.File, Type: problem.TypeRefused, Reason: r.Reason})
 	}
 	for _, s := range states {
-		if s.Enterprise() {
+		if s.Tier = s.TierOrFree(); s.Enterprise() {
 			out.Counts.Enterprise++
 		} else {
-			s.Tier = features.Free
 			out.Counts.Free++
 		}
 		if s.On {
