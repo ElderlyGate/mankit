@@ -379,12 +379,17 @@ func (f Found) Find(id string) (Taken, error) {
 			return t, nil
 		}
 	}
+	return Taken{}, f.missing(id)
+}
+
+// missing is the Problem why f has no license id: refused when the file of that id is refused, not_found when there is none.
+func (f Found) missing(id string) error {
 	for _, r := range f.Refused {
 		if r.ID == id {
-			return Taken{}, problem.FailAt(problem.TypeRefused, r.Reason, r.File, fmt.Sprintf("the license %s is refused: %s", id, r.Detail))
+			return problem.FailAt(problem.TypeRefused, r.Reason, r.File, fmt.Sprintf("the license %s is refused: %s", id, r.Detail))
 		}
 	}
-	return Taken{}, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s for %s", id, f.product))
+	return problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s for %s", id, f.product))
 }
 
 // stuck is the Problem refused when the choice file cannot be read and the store cannot replace it: a pipe, a file it may not read, or a link to nothing or to one it may not read, which only a hand change makes (the store never writes through a link), so nothing is written until it is removed or fixed by hand. A choice that is not there, a folder, and a readable file are the store's; it is nil for them.
@@ -453,7 +458,7 @@ func (c *Checker) Removing(id string) ([]Removal, error) {
 		}
 	}
 	if len(files) == 0 {
-		return nil, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s to remove", id))
+		return nil, f.missing(id)
 	}
 	var out []Removal
 	for _, file := range files {

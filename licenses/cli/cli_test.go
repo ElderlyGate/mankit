@@ -26,7 +26,12 @@ import (
 	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
-const schema = "mankit/v3/license-show.schema.json"
+// The schemas of contracts mankit/v3 that license show, license list and license show <id> answer.
+const (
+	schema        = "mankit/v3/license-show.schema.json"
+	listSchema    = "mankit/v3/license-list.schema.json"
+	licenseSchema = "mankit/v3/license.schema.json"
+)
 
 var all = []features.Feature{
 	{ID: "edit", Title: "Change a design", Covers: "apply and edit"},
@@ -191,6 +196,40 @@ func (w *world) show() licenses.Show {
 	return e.Data
 }
 
+// list is `license list -o json`, checked against contracts mankit/v3 LicenseList, and its data.
+func (w *world) list() licenses.List {
+	w.t.Helper()
+	out, err := w.run("list", "-o", "json")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if err := contracts.Validate(listSchema, []byte(out)); err != nil {
+		w.t.Fatalf("not a LicenseList answer: %v\n%s", err, out)
+	}
+	var e struct{ Data licenses.List }
+	if err := json.Unmarshal([]byte(out), &e); err != nil {
+		w.t.Fatal(err)
+	}
+	return e.Data
+}
+
+// one is `license show <id> -o json`, checked against contracts mankit/v3 License, and its data.
+func (w *world) one(id string) licenses.ShownFile {
+	w.t.Helper()
+	out, err := w.run("show", id, "-o", "json")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if err := contracts.Validate(licenseSchema, []byte(out)); err != nil {
+		w.t.Fatalf("not a License answer: %v\n%s", err, out)
+	}
+	var e struct{ Data licenses.ShownFile }
+	if err := json.Unmarshal([]byte(out), &e); err != nil {
+		w.t.Fatal(err)
+	}
+	return e.Data
+}
+
 func from(s licenses.Show) string {
 	var words []string
 	for _, f := range s.Features {
@@ -294,7 +333,10 @@ func TestShowTheStateAndWarnOfEachCase(t *testing.T) {
 
 func TestShowWithNoLicense(t *testing.T) {
 	s := newWorld(t, "2026-11-19").show()
-	if s.State != licenses.StateFree || !s.Build.Release || len(s.Licenses) != 0 || len(s.Refused) != 0 || s.Trial != nil || s.Counts != (licenses.Counts{Free: 1, Enterprise: 3, On: 1, Locked: 3}) {
+	if l := newWorld(t, "2026-11-19").list(); len(l.Licenses) != 0 || len(l.Refused) != 0 {
+		t.Fatalf("list = %+v", l)
+	}
+	if s.State != licenses.StateFree || !s.Build.Release || s.License != nil || s.Trial != nil || s.Counts != (licenses.Counts{Free: 1, Enterprise: 3, On: 1, Locked: 3}) {
 		t.Fatalf("show = %+v", s)
 	}
 }
@@ -312,9 +354,13 @@ func TestShowSaysWhereEachFeatureIsUnlockedFrom(t *testing.T) {
 	if s.Features[0].Until != "" || s.Features[1].Until != "2027-11-06" || s.Features[3].Until != "2026-12-16" || s.Counts.Locked != 0 {
 		t.Fatalf("show = %+v", s)
 	}
-	if len(s.Licenses) != 2 || s.Licenses[0].ID != "ada-2026" || s.Licenses[0].Place != licenses.PlaceApp || s.Licenses[0].Active || s.Licenses[0].Issued != "2026-01-01" ||
-		s.Licenses[1].ID != "acme-2026" || s.Licenses[1].Place != licenses.PlaceOrg || !s.Licenses[1].Active {
-		t.Fatalf("licenses = %+v", s.Licenses)
+	l := w.list()
+	if len(l.Licenses) != 2 || l.Licenses[0].ID != "ada-2026" || l.Licenses[0].Place != licenses.PlaceApp || l.Licenses[0].Active || l.Licenses[0].Issued != "2026-01-01" ||
+		l.Licenses[1].ID != "acme-2026" || l.Licenses[1].Place != licenses.PlaceOrg || !l.Licenses[1].Active {
+		t.Fatalf("licenses = %+v", l.Licenses)
+	}
+	if s.License == nil || *s.License != l.Licenses[1] {
+		t.Fatalf("show's license = %+v, list's active row %+v", s.License, l.Licenses[1])
 	}
 	if s.Trial == nil || s.Trial.Until != "2026-12-16" || s.Trial.DaysLeft != 10 || s.Trial.Window == nil || s.Trial.Window.Of != 14 {
 		t.Fatalf("trial = %+v", s.Trial)
@@ -323,19 +369,20 @@ func TestShowSaysWhereEachFeatureIsUnlockedFrom(t *testing.T) {
 	if err != nil || !regexp.MustCompile(`(?m)^\* +acme-2026 +org +Acme Ltd`).MatchString(table) || !strings.Contains(table, "multi-design  enterprise") || !strings.Contains(table, "TRIAL") {
 		t.Fatalf("table %q, %v", table, err)
 	}
-	if list, err := w.run("list", "-o", "json"); err != nil || list != w.mustRun("show", "-o", "json") {
-		t.Fatalf("list is not show: %v\n%s", err, list)
+	if out := w.mustRun("show", "-o", "json"); strings.Contains(out, `"licenses"`) || strings.Contains(out, `"refused"`) {
+		t.Fatalf("show gives the full list:\n%s", out)
+	}
+	if table, err := w.run("list"); err != nil || !regexp.MustCompile(`(?m)^\* +acme-2026 +org +Acme Ltd`).MatchString(table) || !regexp.MustCompile(`(?m)^ +ada-2026 +app +Ada`).MatchString(table) {
+		t.Fatalf("list table %q, %v", table, err)
 	}
 }
 
-// active is the id of the license show marks active, empty with none.
+// active is the id of show's active license, empty with none.
 func active(s licenses.Show) string {
-	for _, l := range s.Licenses {
-		if l.Active {
-			return l.ID
-		}
+	if s.License == nil {
+		return ""
 	}
-	return ""
+	return s.License.ID
 }
 
 func (w *world) mustRun(words ...string) string {
@@ -359,7 +406,7 @@ func TestShowALicenseThatNeverEnds(t *testing.T) {
 		t.Fatalf("err = %v, yaml =\n%s", err, y)
 	}
 	s := w.show()
-	if l := s.Licenses[0]; l.Lines == nil || (*l.Lines)["designer"][0] != 1 || l.Ends() != "" || l.Window != nil || s.Features[1].From != licenses.FromLicense {
+	if l := s.License; l == nil || l.Lines == nil || (*l.Lines)["designer"][0] != 1 || l.Ends() != "" || l.Window != nil || s.Features[1].From != licenses.FromLicense {
 		t.Fatalf("show = %+v", s)
 	}
 	if y, err := yaml.Marshal(s); err != nil || strings.Contains(string(y), "daysLeft") {
@@ -379,7 +426,7 @@ func TestShowALicensesWindowFromItsPoint(t *testing.T) {
 	}{{licenses.LicenseExpiring.Paid + 1, nil}, {licenses.LicenseExpiring.Paid, &licenses.Window{Of: licenses.LicenseExpiring.Paid}}} {
 		w := newWorld(t, last.AddDate(0, 0, 1-c.left).Format("2006-01-02"))
 		w.putOrg(w.license([]string{"sync"}, "2026-03-01", "2027-03-01"))
-		got := w.show().Licenses[0]
+		got := w.list().Licenses[0]
 		if got.DaysLeft != c.left || (got.Window == nil) != (c.window == nil) || (got.Window != nil && *got.Window != *c.window) {
 			t.Fatalf("%d days left: row = %+v", c.left, got)
 		}
@@ -407,11 +454,11 @@ func TestShowARefusedFile(t *testing.T) {
 	w := newWorld(t, "2026-12-07")
 	w.putOldOrg([]byte("garbage"))
 	w.putOldApp(w.old(oldPersonTrial))
-	s := w.show()
-	if s.State != licenses.StateFree || len(s.Licenses) != 0 || len(s.Refused) != 2 ||
-		s.Refused[0].Reason != licenses.ReasonRetiredKind || s.Refused[0].File != filepath.Join(w.appDir(), "license") ||
-		s.Refused[1].Reason != licenses.ReasonUnreadable || s.Refused[1].File != filepath.Join(w.org, "license") {
-		t.Fatalf("show = %+v", s)
+	s, l := w.show(), w.list()
+	if s.State != licenses.StateFree || s.License != nil || len(l.Licenses) != 0 || len(l.Refused) != 2 ||
+		l.Refused[0].Reason != licenses.ReasonRetiredKind || l.Refused[0].File != filepath.Join(w.appDir(), "license") || l.Refused[0].ID != "ada-trial" ||
+		l.Refused[1].Reason != licenses.ReasonUnreadable || l.Refused[1].File != filepath.Join(w.org, "license") || l.Refused[1].ID != "old-org" {
+		t.Fatalf("show = %+v, list = %+v", s, l)
 	}
 }
 
@@ -460,7 +507,7 @@ func TestAddChecksAsksAndKeeps(t *testing.T) {
 		if err := contracts.Validate(schema, []byte(out)); err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
-		if s := w.show(); len(s.Licenses) != 2 || active(s) != "acme-2026" || s.State != licenses.StateLicensed {
+		if s := w.show(); len(w.list().Licenses) != 2 || active(s) != "acme-2026" || s.State != licenses.StateLicensed {
 			t.Fatalf("show = %+v", s)
 		}
 	}
@@ -504,14 +551,14 @@ func TestUseAsksAndChooses(t *testing.T) {
 	if want := "make the license ada-2026 for Ada until 2027-11-06 the active license of this app, in place of acme-2026"; w.asked != want {
 		t.Fatalf("asked %q", w.asked)
 	}
-	if s := w.show(); !s.Licenses[1].Active {
-		t.Fatalf("chose without a yes: %+v", s.Licenses)
+	if l := w.list(); !l.Licenses[1].Active {
+		t.Fatalf("chose without a yes: %+v", l.Licenses)
 	}
 	out, err := w.run("use", "ada-2026", "--yes", "-o", "json")
 	if err != nil || contracts.Validate(schema, []byte(out)) != nil {
 		t.Fatalf("err = %v, out =\n%s", err, out)
 	}
-	if s := w.show(); !s.Licenses[0].Active || s.Licenses[1].Active || from(s) != "edit=none events=none multi-design=none sync=license" {
+	if s, l := w.show(), w.list(); !l.Licenses[0].Active || l.Licenses[1].Active || from(s) != "edit=none events=none multi-design=none sync=license" {
 		t.Fatalf("show = %+v", s)
 	}
 	var p *problem.Problem
@@ -536,7 +583,7 @@ func TestRemoveAsksAndLeavesTheTrial(t *testing.T) {
 	if err != nil || contracts.Validate(schema, []byte(out)) != nil {
 		t.Fatalf("err = %v, out =\n%s", err, out)
 	}
-	if s := w.show(); s.State != licenses.StateTrial || len(s.Licenses) != 0 || s.Trial == nil {
+	if s := w.show(); s.State != licenses.StateTrial || len(w.list().Licenses) != 0 || s.Trial == nil {
 		t.Fatalf("show = %+v", s)
 	}
 	if _, err := os.Stat(filepath.Join(w.appDir(), "license-active")); !os.IsNotExist(err) {
@@ -595,5 +642,56 @@ func TestRemoveNamesTheAppsOwnFile(t *testing.T) {
 	w.run("remove", "acme-2026")
 	if want := "remove the license acme-2026, the file " + filepath.Join(w.appDir(), "licenses", "acme-2026.license") + " of this app; the trial stays"; w.asked != want {
 		t.Fatalf("asked %q", w.asked)
+	}
+}
+
+// list, show and show <id> give a license in one row: show's license is list's active row, show <id> is list's row of that id, a refused file's id is its file name, never the id it claims, and an id with no license is not_found.
+func TestListShowAndShowIDGiveOneRow(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
+	w.putApp(w.licenseOf("ada-2026", "Ada", []string{"sync"}, "2026-01-01", "2027-11-06"))
+	w.write(filepath.Join(w.appDir(), "licenses", "junk.license"), []byte(`{"metadata":{"id":"acme-2026"}}`))
+	w.note("2026-12-03")
+	l, s := w.list(), w.show()
+	if len(l.Licenses) != 2 || len(l.Refused) != 1 || l.Refused[0].ID != "junk" || l.Refused[0].Type != problem.TypeRefused || l.Refused[0].File != filepath.Join(w.appDir(), "licenses", "junk.license") {
+		t.Fatalf("list = %+v", l)
+	}
+	if s.License == nil || !s.License.Active || *s.License != l.Licenses[1] {
+		t.Fatalf("show's license = %+v, list = %+v", s.License, l.Licenses)
+	}
+	for _, row := range l.Licenses {
+		if got := w.one(row.ID); got != row {
+			t.Fatalf("show %s = %+v, list's row %+v", row.ID, got, row)
+		}
+	}
+	if table := w.mustRun("show", "acme-2026"); !regexp.MustCompile(`(?m)^\* +acme-2026 +org +Acme Ltd`).MatchString(table) {
+		t.Fatalf("table %q", table)
+	}
+	var p *problem.Problem
+	if _, err := w.run("show", "nobody", "-o", "json"); !errors.As(err, &p) || p.Type != problem.TypeNotFound {
+		t.Fatalf("show nobody: %v", err)
+	}
+	if _, err := w.run("show", "junk", "-o", "json"); !errors.As(err, &p) || p.Type != problem.TypeRefused {
+		t.Fatalf("show junk: %v", err)
+	}
+	if table := w.mustRun("list"); !regexp.MustCompile(`(?m)^REFUSED +ID +REASON\n.*junk\.license +junk +`).MatchString(table) {
+		t.Fatalf("list table %q", table)
+	}
+}
+
+// A broken old single file keeps its id old-org or old-app in list and show <id>: refused, not not_found (remove <id> is checked in licenses).
+func TestAnOldFileWithNoIDIsKnownByItsPlaceEverywhere(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOldOrg([]byte("not a license"))
+	w.putOldApp([]byte(`{"metadata":{}}`))
+	l := w.list()
+	if len(l.Refused) != 2 || l.Refused[0].ID != "old-app" || l.Refused[1].ID != "old-org" {
+		t.Fatalf("list = %+v", l)
+	}
+	for _, id := range []string{"old-org", "old-app"} {
+		var p *problem.Problem
+		if _, err := w.run("show", id, "-o", "json"); !errors.As(err, &p) || p.Type != problem.TypeRefused {
+			t.Fatalf("show %s: %v", id, err)
+		}
 	}
 }

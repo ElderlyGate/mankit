@@ -15,7 +15,7 @@ require (
 	github.com/rivo/uniseg v0.4.7
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
-	go.naywee.com/contracts/v2 v2.2.0
+	go.naywee.com/contracts/v2 v2.3.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.21.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.23.0
