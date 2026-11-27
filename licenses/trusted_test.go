@@ -3,6 +3,7 @@ package licenses_test
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"maps"
 	"os"
@@ -122,5 +123,29 @@ func TestAWrongTrustedFileIsRefusedForItsOwnReason(t *testing.T) {
 				t.Errorf("the error %q does not start %q and say %q", err, prefix, reason)
 			}
 		})
+	}
+}
+
+func TestTheShippedKeysHoldAProdAndADevKeyAndNoIdTwice(t *testing.T) {
+	trust, err := licenses.ReadTrust("trusted.json", licenses.Shipped, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trust.Prod) < 1 {
+		t.Error("trusted.json holds no prod key")
+	}
+	if len(trust.Dev) < 1 {
+		t.Error("trusted.json holds no dev key")
+	}
+	var keys []struct{ ID string }
+	if err := json.Unmarshal(licenses.Shipped, &keys); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, k := range keys {
+		if seen[k.ID] {
+			t.Errorf("the id %s is listed twice", k.ID)
+		}
+		seen[k.ID] = true
 	}
 }
