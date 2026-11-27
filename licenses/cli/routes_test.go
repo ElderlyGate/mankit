@@ -95,7 +95,7 @@ func TestHTTPShowIsTheCLIAnswer(t *testing.T) {
 		state string
 	}{
 		{"free", func(*world) {}, licenses.StateFree},
-		{"trial", func(w *world) { w.putApp(w.trial("2026-12-03")) }, licenses.StateTrial},
+		{"trial", func(w *world) { w.note("2026-12-03") }, licenses.StateTrial},
 		{"licensed", func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }, licenses.StateLicensed},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -122,38 +122,48 @@ func TestHTTPShowIsTheCLIAnswer(t *testing.T) {
 	}
 }
 
-// POST keeps nothing without a yes, asks the CLI's question, and keeps the license on the yes to it, or on a script's confirm=yes.
+// POST keeps nothing without a yes, asks the CLI's question, and keeps the license on the yes to it, or on a script's confirm=yes; org=true is --org.
 func TestHTTPAddAsksAndKeeps(t *testing.T) {
-	w := newWorld(t, "2026-11-19")
-	h := w.server()
-	raw := w.license([]string{"sync"}, "2026-11-06", "2027-11-06")
-	kept := filepath.Join(w.org, "license")
-
-	id, detail := question(t, call(t, h, http.MethodPost, cli.Path, raw))
-	if _, err := os.Stat(kept); !os.IsNotExist(err) {
-		t.Fatal("kept without a yes")
-	}
-	if _, err := w.run("add", w.file(raw)); err == nil || detail != w.asked {
-		t.Fatalf("HTTP asked %q, the CLI %q", detail, w.asked)
-	}
-	rec := call(t, h, http.MethodPost, cli.Path+"?confirm="+id, raw)
-	if rec.Code != http.StatusOK || contracts.Validate(schema, rec.Body.Bytes()) != nil {
-		t.Fatalf("status %d:\n%s", rec.Code, rec.Body)
-	}
-	if got, err := os.ReadFile(kept); err != nil || !bytes.Equal(got, raw) {
-		t.Fatalf("kept %q, %v", got, err)
-	}
-	if s := w.show(); s.State != licenses.StateLicensed {
-		t.Fatalf("show = %+v", s)
-	}
-
-	// A script's yes in one call keeps a license that replaces it.
-	perpetual := w.perpetual()
-	if rec := call(t, h, http.MethodPost, cli.Path+"?confirm=yes", perpetual); rec.Code != http.StatusOK {
-		t.Fatalf("status %d:\n%s", rec.Code, rec.Body)
-	}
-	if got, _ := os.ReadFile(kept); !bytes.Equal(got, perpetual) {
-		t.Fatal("the license was not replaced")
+	for _, c := range []struct {
+		query string
+		flags []string
+		kept  func(w *world) string
+	}{
+		{"", nil, func(w *world) string { return filepath.Join(w.appDir(), "licenses", "acme-2026.license") }},
+		{"?org=true", []string{"--org"}, func(w *world) string { return filepath.Join(w.org, "licenses", "acme-2026.license") }},
+	} {
+		w := newWorld(t, "2026-11-19")
+		h := w.server()
+		raw := w.license([]string{"sync"}, "2026-11-06", "2027-11-06")
+		sep := "?"
+		if c.query != "" {
+			sep = "&"
+		}
+		id, detail := question(t, call(t, h, http.MethodPost, cli.Path+c.query, raw))
+		if _, err := os.Stat(c.kept(w)); !os.IsNotExist(err) {
+			t.Fatal("kept without a yes")
+		}
+		if _, err := w.run(append([]string{"add", w.file(raw)}, c.flags...)...); err == nil || detail != w.asked {
+			t.Fatalf("HTTP asked %q, the CLI %q", detail, w.asked)
+		}
+		rec := call(t, h, http.MethodPost, cli.Path+c.query+sep+"confirm="+id, raw)
+		if rec.Code != http.StatusOK || contracts.Validate(schema, rec.Body.Bytes()) != nil {
+			t.Fatalf("status %d:\n%s", rec.Code, rec.Body)
+		}
+		if got, err := os.ReadFile(c.kept(w)); err != nil || !bytes.Equal(got, raw) {
+			t.Fatalf("kept %q, %v", got, err)
+		}
+		if s := w.show(); s.State != licenses.StateLicensed || !s.Licenses[0].Active {
+			t.Fatalf("show = %+v", s)
+		}
+		// A script's yes in one call keeps a license of the same id that replaces it.
+		longer := w.license([]string{"sync"}, "2026-11-06", "2028-11-06")
+		if rec := call(t, h, http.MethodPost, cli.Path+c.query+sep+"confirm=yes", longer); rec.Code != http.StatusOK {
+			t.Fatalf("status %d:\n%s", rec.Code, rec.Body)
+		}
+		if got, _ := os.ReadFile(c.kept(w)); !bytes.Equal(got, longer) {
+			t.Fatal("the license was not replaced")
+		}
 	}
 }
 
@@ -167,18 +177,20 @@ func TestHTTPAddRefusesWhatItCannotTake(t *testing.T) {
 	}{
 		"an empty body":              {nil, licenses.ReasonUnreadable},
 		"JSON that is not a license": {[]byte(`{"hello": "world"}`), licenses.ReasonUnreadable},
-		"a trial":                    {w.trial(""), licenses.ReasonWrongPlace},
+		"an old trial":               {w.old(oldPersonTrial), licenses.ReasonRetiredKind},
 		"an old org license":         {w.old(oldOrg), licenses.ReasonUnreadable},
 	} {
 		t.Run(name, func(t *testing.T) {
-			for _, confirm := range []string{"", "?confirm=yes"} {
+			for _, confirm := range []string{"", "?confirm=yes", "?org=true&confirm=yes"} {
 				p := refusal(t, call(t, h, http.MethodPost, cli.Path+confirm, c.body), http.StatusBadRequest)
 				if p.Type != problem.TypeRefused || p.Reason != c.reason {
 					t.Fatalf("%q: %+v, want refused %s", confirm, p, c.reason)
 				}
 			}
-			if _, err := os.Stat(filepath.Join(w.org, "license")); !os.IsNotExist(err) {
-				t.Fatal("kept a refused file")
+			for _, d := range []string{filepath.Join(w.org, "licenses"), filepath.Join(w.appDir(), "licenses")} {
+				if _, err := os.Stat(d); !os.IsNotExist(err) {
+					t.Fatal("kept a refused file")
+				}
 			}
 		})
 	}
@@ -193,29 +205,61 @@ func TestHTTPAddRefusesWhatItCannotTake(t *testing.T) {
 	}
 }
 
-// DELETE asks the CLI's question, takes the license away on the yes and leaves the trial; with nothing to remove it is not_found, unasked.
-func TestHTTPRemoveAsksAndLeavesTheTrial(t *testing.T) {
+// POST .../{id}/use asks the CLI's question and makes the license active on the yes; a license not there is not_found and one refused is refused, unasked.
+func TestHTTPUseAsksAndChooses(t *testing.T) {
 	w := newWorld(t, "2026-12-07")
 	w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
-	w.putApp(w.trial("2026-12-03"))
+	w.putApp(w.licenseOf("ada-2026", "Ada", []string{"sync"}, "2026-01-01", "2027-11-06"))
+	w.putApp([]byte(`{"metadata":{"id":"broken"}}`))
 	h := w.server()
-
-	id, detail := question(t, call(t, h, http.MethodDelete, cli.Path, nil))
-	if s := w.show(); s.State != licenses.StateLicensed {
-		t.Fatalf("removed without a yes: %+v", s)
+	use := cli.Path + "/ada-2026/use"
+	id, detail := question(t, call(t, h, http.MethodPost, use, nil))
+	if s := w.show(); s.Licenses[0].Active {
+		t.Fatalf("chose without a yes: %+v", s.Licenses)
 	}
-	if _, err := w.run("remove"); err == nil || detail != w.asked {
+	if _, err := w.run("use", "ada-2026"); err == nil || detail != w.asked {
 		t.Fatalf("HTTP asked %q, the CLI %q", detail, w.asked)
 	}
-	rec := call(t, h, http.MethodDelete, cli.Path+"?confirm="+id, nil)
+	rec := call(t, h, http.MethodPost, use+"?confirm="+id, nil)
 	if rec.Code != http.StatusOK || contracts.Validate(schema, rec.Body.Bytes()) != nil {
 		t.Fatalf("status %d:\n%s", rec.Code, rec.Body)
 	}
-	if s := w.show(); s.State != licenses.StateTrial || len(s.Licenses) != 1 || s.Licenses[0].Kind != licenses.Trial {
+	if s := w.show(); !s.Licenses[0].Active || s.Licenses[0].ID != "ada-2026" {
+		t.Fatalf("show = %+v", s.Licenses)
+	}
+	for target, want := range map[string]int{cli.Path + "/nobody/use": http.StatusNotFound, cli.Path + "/broken/use": http.StatusBadRequest} {
+		for _, confirm := range []string{"", "?confirm=yes"} {
+			refusal(t, call(t, h, http.MethodPost, target+confirm, nil), want)
+		}
+	}
+	if s := w.show(); !s.Licenses[0].Active {
+		t.Fatalf("the choice changed: %+v", s.Licenses)
+	}
+}
+
+// DELETE .../{id} asks the CLI's question, takes the license away on the yes and leaves the trial; a license not there is not_found, unasked.
+func TestHTTPRemoveAsksAndLeavesTheTrial(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
+	w.note("2026-12-03")
+	h := w.server()
+	target := cli.Path + "/acme-2026"
+	id, detail := question(t, call(t, h, http.MethodDelete, target, nil))
+	if s := w.show(); s.State != licenses.StateLicensed {
+		t.Fatalf("removed without a yes: %+v", s)
+	}
+	if _, err := w.run("remove", "acme-2026"); err == nil || detail != w.asked {
+		t.Fatalf("HTTP asked %q, the CLI %q", detail, w.asked)
+	}
+	rec := call(t, h, http.MethodDelete, target+"?confirm="+id, nil)
+	if rec.Code != http.StatusOK || contracts.Validate(schema, rec.Body.Bytes()) != nil {
+		t.Fatalf("status %d:\n%s", rec.Code, rec.Body)
+	}
+	if s := w.show(); s.State != licenses.StateTrial || len(s.Licenses) != 0 || s.Trial == nil {
 		t.Fatalf("show = %+v", s)
 	}
 	for _, confirm := range []string{"", "?confirm=yes"} {
-		if p := refusal(t, call(t, h, http.MethodDelete, cli.Path+confirm, nil), http.StatusNotFound); p.Type != problem.TypeNotFound {
+		if p := refusal(t, call(t, h, http.MethodDelete, target+confirm, nil), http.StatusNotFound); p.Type != problem.TypeNotFound {
 			t.Fatalf("%q: %+v", confirm, p)
 		}
 	}
@@ -227,19 +271,19 @@ func TestHTTPChangeWithAnotherFailureWritesNothing(t *testing.T) {
 	kept := w.license([]string{"events"}, "2026-11-06", "2027-11-06")
 	w.putOrg(kept)
 	h := w.server()
-	file := filepath.Join(w.org, "license")
+	file := filepath.Join(w.org, "licenses", "acme-2026.license")
 	config := os.Getenv("XDG_CONFIG_HOME")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
 
-	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+	for _, c := range []struct{ method, target string }{{http.MethodPost, cli.Path}, {http.MethodPost, cli.Path + "/acme-2026/use"}, {http.MethodDelete, cli.Path + "/acme-2026"}} {
 		body := []byte(nil)
-		if method == http.MethodPost {
+		if c.target == cli.Path {
 			body = w.perpetual()
 		}
-		question(t, call(t, h, method, cli.Path, body))
-		if p := refusal(t, call(t, h, method, cli.Path+"?confirm=yes", body), http.StatusInternalServerError); p.Type == problem.TypeRefused || p.Type == problem.TypeNotFound {
-			t.Fatalf("%s: %+v", method, p)
+		question(t, call(t, h, c.method, c.target, body))
+		if p := refusal(t, call(t, h, c.method, c.target+"?confirm=yes", body), http.StatusInternalServerError); p.Type == problem.TypeRefused || p.Type == problem.TypeNotFound {
+			t.Fatalf("%s %s: %+v", c.method, c.target, p)
 		}
 	}
 	t.Setenv("XDG_CONFIG_HOME", config)

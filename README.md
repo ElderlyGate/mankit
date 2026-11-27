@@ -86,7 +86,7 @@ but for its logs (G-STACK-8):
 | What | Where | `home` |
 |---|---|---|
 | the org's config folder | `$XDG_CONFIG_HOME/elderlygate`, else `~/.config/elderlygate` | `home.Dir()` |
-| the org's own files (the license and its queue) | the org's config folder; in a dev build `elderlygate-dev` beside it | `home.OrgDir()` |
+| the org's own files (the org's licenses and its queue) | the org's config folder; in a dev build `elderlygate-dev` beside it | `home.OrgDir()` |
 | one app's config (the app folder) | `<config folder>/<product id>/`, `<product id>-dev/` in a dev build | `home.Product(id)` |
 | the org's data folder | `$XDG_DATA_HOME/elderlygate`, else `~/.local/share/elderlygate` | `home.Data()` |
 | one app's data | `<data folder>/<product id>/`, `<product id>-dev/` in a dev build | `home.ProductData(id)` |
@@ -98,7 +98,7 @@ line. A relative `XDG_*` value is ignored, as the XDG rules say.
 `home.Folder(id)` is the name of an app's config and data folders: the product
 ID in a release, `<product id>-dev` in a dev build (ADR-L5), so a dev build
 never reads or writes a release's config and data. The org's own files, the
-license among them, are in `home.OrgDir()`: the org's config folder in a
+org's licenses among them, are in `home.OrgDir()`: the org's config folder in a
 release, `elderlygate-dev` beside it in a dev build. The logs folders are the
 same in both.
 
@@ -614,16 +614,17 @@ build stamped with none. Only a stamp of the form `vX.Y.Z` makes a release. A bu
 `go build`, `go install` or `go test`, is dev, so an app that moves to this
 mankit adds the line in the same change, or its releases keep their files in
 the `-dev` folders. A dev build keeps its config and data in
-`<product id>-dev/` (`home.Folder`), the license in `elderlygate-dev/`
+`<product id>-dev/` (`home.Folder`), the org's licenses in `elderlygate-dev/`
 (`home.OrgDir`), and takes licenses signed by a dev key only.
 
 ## Licenses
 
-An enterprise feature (`features.Enterprise`) is locked until a license opens
-it. `licenses` checks them for every app; nw-license signs them. What a license
-is, its kinds and where it is kept are the constitution's ADR-L1 to L10; what
-each field means is contracts mankit/v3 `license-payload`, `license-file` and
-`license-show`.
+An enterprise feature (`features.Enterprise`) is locked until a license or the
+trial opens it. `licenses` checks them for every app; nw-license signs them.
+What a license is, that an app holds many with one active, and that the trial
+is a rule and not a license are the constitution's ADR-L1 to L10 (L8 and L9
+above all); what each field means is contracts mankit/v3 `license-payload`,
+`license-file`, `license-show` and `trial-started`.
 
 ```go
 trust, err := licenses.Trusted() // the org's keys for this build
@@ -631,31 +632,51 @@ c, err := licenses.New(licenses.Config{ID: "designer", Trust: trust})
 list := features.New(all, store, c.Closer(all))
 root.AddCommand(cli.Command(app, c, list, asker.Ask))
 site.Routes = append(site.Routes, cli.Routes(c, list)...) // the same thing over HTTP
+c.StartTrial(ctx, nil, exe) // at start, with os.Executable()'s path
 ```
 
 An app builds its Checker with `licenses/cli.Checker(app, trust)`, so its title
 comes from its `serve.App` and its line from the build stamp (`build.Line()`).
 
+The files, in a release (a dev build uses `elderlygate-dev/` and
+`<product id>-dev/`, ADR-L5):
+
+```text
+~/.config/elderlygate/            home.OrgDir()
+  licenses/<id>.license           org licenses, shared by every app they name
+~/.config/elderlygate/<product id>/  home.Product(id)
+  licenses/<id>.license           the app's own licenses
+  license-active                  the id license use or add chose in this app
+  trial                           the trial note
+```
+
+For one release the old single files, `home.OrgDir()/license` and the app's
+`license`, are read as licenses too, and old v1 org and product files as
+licenses; an old trial file is refused (`retired_kind`).
+
 - `licenses.License` is the one Go type of a license; `licenses.Sign(l,
   signer)` writes a file, `licenses.Verify(raw, trust)` reads one, and
-  `License.Check` refuses what `Sign` refuses, without a signer. Old files
-  (`licenses.APIVersion`) are read for one release and never written.
+  `License.Check` refuses what `Sign` refuses, without a signer.
 - A file it cannot read or verify is refused with its file and a Problem
   reason (`licenses.Reason…`, meanings in contracts problem/v1), never taken
   for no license. A link is followed, as fleet puts the files in.
-- `Checker.Read` reads the license in `home.OrgDir()` and the app's own file,
-  its trial, anew on every call. `Found.Has` and `Found.From` say whether and
-  from where a feature is open; `Checker.Closer` is the license closer of the
-  feature list.
-- `Checker.Show` is the `license show` answer, the same for a Settings page and
-  the top bar's badge; it works out the state and warn once.
-- `Checker.Add` and `Checker.Remove` are `license add` and `license remove`.
-- `cli.Routes(c, list)` is the thing over HTTP at `cli.Path`: GET, POST and DELETE, as its Go doc says.
-- `Checker.StartTrial(ctx, key, binary)` is the one call an app makes at
-  start, with its built-in trial key and its executable's path
-  (`os.Executable()` as it is: StartTrial resolves links itself). What it does
-  is ADR-L9's and its Go doc's; it returns a `TrialStart` for the start log and
-  never stops the app.
+- `Checker.Read` reads the licenses, the choice and the trial anew on every
+  call; `Found.Active` is the active license, `Found.Has` and `Found.From`
+  say whether and from where a feature is open, and `Checker.Closer` is the
+  license closer of the feature list.
+- `Checker.Show` is the `license show` (and `license list`) answer, the same
+  for a Settings page and the top bar's badge; it works out the state and
+  warn once.
+- `Checker.Add`, `Checker.Use` and `Checker.Removing`/`Remove` are `license
+  add <file> [--org]`, `license use <id>` and `license remove <id>`.
+- `cli.Routes(c, list)` is the thing over HTTP at `cli.Path`: GET, POST
+  (`?org=true`), POST `{id}/use` and DELETE `{id}`, as its Go doc says, asking
+  the CLI's questions.
+- `Checker.StartTrial(ctx, nil, binary)` is the one call an app makes at
+  start, with its executable's path (`os.Executable()` as it is: StartTrial
+  resolves links itself); its key argument is deprecated and ignored. What it
+  does is ADR-L9's and its Go doc's; it returns a `TrialStart` for the start
+  log and never stops the app.
 
 ### Trusted keys
 

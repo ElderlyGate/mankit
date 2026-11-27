@@ -84,6 +84,8 @@ github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavM
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e/go.mod h1:RbqR21r5mrJuqunuUZ/Dhy/avygyECGrLceyNeo4LiM=
 go.naywee.com/contracts/v2 v2.1.0 h1:MTmj6UPJ17+N2aBupnO+DHeZhk3OtneSmV2S98r4xek=
 go.naywee.com/contracts/v2 v2.1.0/go.mod h1:6a1fXt/hbjHRy3aKODDWgjp3oMcMlWfiERdtOX3gH7g=
+go.naywee.com/contracts/v2 v2.2.0 h1:rPPHykyn6Hc9FqslWG6i6vFS1lpBaLZ/4IR+OF7AviQ=
+go.naywee.com/contracts/v2 v2.2.0/go.mod h1:6a1fXt/hbjHRy3aKODDWgjp3oMcMlWfiERdtOX3gH7g=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/contrib/bridges/otelslog v0.21.0 h1:/CdgE52i1OEPHhsGUqrggYNRaZy4v4YgVenGd52dRBI=

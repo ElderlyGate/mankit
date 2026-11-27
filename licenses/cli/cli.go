@@ -1,4 +1,4 @@
-// Package cli is the thing license every app mounts at its root: `license show`, `license add <file>` and `license remove`, above licenses, so licenses imports neither serve nor ask.
+// Package cli is the thing license every app mounts at its root: `license show`, `license list`, `license add <file>`, `license use <id>` and `license remove <id>`, above licenses, so licenses imports neither serve nor ask.
 package cli
 
 import (
@@ -31,69 +31,91 @@ func Checker(a serve.App, trust licenses.Trust) (*licenses.Checker, error) {
 	return licenses.New(licenses.Config{ID: a.ID, Title: a.Name(), Line: line, Folder: a.Folder, Trust: trust, Now: now})
 }
 
-// Command is the thing license of app a, printed through serve's Printer so every app answers alike: c reads its licenses, list holds its features closed by c's Closer, and add and remove ask with confirm.
+// Command is the thing license of app a, printed through serve's Printer so every app answers alike: c reads its licenses, list holds its features closed by c's Closer, and add, use and remove ask with confirm.
 func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func(*cobra.Command, ask.Action) error) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "license",
-		Short: "The license and trial that open this app's enterprise features",
-		Long: "A license names whom it is for and the enterprise features it opens; one license file is read by every app.\n" +
-			"A trial is built into the app and starts by itself.\n" +
-			"`license show` lists them and every feature with where it is unlocked from;\n" +
-			"`license add <file>` keeps the license, `license remove` takes it away, and the trial stays.",
+		Short: "The licenses and the trial that open this app's enterprise features",
+		Long: "A license names whom it is for and the enterprise features it opens. Org licenses are shared by every app; an app keeps its own too.\n" +
+			"One license is active in each app: the one chosen here, else the newest. The trial is a rule built into the app.\n" +
+			"`license show` (or `license list`) lists them, marks the active one and shows every feature with where it is unlocked from;\n" +
+			"`license add <file> [--org]` keeps a license and makes it active here, `license use <id>` makes one active here, `license remove <id>` takes one away.",
 	}
-	show := &cobra.Command{
-		Use:   "show",
-		Short: "Show the licenses and where each feature is unlocked from",
-		Args:  cobra.NoArgs,
-	}
-	showOut := a.Printer(show)
-	show.RunE = func(cc *cobra.Command, _ []string) error {
-		if err := showOut.Check(); err != nil {
-			return err
+	view := func(use, short string) *cobra.Command {
+		v := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs}
+		out := a.Printer(v)
+		v.RunE = func(cc *cobra.Command, _ []string) error {
+			if err := out.Check(); err != nil {
+				return err
+			}
+			return answer(cc, out, c, list)
 		}
-		return answer(cc, showOut, c, list)
+		return v
 	}
 	add := &cobra.Command{
 		Use:   "add <file>",
-		Short: "Check a license file and keep it as the license every app reads",
+		Short: "Check a license file, keep it and make it the active license of this app",
 		Args:  cobra.ExactArgs(1),
 	}
-	add.Flags().Bool("org", false, "the license is kept for every app")
-	_ = add.Flags().MarkDeprecated("org", "license add keeps the one license every app reads")
+	add.Flags().Bool("org", false, "keep it in the org's licenses, shared by every app it names")
 	addOut := a.Printer(add)
 	ask.Flag(add)
 	add.RunE = func(cc *cobra.Command, args []string) error {
 		if err := addOut.Check(); err != nil {
 			return err
 		}
+		org, _ := cc.Flags().GetBool("org")
 		raw, err := os.ReadFile(args[0])
 		if err != nil {
 			return problem.FailAt(problem.TypeRefused, licenses.ReasonUnreadable, args[0], fmt.Sprintf("%s cannot be read: %v", args[0], err))
 		}
-		action, err := adding(c, raw)
+		action, err := adding(c, raw, org)
 		if err != nil {
 			return failAt(err, args[0])
 		}
 		if err := confirm(cc, action); err != nil {
 			return err
 		}
-		if _, err := c.Add(cc.Context(), raw, true); err != nil {
+		if _, err := c.Add(cc.Context(), raw, org); err != nil {
 			return err
 		}
 		return answer(cc, addOut, c, list)
 	}
+	use := &cobra.Command{
+		Use:   "use <id>",
+		Short: "Make the license id the active license of this app",
+		Args:  cobra.ExactArgs(1),
+	}
+	useOut := a.Printer(use)
+	ask.Flag(use)
+	use.RunE = func(cc *cobra.Command, args []string) error {
+		if err := useOut.Check(); err != nil {
+			return err
+		}
+		action, err := using(c, args[0])
+		if err != nil {
+			return err
+		}
+		if err := confirm(cc, action); err != nil {
+			return err
+		}
+		if _, err := c.Use(cc.Context(), args[0]); err != nil {
+			return err
+		}
+		return answer(cc, useOut, c, list)
+	}
 	remove := &cobra.Command{
-		Use:   "remove",
-		Short: "Remove the license every app reads; the trial stays",
-		Args:  cobra.NoArgs,
+		Use:   "remove <id>",
+		Short: "Remove the license id; the trial stays",
+		Args:  cobra.ExactArgs(1),
 	}
 	removeOut := a.Printer(remove)
 	ask.Flag(remove)
-	remove.RunE = func(cc *cobra.Command, _ []string) error {
+	remove.RunE = func(cc *cobra.Command, args []string) error {
 		if err := removeOut.Check(); err != nil {
 			return err
 		}
-		shown, action, err := removing(c)
+		shown, action, err := removing(c, args[0])
 		if err != nil {
 			return err
 		}
@@ -105,13 +127,14 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		}
 		return answer(cc, removeOut, c, list)
 	}
-	cmd.AddCommand(show, add, remove)
+	cmd.AddCommand(view("show", "Show the licenses, the active one, the trial and where each feature is unlocked from"),
+		view("list", "List the licenses, the active one, the trial and where each feature is unlocked from, as show does"), add, use, remove)
 	return cmd
 }
 
 // adding is the question license add asks before it keeps the license raw holds, from the CLI and over HTTP alike, or the Problem why raw cannot be kept.
-func adding(c *licenses.Checker, raw []byte) (ask.Action, error) {
-	t, err := c.Check(raw, true)
+func adding(c *licenses.Checker, raw []byte, org bool) (ask.Action, error) {
+	t, err := c.Check(raw, org)
 	if err != nil {
 		return ask.Action{}, err
 	}
@@ -119,13 +142,34 @@ func adding(c *licenses.Checker, raw []byte) (ask.Action, error) {
 	if err != nil {
 		return ask.Action{}, err
 	}
-	what := fmt.Sprintf("keep the license for %s%s, read by every app, in %s%s", t.For, runs(t), t.File, replacing(found, t.File))
+	where := "as this app's own"
+	if org {
+		where = "shared by every app it names"
+	}
+	what := fmt.Sprintf("keep the license %s for %s%s in %s, %s%s, and make it the active license of this app", t.ID, t.For, runs(t), t.File, where, replacing(found, t.File))
 	return ask.Action{Type: ask.Settings, What: what, Name: "license"}, nil
 }
 
-// removing is what license remove takes away and the question it asks first, from the CLI and over HTTP alike; with nothing to remove it is a Problem not_found.
-func removing(c *licenses.Checker) ([]licenses.Removal, ask.Action, error) {
-	shown, err := c.Removing()
+// using is the question license use asks before it makes the license id active, from the CLI and over HTTP alike, or the Problem why it cannot.
+func using(c *licenses.Checker, id string) (ask.Action, error) {
+	found, err := c.Read()
+	if err != nil {
+		return ask.Action{}, err
+	}
+	t, err := found.Find(id)
+	if err != nil {
+		return ask.Action{}, err
+	}
+	what := fmt.Sprintf("make the license %s for %s%s the active license of this app", t.ID, t.For, runs(t))
+	if a := found.Active(); a != nil && a.ID != id {
+		what += ", in place of " + a.ID
+	}
+	return ask.Action{Type: ask.Settings, What: what, Name: "license"}, nil
+}
+
+// removing is what license remove takes away for the license id and the question it asks first, from the CLI and over HTTP alike; with nothing to remove it is a Problem not_found.
+func removing(c *licenses.Checker, id string) ([]licenses.Removal, ask.Action, error) {
+	shown, err := c.Removing(id)
 	if err != nil {
 		return nil, ask.Action{}, err
 	}
@@ -133,7 +177,7 @@ func removing(c *licenses.Checker) ([]licenses.Removal, ask.Action, error) {
 	for i, r := range shown {
 		files[i] = r.File
 	}
-	what := "remove the license file " + strings.Join(files, " and ") + "; the trial stays"
+	what := fmt.Sprintf("remove the license %s, the file %s; the trial stays", id, strings.Join(files, " and "))
 	return shown, ask.Action{Type: ask.Settings, What: what, Name: "license"}, nil
 }
 
@@ -182,15 +226,21 @@ func answer(cc *cobra.Command, out serve.Printer, c *licenses.Checker, list *fea
 		}
 		fmt.Fprintf(tw, "STATE\t%s\nRELEASE\t%t\n\n", s.State, s.Build.Release)
 		if len(s.Licenses) > 0 {
-			fmt.Fprintln(tw, "KIND\tFOR\tUNTIL\tDAYS LEFT\tKEY")
+			fmt.Fprintln(tw, "ACTIVE\tID\tPLACE\tFOR\tISSUED\tUNTIL\tDAYS LEFT\tKEY")
 			for _, l := range s.Licenses {
-				until, left := "–", "–"
+				active, until, left := "", "–", "–"
+				if l.Active {
+					active = "*"
+				}
 				if l.Ends() != "" {
 					until, left = l.Ends(), strconv.Itoa(l.DaysLeft)
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", l.Kind, l.For, until, left, l.KeyID)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", active, l.ID, l.Place, l.For, l.Issued, until, left, l.KeyID)
 			}
 			fmt.Fprintln(tw)
+		}
+		if s.Trial != nil {
+			fmt.Fprintf(tw, "TRIAL\tUNTIL\tDAYS LEFT\tENDED\n\t%s\t%d\t%t\n\n", s.Trial.Until, s.Trial.DaysLeft, s.Trial.Ended)
 		}
 		fmt.Fprintln(tw, "FEATURE\tTIER\tON\tFROM\tUNTIL")
 		for _, f := range s.Features {

@@ -1,9 +1,7 @@
 package licenses
 
 import (
-	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,8 +20,14 @@ import (
 	"github.com/tugbayatilla/mankit/v4/store"
 )
 
-// name is the license file's name: the license in the org's own folder (home.OrgDir), a trial in its app's (ADR-L8).
-const name = "license"
+// The files a Checker reads and writes, in the org's folder (home.OrgDir) and in its app's (home.Product); the folder layout is the mankit README's (ADR-L8, L9).
+const (
+	folder = "licenses"       // the licenses folder, in the org's folder and in each app's
+	ext    = ".license"       // a license file's name is its id and this
+	old    = "license"        // the one file of the old places, read for one release
+	choice = "license-active" // in the app's folder: the id of the license license use or add chose
+	note   = "trial"          // in the app's folder: the trial note (contracts mankit/v3 trial-started)
+)
 
 // most is the largest license file read; a license is a few hundred bytes.
 const most = 64 << 10
@@ -37,7 +42,7 @@ type Config struct {
 	Now    func() time.Time // nil is time.Now
 }
 
-// Checker reads the app's licenses and answers what they open; it reads the files anew on every call, so a license added or ended counts at once.
+// Checker reads the app's licenses and its trial and answers what they open; it reads the files anew on every call, so a license added, chosen or ended counts at once.
 type Checker struct{ c Config }
 
 // New is the Checker of c; it refuses an app without an ID or keys that are not Ed25519 public keys.
@@ -60,15 +65,26 @@ func New(c Config) (*Checker, error) {
 	return &Checker{c: c}, nil
 }
 
-// Taken is a license the app read and took, where it was read from, and how long it runs from today. A trial runs from its started day; one not started is the key as signed, which opens nothing.
+// Place is where a license file sits (ADR-L8); contracts mankit/v3 license-show says what each means.
+type Place string
+
+// The places of a license file.
+const (
+	PlaceOrg Place = "org"
+	PlaceApp Place = "app"
+)
+
+// Taken is a license the app read and took, where it was read from, how long it runs from today, and whether it is the app's active one.
 type Taken struct {
 	License
 	File      string
-	LastDay   time.Time // Until, but for a started trial its trial's last day: the started day plus its days, less one; zero when there is none
+	Place     Place
+	Active    bool      // the app's active license (ADR-L8): the one chosen, else the newest
+	LastDay   time.Time // Until; zero when the license never ends
 	DaysLeft  int       // the days to LastDay, 0 once it has ended or when there is no LastDay
 	Ended     bool      // its features are locked again (ADR-L3)
-	Early     bool      // its first day has not come, or a trial has not started, so it opens nothing yet
-	Elsewhere bool      // a license that names neither this app nor, when it names lines, this build's line, so it opens nothing here (ADR-L10)
+	Early     bool      // its first day has not come, so it opens nothing yet
+	Elsewhere bool      // it names lines but not this build's, so it opens nothing here (ADR-L10)
 }
 
 // Running reports whether the license opens its features today: its first day has come, its last has not passed and it names this build.
@@ -77,245 +93,411 @@ func (t Taken) Running() bool { return !t.Ended && !t.Early && !t.Elsewhere }
 // Refused is a license file the app read but did not take, and why (G-CODE-6): never treated as no license.
 type Refused struct {
 	File   string
+	ID     string // the id the file names, so license remove takes it away; empty when it names none
 	Reason string
 	Detail string
 }
 
-// Found is the app's licenses as read at one moment: the license first, then the trial, and the files refused.
+// TrialRun is the app's trial as its note says (ADR-L9): when and on which install it started, and how long it runs from today.
+type TrialRun struct {
+	Started
+	File     string
+	LastDay  time.Time // the note's day plus the trial's length, less one, as the first day counts
+	DaysLeft int       // the days to LastDay, 0 once it has ended
+	Ended    bool      // the features it opened are locked again (ADR-L3)
+}
+
+// Found is the app's licenses and trial as read at one moment: the app's own licenses, then the org's that name it, the files refused, the trial, and the choice license use or add made.
 type Found struct {
 	Taken   []Taken
 	Refused []Refused
+	Trial   *TrialRun // nil when the app has no trial
+	Chosen  string    // the id of the license chosen in this app; empty when no choice is made
 	product string
 }
 
-// Read reads the license in the org's folder and the app's own file, its trial (ADR-L8); a missing file is no license, and one it cannot read or verify is Refused. It fails only when the folders cannot be found.
+// Active is the app's active license (ADR-L8), nil when there is none: the chosen one, else the newest by issued. A chosen license that is refused or not there leaves none, as the app never takes another by itself.
+func (f Found) Active() *Taken {
+	for i := range f.Taken {
+		if f.Taken[i].Active {
+			return &f.Taken[i]
+		}
+	}
+	return nil
+}
+
+// Read reads the app's own licenses and the org's that name it, the old single files among them for one release, the app's choice and its trial (ADR-L8, L9); a missing file is none, and a license file it cannot read or verify is Refused. It fails only when the folders cannot be found or the choice cannot be read.
 func (c *Checker) Read() (Found, error) {
 	f := Found{product: c.c.ID}
-	for _, org := range []bool{true, false} {
-		p, err := c.at(org)
+	for _, pl := range []Place{PlaceApp, PlaceOrg} {
+		paths, refusedDir, err := c.files(pl)
 		if err != nil {
 			return Found{}, err
 		}
-		switch {
-		case p.refused != nil:
-			f.Refused = append(f.Refused, *p.refused)
-		case p.license != nil:
-			f.Taken = append(f.Taken, c.taken(*p.license, p.path))
+		if refusedDir != nil {
+			f.Refused = append(f.Refused, *refusedDir)
 		}
+		for _, path := range paths {
+			c.read(&f, path, pl)
+		}
+	}
+	chosen, err := c.chosen()
+	if err != nil {
+		return Found{}, err
+	}
+	f.Chosen = chosen
+	i := -1
+	for j, t := range f.Taken {
+		switch {
+		case chosen != "" && t.ID == chosen && i < 0:
+			i = j
+		case chosen == "" && (i < 0 || t.Issued.After(f.Taken[i].Issued)):
+			i = j
+		}
+	}
+	if i >= 0 {
+		f.Taken[i].Active = true
+	}
+	if f.Trial, err = c.trial(); err != nil {
+		return Found{}, err
 	}
 	return f, nil
 }
 
-// place is what the org's place or the app's own holds: nothing, a license taken, or a file refused, with the bytes it was read from when it could be read whole.
-type place struct {
-	path    string
-	raw     []byte
-	license *License
-	refused *Refused
-}
-
-// at reads the org's place or the app's own; it fails only when the folder cannot be found.
-func (c *Checker) at(org bool) (place, error) {
-	path, err := c.path(org)
-	if err != nil {
-		return place{}, err
-	}
-	p := place{path: path}
+// read adds the license file at path to f, taken or refused; a missing file, and an org license that does not name the app, add nothing.
+func (c *Checker) read(f *Found, path string, pl Place) {
 	raw, err := readFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return p, nil
+		return
 	}
 	var l License
 	if err == nil {
-		p.raw = raw
-		l, err = c.take(raw, org)
+		l, err = Verify(raw, c.c.Trust)
 	}
-	var pr *problem.Problem
-	switch {
-	case errors.As(err, &pr):
-		p.refused = &Refused{File: path, Reason: pr.Reason, Detail: pr.Detail}
-	case err != nil:
-		p.refused = &Refused{File: path, Reason: ReasonUnreadable, Detail: err.Error()}
-	default:
-		p.license = &l
+	if err == nil && !l.names(c.c.ID) {
+		if pl == PlaceOrg {
+			return
+		}
+		err = refused(ReasonWrongPlace, fmt.Sprintf("it is a license for other products, not %s; an app's folder keeps its own licenses only", c.c.ID))
 	}
-	return p, nil
+	if err != nil {
+		f.Refused = append(f.Refused, refusal(path, raw, err))
+		return
+	}
+	f.Taken = append(f.Taken, c.taken(l, path, pl))
 }
 
-// Check is the license raw holds as Add would keep it, or the Problem why not: what add shows before it asks. Only a license of FileAPIVersion is kept, in the one license file every app reads (ADR-L8), so org is not read.
-func (c *Checker) Check(raw []byte, org bool) (Taken, error) {
-	path, err := c.path(true)
-	if err != nil {
-		return Taken{}, err
+// refusal is the Refused of the file at path for err, naming the id the file gives: its metadata.id, else its name in a licenses folder.
+func refusal(path string, raw []byte, err error) Refused {
+	r := Refused{File: path, ID: strings.TrimSuffix(filepath.Base(path), ext), Reason: ReasonUnreadable, Detail: err.Error()}
+	if filepath.Base(filepath.Dir(path)) != folder {
+		r.ID = ""
 	}
+	var head struct {
+		Metadata struct {
+			ID string `json:"id"`
+		} `json:"metadata"`
+	}
+	if decode(raw, &head, false) == nil && head.Metadata.ID != "" {
+		r.ID = head.Metadata.ID
+	}
+	var p *problem.Problem
+	if errors.As(err, &p) {
+		r.Reason, r.Detail = p.Reason, p.Detail
+	}
+	return r
+}
+
+// files is the license files of the place in the order Read takes them: its licenses folder's, by name, then the old single file; a licenses folder that cannot be listed is Refused. It fails only when the folder cannot be found.
+func (c *Checker) files(pl Place) ([]string, *Refused, error) {
+	dir, err := c.dir(pl)
+	if err != nil {
+		return nil, nil, err
+	}
+	var paths []string
+	entries, err := os.ReadDir(filepath.Join(dir, folder))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return []string{filepath.Join(dir, old)}, &Refused{File: filepath.Join(dir, folder), Reason: ReasonUnreadable, Detail: err.Error()}, nil
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ext) {
+			paths = append(paths, filepath.Join(dir, folder, e.Name()))
+		}
+	}
+	return append(paths, filepath.Join(dir, old)), nil, nil
+}
+
+// chosen is the id of the license chosen in this app, empty when none is.
+func (c *Checker) chosen() (string, error) {
+	path, err := home.File(c.c.Folder, choice)
+	if err != nil {
+		return "", err
+	}
+	raw, err := readFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("licenses: the chosen license cannot be read: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+// trial is the app's trial as its note says, nil when it has none: no note, or one missing, broken, of another app or future-dated (ADR-L9), or a release with no line stamped, which runs no trial.
+func (c *Checker) trial() (*TrialRun, error) {
+	if c.c.Trust.Release && c.c.Line == 0 {
+		return nil, nil
+	}
+	path, err := home.File(c.c.Folder, note)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := readFile(path)
+	if err != nil {
+		return nil, nil
+	}
+	s, ok := c.note(raw)
+	if !ok {
+		return nil, nil
+	}
+	t := &TrialRun{Started: s, File: path, LastDay: date(s.Day).AddDate(0, 0, trialDays-1)}
+	t.DaysLeft = max(daysBetween(c.c.Now(), t.LastDay)+1, 0)
+	t.Ended = t.DaysLeft == 0
+	return t, nil
+}
+
+// Check is the license raw holds as Add would keep it, in the org's licenses folder or the app's own, or the Problem why not: what add shows before it asks. Only a license of FileAPIVersion that names this app is kept.
+func (c *Checker) Check(raw []byte, org bool) (Taken, error) {
+	pl := placeOf(org)
 	l, err := Verify(raw, c.c.Trust)
 	if err != nil {
 		return Taken{}, err
 	}
-	if l.old != "" {
+	switch {
+	case l.old != "":
 		return Taken{}, refused(ReasonUnreadable, fmt.Sprintf("it is a license file of the old form %s, which mankit reads for one release but never keeps; a new file is %s", APIVersion, FileAPIVersion))
+	case !l.names(c.c.ID):
+		return Taken{}, refused(ReasonWrongPlace, fmt.Sprintf("it does not name %s; add it in an app it names", c.c.ID))
 	}
-	if err := c.belongs(l, true); err != nil {
+	key, err := store.ParseKey(folder + "/" + l.ID + ext)
+	if err != nil || strings.ContainsAny(l.ID, `/\`) || string(key) != folder+"/"+l.ID+ext {
+		return Taken{}, refused(ReasonUnreadable, fmt.Sprintf("its id %q cannot name a file", l.ID))
+	}
+	dir, err := c.dir(pl)
+	if err != nil {
 		return Taken{}, err
 	}
-	return c.taken(l, path), nil
+	return c.taken(l, filepath.Join(dir, folder, l.ID+ext), pl), nil
 }
 
-// Add keeps the license raw holds in the org's folder, the one license file every app reads, written whole through the store (G-CODE-5), once it checks; it replaces the one there, and org is not read.
+// Add keeps the license raw holds once it checks, in the org's licenses folder, shared by every app, or in the app's own, written whole through the store (G-CODE-5), and makes it this app's choice (ADR-L8); a file there of the same id is replaced, and other apps keep their choice.
 func (c *Checker) Add(ctx context.Context, raw []byte, org bool) (Taken, error) {
-	t, err := c.Check(raw, true)
+	t, err := c.Check(raw, org)
 	if err != nil {
 		return Taken{}, err
 	}
-	s, err := c.scope(true)
+	s, err := c.scope(org)
 	if err != nil {
 		return Taken{}, err
 	}
-	defer s.Close()
-	err = s.Change(ctx, name, "license add", func(tx store.Tx) error { return tx.Put(name, raw, store.Anything()) })
+	key := store.Key(folder + "/" + t.ID + ext)
+	err = s.Change(ctx, folder, "license add", func(tx store.Tx) error { return tx.Put(key, raw, store.Anything()) })
+	s.Close()
+	if err == nil {
+		err = c.choose(ctx, t.ID, "license add")
+	}
+	t.Active = err == nil
 	return t, err
 }
 
-// Removal is one file license remove takes away, and the sum it held when Removing read it, so Remove takes away only what was shown.
+// Use makes the license id this app's choice (ADR-L8), or is the Problem why not: a license refused, or none of that id among this app's; other apps keep their choice.
+func (c *Checker) Use(ctx context.Context, id string) (Taken, error) {
+	f, err := c.Read()
+	if err != nil {
+		return Taken{}, err
+	}
+	t, err := f.Find(id)
+	if err != nil {
+		return Taken{}, err
+	}
+	if err := c.choose(ctx, id, "license use"); err != nil {
+		return Taken{}, err
+	}
+	t.Active = true
+	return t, nil
+}
+
+// Find is the license id among f's, or the Problem why not: refused when the file of that id is refused, not_found when there is none.
+func (f Found) Find(id string) (Taken, error) {
+	for _, t := range f.Taken {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	for _, r := range f.Refused {
+		if r.ID == id {
+			return Taken{}, problem.FailAt(problem.TypeRefused, r.Reason, r.File, fmt.Sprintf("the license %s is refused: %s", id, r.Detail))
+		}
+	}
+	return Taken{}, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s for %s", id, f.product))
+}
+
+// choose keeps id as this app's choice, through the store.
+func (c *Checker) choose(ctx context.Context, id, what string) error {
+	s, err := c.scope(false)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.Change(ctx, choice, what, func(tx store.Tx) error { return tx.Put(choice, []byte(id+"\n"), store.Anything()) })
+}
+
+// Removal is one file license remove takes away, the license id it holds and the sum it held when Removing read it, so Remove takes away only what was shown.
 type Removal struct {
+	ID   string
 	File string
 	Sum  string
 }
 
-// Removing is the files Remove takes away: the one in the org's folder, taken or refused, and in the app's own folder an old product license or a file refused, which would keep StartTrial from writing the trial; it never offers a trial there, taken or refused. A refused trial blocks StartTrial until it is deleted by hand, which gives a fresh trial as ADR-L9 accepts. With none it is a Problem not_found.
-func (c *Checker) Removing() ([]Removal, error) {
-	org, err := c.at(true)
+// Removing is the files Remove takes away for the license id: every file of this app's licenses, taken or refused, that holds it. With none it is a Problem not_found.
+func (c *Checker) Removing(id string) ([]Removal, error) {
+	f, err := c.Read()
 	if err != nil {
 		return nil, err
 	}
-	own, err := c.at(false)
-	if err != nil {
-		return nil, err
+	var files []string
+	for _, t := range f.Taken {
+		if t.ID == id {
+			files = append(files, t.File)
+		}
+	}
+	for _, r := range f.Refused {
+		if r.ID == id {
+			files = append(files, r.File)
+		}
+	}
+	if len(files) == 0 {
+		return nil, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s to remove", id))
 	}
 	var out []Removal
-	for i, p := range []place{org, own} {
-		inOrg := i == 0
-		if !inOrg && holdsTrial(p.raw) {
-			continue
-		}
-		if p.refused == nil && (p.license == nil || (!inOrg && p.license.old != Product)) {
-			continue
-		}
-		sum, err := c.sum(p, inOrg)
+	for _, file := range files {
+		at, err := c.at(file)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Removal{File: p.path, Sum: sum})
-	}
-	if len(out) == 0 {
-		return nil, problem.Fail(problem.TypeNotFound, "", "there is no license to remove")
+		sum, err := c.sum(at)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Removal{ID: id, File: file, Sum: sum})
 	}
 	return out, nil
 }
 
-// sum is the sum of the file p read; a file it could not read whole is summed as the store reads it.
-func (c *Checker) sum(p place, org bool) (string, error) {
-	if p.raw != nil {
-		return store.SumOf(p.raw), nil
+// spot is where a license file sits in the store: its scope's place and its key there.
+type spot struct {
+	org bool
+	key store.Key
+}
+
+// at is the spot of a license file of this app, or an error for any other file.
+func (c *Checker) at(file string) (spot, error) {
+	for _, org := range []bool{false, true} {
+		dir, err := c.dir(placeOf(org))
+		if err != nil {
+			return spot{}, err
+		}
+		switch base := filepath.Base(file); {
+		case file == filepath.Join(dir, old):
+			return spot{org, old}, nil
+		case filepath.Dir(file) == filepath.Join(dir, folder) && strings.HasSuffix(base, ext):
+			return spot{org, store.Key(folder + "/" + base)}, nil
+		}
 	}
-	s, err := c.scope(org)
+	return spot{}, fmt.Errorf("licenses: %s is not a license file of %s", file, c.c.ID)
+}
+
+// sum is the sum of the file at s, as the store reads it.
+func (c *Checker) sum(at spot) (string, error) {
+	s, err := c.scope(at.org)
 	if err != nil {
 		return "", err
 	}
 	defer s.Close()
-	it, _, err := s.Get(name)
+	it, _, err := s.Get(at.key)
 	return it.Sum, err
 }
 
-// Remove takes away the files shown, as Removing gave them, each through the store in the scope's own turn and only while it holds the sum it was shown with; a file changed since is a Problem refused, changed. It never removes the app's trial, so a removed license never starts a fresh one. Every file is checked before any is removed, and the app's own goes first, so a refusal leaves them all; a file changed by someone else between the check and its turn is still refused, after the ones before it went (best effort, not one transaction).
+// Remove takes away the files shown, as Removing gave them, each through the store in its scope's own turn and only while it holds the sum it was shown with; a file changed since is a Problem refused, changed. It clears this app's choice when it named a license removed, so the newest is active again, and never touches the trial. Every file is checked before any is removed, and the app's own go first, so a refusal leaves them all; a file changed by someone else between the check and its turn is still refused, after the ones before it went (best effort, not one transaction).
 func (c *Checker) Remove(ctx context.Context, shown []Removal) error {
-	orgPath, err := c.path(true)
-	if err != nil {
-		return err
+	type removal struct {
+		Removal
+		at spot
 	}
-	ownPath, err := c.path(false)
-	if err != nil {
-		return err
-	}
-	order := slices.Clone(shown)
-	slices.SortFunc(order, func(a, b Removal) int { return cmp.Compare(a.File, b.File) })
-	order = slices.CompactFunc(order, func(a, b Removal) bool { return a.File == b.File })
-	for _, r := range order {
-		if r.File != orgPath && r.File != ownPath {
-			return fmt.Errorf("licenses: %s is not a license file of %s", r.File, c.c.ID)
+	var order []removal
+	for _, r := range shown {
+		at, err := c.at(r.File)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(order, func(o removal) bool { return o.File == r.File }) {
+			order = append(order, removal{r, at})
 		}
 	}
-	slices.SortStableFunc(order, func(a, b Removal) int {
+	slices.SortStableFunc(order, func(a, b removal) int {
 		switch {
-		case (a.File == ownPath) == (b.File == ownPath):
-			return 0
-		case a.File == ownPath:
+		case a.at.org == b.at.org:
+			return strings.Compare(a.File, b.File)
+		case b.at.org:
 			return -1
 		}
 		return 1
 	})
 	for _, r := range order {
-		if err := c.holds(r, r.File == orgPath); err != nil {
+		if err := c.holds(r.Removal, r.at); err != nil {
 			return err
 		}
 	}
 	for _, r := range order {
-		org := r.File == orgPath
-		s, err := c.scope(org)
+		s, err := c.scope(r.at.org)
 		if err != nil {
 			return err
 		}
-		err = s.Change(ctx, "", "license remove", func(tx store.Tx) error {
-			if it, ok, err := tx.Get(name); err != nil {
-				return err
-			} else if ok && !org && holdsTrial(it.Body) {
-				return refusedTrial(r.File)
-			}
-			return tx.Remove(name, store.Holds(r.Sum))
-		})
+		err = s.Change(ctx, "", "license remove", func(tx store.Tx) error { return tx.Remove(r.at.key, store.Holds(r.Sum)) })
 		s.Close()
 		if err != nil {
 			return err
 		}
 	}
-	return nil
-}
-
-// holds checks, before anything is removed, that the file r shows is still as shown and, in the app's folder, no trial.
-func (c *Checker) holds(r Removal, org bool) error {
-	s, err := c.scope(org)
+	s, err := c.scope(false)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
-	it, ok, err := s.Get(name)
+	return s.Change(ctx, "", "license remove", func(tx store.Tx) error {
+		it, ok, err := tx.Get(choice)
+		if err != nil || !ok || !slices.ContainsFunc(shown, func(r Removal) bool { return r.ID == strings.TrimSpace(string(it.Body)) }) {
+			return err
+		}
+		return tx.Remove(choice, store.Holds(it.Sum))
+	})
+}
+
+// holds checks, before anything is removed, that the file r shows is still as shown.
+func (c *Checker) holds(r Removal, at spot) error {
+	sum, err := c.sum(at)
 	switch {
 	case err != nil:
 		return err
-	case ok && !org && holdsTrial(it.Body):
-		return refusedTrial(r.File)
-	case !ok || it.Sum != r.Sum:
+	case sum != r.Sum:
 		return problem.FailAt(problem.TypeRefused, store.ReasonChanged, r.File, fmt.Sprintf("%s changed since it was shown, so nothing is removed", r.File))
 	}
 	return nil
 }
 
-// refusedTrial is the Problem for the app's own file when it is a trial, which stays (ADR-L9).
-func refusedTrial(file string) error {
-	return problem.FailAt(problem.TypeRefused, "", file, fmt.Sprintf("%s is a trial, which is never removed, so a removed license never starts a fresh one", file))
-}
-
-// holdsTrial reports whether the license file raw carries a payload of kind trial, or an old release-trial, signed or not.
-func holdsTrial(raw []byte) bool {
-	var f file
-	var p payload
-	if json.Unmarshal(raw, &f) != nil || json.Unmarshal(f.Spec.Payload, &p) != nil {
-		return false
-	}
-	return p.Kind == Trial || p.Kind == ReleaseTrial
-}
-
-// scope is the store scope the license is kept in: the app's own config folder, or the org's (home.OrgDir), opened with store.Own as a folder private to this user.
+// scope is the store scope of the app's own folder, or of the org's (home.OrgDir), opened with store.Own as a folder private to this user.
 func (c *Checker) scope(org bool) (*store.Scope, error) {
 	app := store.App{ID: c.c.Folder}
 	if !org {
@@ -328,31 +510,20 @@ func (c *Checker) scope(org bool) (*store.Scope, error) {
 	return store.Own(app, dir)
 }
 
-// take verifies raw and refuses a license that does not belong where it is (belongs).
-func (c *Checker) take(raw []byte, org bool) (License, error) {
-	l, err := Verify(raw, c.c.Trust)
-	if err != nil {
-		return License{}, err
+// placeOf is the place org names.
+func placeOf(org bool) Place {
+	if org {
+		return PlaceOrg
 	}
-	return l, c.belongs(l, org)
+	return PlaceApp
 }
 
-// belongs refuses a license kept in the wrong place: a license outside the org's folder, a trial in it, or another product's trial; an old file keeps its old places, an org license in the org's folder and a product license as its own app's (ADR-L8).
-func (c *Checker) belongs(l License, org bool) error {
-	switch {
-	case l.old == Product && org:
-		return refused(ReasonWrongPlace, "it is an old product license, which its app keeps as its own, not in the org's folder")
-	case l.old == Product && !l.names(c.c.ID):
-		return refused(ReasonWrongPlace, fmt.Sprintf("it is an old product license for another product, not %s", c.c.ID))
-	case l.old == Product:
-	case l.Kind == KindLicense && !org:
-		return refused(ReasonWrongPlace, "it is a license, which is kept in the org's folder and read by every app (license add)")
-	case l.Kind == Trial && org:
-		return refused(ReasonWrongPlace, "it is a trial, which its app carries built in and keeps as its own")
-	case l.Kind == Trial && !l.names(c.c.ID):
-		return refused(ReasonWrongPlace, fmt.Sprintf("it is a trial for another product, not %s", c.c.ID))
+// dir is the folder of the place: home.OrgDir for the org's, home.Product for the app's (ADR-L5, L8).
+func (c *Checker) dir(pl Place) (string, error) {
+	if pl == PlaceOrg {
+		return home.OrgDir()
 	}
-	return nil
+	return home.Product(c.c.Folder)
 }
 
 // names reports whether the license names the product id, in its products or its lines.
@@ -362,33 +533,17 @@ func (l License) names(product string) bool {
 	return ok || line
 }
 
-// taken is l as it runs today: from its issued day to its until, or on with none; a started trial from its started day for its days but never before its issued day, and one not started opens nothing. A license opens nothing here unless it names this app and, when it names lines, this build's line (ADR-L10).
-func (c *Checker) taken(l License, path string) Taken {
-	t := Taken{License: l, File: path, LastDay: l.Until}
-	first, today := l.Issued, c.c.Now()
-	if l.Kind == Trial {
-		t.LastDay = time.Time{}
-		if l.Started != nil {
-			first = l.Started.Day
-			t.LastDay = date(first).AddDate(0, 0, l.TrialDays-1)
-		}
-	}
+// taken is l as it runs today, from its issued day to its until, or on with none; when it names lines, it opens nothing unless one is this build's line (ADR-L10).
+func (c *Checker) taken(l License, path string, pl Place) Taken {
+	t := Taken{License: l, File: path, Place: pl, LastDay: l.Until}
+	today := c.c.Now()
 	if !t.LastDay.IsZero() {
 		t.DaysLeft = max(daysBetween(today, t.LastDay)+1, 0)
 		t.Ended = t.DaysLeft == 0
 	}
-	t.Early = !t.Ended && ((l.Kind == Trial && l.Started == nil) || daysBetween(first, today) < 0 || daysBetween(l.Issued, today) < 0)
-	t.Elsewhere = l.Kind == KindLicense && (!l.names(c.c.ID) || (len(l.Lines) > 0 && !slices.Contains(l.Lines[c.c.ID], c.c.Line)))
+	t.Early = !t.Ended && daysBetween(l.Issued, today) < 0
+	t.Elsewhere = !l.names(c.c.ID) || (len(l.Lines) > 0 && !slices.Contains(l.Lines[c.c.ID], c.c.Line))
 	return t
-}
-
-// path is the license file in home.OrgDir, or the app's own, its trial (ADR-L5, L8).
-func (c *Checker) path(org bool) (string, error) {
-	if org {
-		dir, err := home.OrgDir()
-		return filepath.Join(dir, name), err
-	}
-	return home.File(c.c.Folder, name)
 }
 
 // readFile reads a regular file of at most most bytes, through a link as fleet's secret store puts them (ADR-L8), never waiting on a pipe.
@@ -428,40 +583,27 @@ const (
 	FromBoth From = "both"
 )
 
-// From is where f is unlocked from now, and the last day it stays open: the running licenses that name it, until the latest of their last days and zero when one never ends, else the running trial, until its last day, else none. A free feature is from none: it needs no license (ADR-L2).
+// From is where ft is unlocked from now, and the last day it stays open: the active license while it runs and names it, until its last day and zero when it never ends; else the running trial, until its last day; else none. A free feature is from none: it needs no license (ADR-L2).
 func (f Found) From(ft features.Feature) (From, time.Time) {
 	if !ft.Enterprise() {
 		return FromNone, time.Time{}
 	}
-	named, never := false, false
-	var until time.Time
-	for _, t := range f.Taken {
-		if t.Kind != KindLicense || !t.Running() || !t.Names(f.product, ft.ID) {
-			continue
-		}
-		named, never = true, never || t.LastDay.IsZero()
-		if t.LastDay.After(until) {
-			until = t.LastDay
-		}
+	if a := f.Active(); a != nil && a.Running() && a.Names(f.product, ft.ID) {
+		return FromLicense, a.LastDay
 	}
-	switch v := f.verdict(); {
-	case named && never:
-		return FromLicense, time.Time{}
-	case named:
-		return FromLicense, until
-	case v.trial != nil:
-		return FromTrial, v.trial.LastDay
+	if f.Trial != nil && !f.Trial.Ended {
+		return FromTrial, f.Trial.LastDay
 	}
 	return FromNone, time.Time{}
 }
 
-// Has reports whether f may run as far as licenses go: a free feature always, an enterprise one while a running license or trial opens it.
+// Has reports whether f may run as far as licenses go: a free feature always, an enterprise one while the active license or the trial opens it.
 func (f Found) Has(ft features.Feature) bool {
 	from, _ := f.From(ft)
 	return !ft.Enterprise() || from != FromNone
 }
 
-// Closer closes every feature of all, the features the app's list holds, that no running license or trial opens; the list keeps it from a free one (ADR-L2, L3, L9).
+// Closer closes every feature of all, the features the app's list holds, that neither the active license nor the trial opens; the list keeps it from a free one (ADR-L2, L3, L9).
 func (c *Checker) Closer(all []features.Feature) features.Closer {
 	return features.Closer{By: features.License, Closed: func() ([]string, error) {
 		f, err := c.Read()

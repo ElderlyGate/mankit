@@ -1,4 +1,4 @@
-// Package licenses is what unlocks an app's enterprise features: Ed25519-signed license files, checked offline (ADR-L1) against the keys the app's build trusts (ADR-L5, L6); nw-license signs with Sign, every app checks with a Checker.
+// Package licenses is what unlocks an app's enterprise features: Ed25519-signed license files, checked offline (ADR-L1) against the keys the app's build trusts (ADR-L5, L6), one active per app (ADR-L8), and the trial, a rule with no signature (ADR-L9); nw-license signs with Sign, every app checks with a Checker.
 package licenses
 
 import (
@@ -15,22 +15,21 @@ import (
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
-// Kind is what a license covers (ADR-L8, L9); contracts mankit/v3 license-payload says what each means.
+// Kind is the kind a license file's payload names; contracts mankit/v3 license-payload says what it means. There is one, KindLicense (ADR-L8).
 type Kind string
 
-// The kinds of license.
-const (
-	KindLicense Kind = "license"
-	Trial       Kind = "trial"
-)
+// KindLicense is the one kind of license (ADR-L8).
+const KindLicense Kind = "license"
 
-// The kinds of an old file (APIVersion), read for one release and taken as KindLicense or Trial.
+// The kinds of an old file, read for one release: an org or product license is taken as a KindLicense, and a trial or release-trial is refused with ReasonRetiredKind (ADR-L8, L9).
 const (
 	// Deprecated: an org license is read as a KindLicense; mankit signs KindLicense only.
 	Org Kind = "org"
 	// Deprecated: a product license is read as a KindLicense; mankit signs KindLicense only.
 	Product Kind = "product"
-	// Deprecated: a release-trial is read as a Trial; mankit signs Trial only.
+	// Deprecated: the trial is a rule in mankit, not a license (ADR-L9); a file of this kind is refused with ReasonRetiredKind.
+	Trial Kind = "trial"
+	// Deprecated: the trial is a rule in mankit, not a license (ADR-L9); a file of this kind is refused with ReasonRetiredKind.
 	ReleaseTrial Kind = "release-trial"
 )
 
@@ -42,36 +41,36 @@ const (
 	ReasonUnreadable   = "unreadable"
 	ReasonWrongPlace   = "wrong_place"
 	ReasonIDMismatch   = "id_mismatch"
+	ReasonRetiredKind  = "retired_kind"
 )
 
-// License is what a license file says, all of it signed but Started; contracts mankit/v3 license-payload says what each field means, license-file the file around it.
+// License is what a license file says, all of it signed; contracts mankit/v3 license-payload says what each field means, license-file the file around it.
 type License struct {
-	ID        string
-	Kind      Kind
-	For       string
-	Products  map[string][]string
-	Lines     map[string][]int
-	Issued    time.Time
-	Until     time.Time // zero when the payload has none
-	TrialDays int       // the payload's days: a trial's alone
+	ID       string
+	Kind     Kind
+	For      string
+	Products map[string][]string
+	Lines    map[string][]int
+	Issued   time.Time
+	Until    time.Time // zero when the payload has none
+	// Deprecated: a license has no days; the trial's length is mankit's one constant (ADR-L9). Ignored.
+	TrialDays int
 	KeyID     string
-	Started   *Started // unsigned, beside the payload; nil when the file has none
-	old       Kind     // the kind an old file named, which keeps its old place; empty for a file of FileAPIVersion
+	// Deprecated: a license file holds no trial; the trial's note is the app's own (ADR-L9). Always nil, and ignored by Sign.
+	Started *Started
+	old     Kind // the kind an old file named; empty for a file of FileAPIVersion
 }
 
-// Started is the trial a trial's file started, which the app writes beside the signed payload (contracts mankit/v3 license-file spec.started).
+// Started is when and on which install the app's trial started, as its trial note says (contracts mankit/v3 trial-started, ADR-L9).
 type Started struct {
 	Day      time.Time
 	Binary   string
 	FileTime time.Time
 }
 
-// Days is how many days the license runs, its first and last day included: the length of each trial a trial starts (ADR-L9), else issued to until, and 0 for a license that never ends.
+// Days is how many days the license runs, its first and last day included, issued to until; 0 for a license that never ends.
 func (l License) Days() int {
-	switch {
-	case l.Kind == Trial:
-		return l.TrialDays
-	case l.Until.IsZero():
+	if l.Until.IsZero() {
 		return 0
 	}
 	return daysBetween(l.Issued, l.Until) + 1
@@ -118,17 +117,9 @@ type file struct {
 		ID string `json:"id"`
 	} `json:"metadata"`
 	Spec struct {
-		Payload   []byte       `json:"payload"`
-		Signature []byte       `json:"signature"`
-		Started   *startedJSON `json:"started,omitempty"`
+		Payload   []byte `json:"payload"`
+		Signature []byte `json:"signature"`
 	} `json:"spec"`
-}
-
-// startedJSON is spec.started as the file holds it.
-type startedJSON struct {
-	Day      string `json:"day"`
-	Binary   string `json:"binary"`
-	FileTime string `json:"fileTime"`
 }
 
 // The license file's form and kind (ADR-S15, contracts apiversion/v1 forms.yaml): Sign writes FileAPIVersion, Verify reads it and, for one release, APIVersion.
@@ -148,21 +139,17 @@ type payload struct {
 	Lines    map[string][]int    `json:"lines,omitempty"`
 	Issued   string              `json:"issued"`
 	Until    string              `json:"until,omitempty"`
-	Days     int                 `json:"days,omitempty"`
 	KeyID    string              `json:"keyId"`
 }
 
 const day = "2006-01-02"
 
-// Sign is the license file of l in FileAPIVersion, signed by s with the key l.KeyID; a license Check refuses is refused before anything is signed, and so is a Started, which only the app writes.
+// Sign is the license file of l in FileAPIVersion, signed by s with the key l.KeyID; a license Check refuses is refused before anything is signed.
 func Sign(l License, s Signer) ([]byte, error) {
 	if err := l.Check(); err != nil {
 		return nil, err
 	}
-	if l.Started != nil {
-		return nil, errors.New("licenses: a signed file has no started trial; the app writes it")
-	}
-	p := payload{ID: l.ID, Kind: l.Kind, For: l.For, Products: l.Products, Lines: l.Lines, Issued: l.Issued.UTC().Format(day), Days: l.TrialDays, KeyID: l.KeyID}
+	p := payload{ID: l.ID, Kind: l.Kind, For: l.For, Products: l.Products, Lines: l.Lines, Issued: l.Issued.UTC().Format(day), KeyID: l.KeyID}
 	if !l.Until.IsZero() {
 		p.Until = l.Until.UTC().Format(day)
 	}
@@ -183,7 +170,7 @@ func Sign(l License, s Signer) ([]byte, error) {
 	return append(out, '\n'), err
 }
 
-// Verify is the license raw holds once its signature over the payload's stored bytes checks against a key t trusts for this build; otherwise a Problem refused with the reason why. An old file (APIVersion) is taken as today's kinds, and a person's trial key in one is refused.
+// Verify is the license raw holds once its signature over the payload's stored bytes checks against a key t trusts for this build; otherwise a Problem refused with the reason why. An old file (APIVersion) of an org or product license is taken as a KindLicense, and a trial of either form is refused with ReasonRetiredKind (ADR-L8, L9).
 func Verify(raw []byte, t Trust) (License, error) {
 	if err := t.check(); err != nil {
 		return License{}, err
@@ -206,6 +193,9 @@ func Verify(raw []byte, t Trust) (License, error) {
 	if err := decode(f.Spec.Payload, &p, false); err != nil {
 		return License{}, refused(ReasonUnreadable, "its license cannot be read")
 	}
+	if p.Kind == Trial || p.Kind == ReleaseTrial {
+		return License{}, refused(ReasonRetiredKind, fmt.Sprintf("it is an old %s file; the trial is a rule in every app now, not a license, so the file plays no part (ADR-L9)", p.Kind))
+	}
 	key, err := t.key(p.KeyID)
 	if err != nil {
 		return License{}, err
@@ -225,12 +215,7 @@ func Verify(raw []byte, t Trust) (License, error) {
 	if ierr != nil || uerr != nil {
 		return License{}, refused(ReasonUnreadable, "its days are not dates")
 	}
-	l := License{ID: p.ID, Kind: p.Kind, For: p.For, Products: p.Products, Lines: p.Lines, Issued: issued, Until: until, TrialDays: p.Days, KeyID: p.KeyID}
-	if f.Spec.Started != nil {
-		if l.Started, err = f.Spec.Started.read(); err != nil {
-			return License{}, err
-		}
-	}
+	l := License{ID: p.ID, Kind: p.Kind, For: p.For, Products: p.Products, Lines: p.Lines, Issued: issued, Until: until, KeyID: p.KeyID}
 	if head.APIVersion == APIVersion {
 		return fromOld(l)
 	}
@@ -240,35 +225,16 @@ func Verify(raw []byte, t Trust) (License, error) {
 	return l, nil
 }
 
-// fromOld is the license an old file (APIVersion) holds, checked by that form's rules and taken as today's kind: an org or product license as a KindLicense, a release-trial as a Trial whose offer never ends; a person's trial key no app takes any more (ADR-L8).
+// fromOld is the license an old file (APIVersion) holds, checked by that form's rules and taken as a KindLicense (ADR-L8).
 func fromOld(l License) (License, error) {
-	if l.Kind == Trial {
-		return License{}, refused(ReasonUnreadable, "it is a person's trial key of the old license form, which no app takes any more; every release starts its own trial (ADR-L8, L9)")
-	}
 	if len(l.Lines) > 0 {
 		return License{}, refused(ReasonUnreadable, "it names lines, which the old license form has not")
 	}
 	if err := l.checkOld(); err != nil {
 		return License{}, refused(ReasonUnreadable, err.Error())
 	}
-	l.old = l.Kind
-	switch l.Kind {
-	case Org, Product:
-		l.Kind = KindLicense
-	case ReleaseTrial:
-		l.Kind, l.Until = Trial, time.Time{}
-	}
+	l.old, l.Kind = l.Kind, KindLicense
 	return l, nil
-}
-
-// read is the started record, or why the file is unreadable: a day, a binary and a file time it must have.
-func (s startedJSON) read() (*Started, error) {
-	d, derr := time.Parse(day, s.Day)
-	ft, ferr := time.Parse(time.RFC3339, s.FileTime)
-	if derr != nil || ferr != nil || s.Binary == "" {
-		return nil, refused(ReasonUnreadable, "its started trial is not a day, a binary and a file time")
-	}
-	return &Started{Day: d, Binary: s.Binary, FileTime: ft}, nil
 }
 
 // key is the public key id names for this build, or why the license is refused: a key of the other build (ADR-L5) or one this build does not trust (ADR-L6).
@@ -289,13 +255,15 @@ func (t Trust) key(id string) (ed25519.PublicKey, error) {
 // ErrNotTaken is the code of every error Check gives: the license says something no app takes.
 var ErrNotTaken = errors.New("licenses: no app takes this license")
 
-// Check refuses, with ErrNotTaken, a license Sign would not write: anything contracts mankit/v3 license-payload refuses, an old kind, or a license whose lines name other products than its products (ADR-L10); it needs no signer, so a tool checks a license before it reads a key.
+// Check refuses, with ErrNotTaken, a license Sign would not write: anything contracts mankit/v3 license-payload refuses, an old kind or a trial, or a license whose lines name other products than its products (ADR-L10); it needs no signer, so a tool checks a license before it reads a key.
 func (l License) Check() error {
 	switch {
-	case l.Kind == Org || l.Kind == Product || l.Kind == ReleaseTrial:
-		return fmt.Errorf("%w: the kind %q is of the old license form, which mankit reads for one release and never signs; it is %s or %s now", ErrNotTaken, l.Kind, KindLicense, Trial)
-	case l.Kind != KindLicense && l.Kind != Trial:
-		return fmt.Errorf("%w: the kind %q is not %s or %s", ErrNotTaken, l.Kind, KindLicense, Trial)
+	case l.Kind == Trial || l.Kind == ReleaseTrial:
+		return fmt.Errorf("%w: the kind %q is retired: the trial is a rule in every app, not a license (ADR-L9)", ErrNotTaken, l.Kind)
+	case l.Kind == Org || l.Kind == Product:
+		return fmt.Errorf("%w: the kind %q is of the old license form, which mankit reads for one release and never signs; it is %s now", ErrNotTaken, l.Kind, KindLicense)
+	case l.Kind != KindLicense:
+		return fmt.Errorf("%w: the kind %q is not %s", ErrNotTaken, l.Kind, KindLicense)
 	}
 	if err := l.checkCommon(); err != nil {
 		return err
@@ -303,14 +271,7 @@ func (l License) Check() error {
 	if err := checkLines(l.Lines); err != nil {
 		return err
 	}
-	if l.Kind == Trial {
-		return l.checkTrial()
-	}
 	switch {
-	case l.TrialDays != 0:
-		return fmt.Errorf("%w: a license has no days; only a trial has", ErrNotTaken)
-	case l.Started != nil:
-		return fmt.Errorf("%w: a license has no started trial; only a trial's file has", ErrNotTaken)
 	case len(l.Products) == 0:
 		return fmt.Errorf("%w: a license names its products", ErrNotTaken)
 	case l.Until.IsZero() == (len(l.Lines) == 0):
@@ -322,26 +283,6 @@ func (l License) Check() error {
 	for product := range l.Lines {
 		if _, ok := l.Products[product]; !ok || len(l.Lines) != len(l.Products) {
 			return fmt.Errorf("%w: its lines name other products than its products (ADR-L10)", ErrNotTaken)
-		}
-	}
-	return nil
-}
-
-// checkTrial refuses a trial that names products or an until, runs no day, or names other than one line of one product (ADR-L9).
-func (l License) checkTrial() error {
-	switch {
-	case len(l.Products) > 0:
-		return fmt.Errorf("%w: a trial names no products; it opens every enterprise feature of its app", ErrNotTaken)
-	case !l.Until.IsZero():
-		return fmt.Errorf("%w: a trial has no until; its offer does not end", ErrNotTaken)
-	case l.TrialDays < 1:
-		return fmt.Errorf("%w: a trial runs %d days, not 1 or more", ErrNotTaken, l.TrialDays)
-	case len(l.Lines) != 1:
-		return fmt.Errorf("%w: a trial names the one line of its one product, not %d products", ErrNotTaken, len(l.Lines))
-	}
-	for _, lines := range l.Lines {
-		if len(lines) != 1 {
-			return fmt.Errorf("%w: a trial names the one line it was signed for, not %d", ErrNotTaken, len(lines))
 		}
 	}
 	return nil
@@ -382,11 +323,11 @@ func checkLines(lines map[string][]int) error {
 	return nil
 }
 
-// checkOld refuses what the old form (APIVersion) did not take; contracts mankit/v1 license-payload and license-file say what that is (CT-RULE-5).
+// checkOld refuses what the old form (APIVersion) did not take of an org or product license; contracts mankit/v1 license-payload and license-file say what that is (CT-RULE-5).
 func (l License) checkOld() error {
 	switch {
-	case l.Kind != Org && l.Kind != Product && l.Kind != ReleaseTrial:
-		return fmt.Errorf("%w: the kind %q is not %s, %s or %s", ErrNotTaken, l.Kind, Org, Product, ReleaseTrial)
+	case l.Kind != Org && l.Kind != Product:
+		return fmt.Errorf("%w: the kind %q is not %s or %s", ErrNotTaken, l.Kind, Org, Product)
 	case l.Until.IsZero():
 		return fmt.Errorf("%w: it has no last day", ErrNotTaken)
 	}
@@ -398,33 +339,8 @@ func (l License) checkOld() error {
 		return fmt.Errorf("%w: a product license names one product, not %d", ErrNotTaken, len(l.Products))
 	case l.Kind == Org && len(l.Products) == 0:
 		return fmt.Errorf("%w: an org license names its products", ErrNotTaken)
-	case l.Kind != ReleaseTrial && l.TrialDays != 0:
-		return fmt.Errorf("%w: a %s license has no days; only a release-trial has", ErrNotTaken, l.Kind)
-	case l.Kind != ReleaseTrial && l.Started != nil:
-		return fmt.Errorf("%w: a %s license has no started trial; only a release-trial's file has", ErrNotTaken, l.Kind)
-	case l.Kind == ReleaseTrial:
-		return l.checkReleaseTrial()
 	}
 	return checkFeatures(l.Products)
-}
-
-// checkReleaseTrial refuses a release-trial that names other than its one product, names a feature id, runs no day, or started its trial after its last day to start one (ADR-L9).
-func (l License) checkReleaseTrial() error {
-	if len(l.Products) != 1 {
-		return fmt.Errorf("%w: a release-trial names one product, its app, not %d", ErrNotTaken, len(l.Products))
-	}
-	for product, ids := range l.Products {
-		if product == "" || len(ids) > 0 {
-			return fmt.Errorf("%w: a release-trial names its app's product id and no feature ids; it opens every enterprise feature of that app", ErrNotTaken)
-		}
-	}
-	switch {
-	case l.TrialDays < 1:
-		return fmt.Errorf("%w: a release-trial runs %d days, not 1 or more", ErrNotTaken, l.TrialDays)
-	case l.Started != nil && date(l.Started.Day).After(date(l.Until)):
-		return fmt.Errorf("%w: its trial started on %s, after %s, its last day to start one", ErrNotTaken, l.Started.Day.Format(day), l.Until.Format(day))
-	}
-	return nil
 }
 
 // decode decodes raw into v, refusing anything after it, and a field v does not have when closed.
