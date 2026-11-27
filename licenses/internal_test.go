@@ -48,3 +48,12 @@ func TestUnchooseReturnsAnErrorItCannotExplain(t *testing.T) {
 		}
 	}
 }
+
+func TestAnIDKeptForOldFilesIsNotTaken(t *testing.T) {
+	for _, id := range []string{oldID(PlaceOrg), oldID(PlaceApp)} {
+		l := License{ID: id, For: "ada@acme.example", KeyID: "test-2026"}
+		if err := l.checkCommon(); !errors.Is(err, ErrNotTaken) {
+			t.Errorf("checkCommon(%q) = %v, want ErrNotTaken", id, err)
+		}
+	}
+}

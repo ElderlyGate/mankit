@@ -293,6 +293,8 @@ func (l License) checkCommon() error {
 	switch {
 	case l.ID == "" || strings.ContainsFunc(l.ID, unicode.IsSpace):
 		return fmt.Errorf("%w: its id %q is empty or holds a space", ErrNotTaken, l.ID)
+	case l.ID == oldID(PlaceOrg) || l.ID == oldID(PlaceApp):
+		return fmt.Errorf("%w: its id %q is kept for an old file too broken to name one", ErrNotTaken, l.ID)
 	case strings.TrimSpace(l.For) == "":
 		return fmt.Errorf("%w: it names nobody it is for", ErrNotTaken)
 	case l.KeyID == "":

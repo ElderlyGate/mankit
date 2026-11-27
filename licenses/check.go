@@ -208,7 +208,7 @@ func refusal(path string, pl Place, raw []byte, err error) Refused {
 	case decode(raw, &head, false) == nil && head.Metadata.ID != "":
 		r.ID = head.Metadata.ID
 	default:
-		r.ID = "old-" + string(pl)
+		r.ID = oldID(pl)
 	}
 	var p *problem.Problem
 	if errors.As(err, &p) {
@@ -216,6 +216,9 @@ func refusal(path string, pl Place, raw []byte, err error) Refused {
 	}
 	return r
 }
+
+// oldID is the id of an old single file in the place pl too broken to give one; no license may take it.
+func oldID(pl Place) string { return "old-" + string(pl) }
 
 // inFolder reports whether path is a file of a licenses folder, not an old single file.
 func inFolder(path string) bool { return filepath.Base(filepath.Dir(path)) == folder }
