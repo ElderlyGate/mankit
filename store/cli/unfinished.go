@@ -4,7 +4,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -238,13 +237,4 @@ func keyList(keys []store.Key) string {
 		out[i] = string(k)
 	}
 	return strings.Join(out, ", ")
-}
-
-// problemType is err's Problem type, empty for an error that is no Problem.
-func problemType(err error) string {
-	var p *problem.Problem
-	if errors.As(err, &p) {
-		return p.Type
-	}
-	return ""
 }

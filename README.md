@@ -630,6 +630,7 @@ trust, err := licenses.Trusted() // the org's keys for this build
 c, err := licenses.New(licenses.Config{ID: "designer", Trust: trust})
 list := features.New(all, store, c.Closer(all))
 root.AddCommand(cli.Command(app, c, list, asker.Ask))
+site.Routes = append(site.Routes, cli.Routes(c, list)...) // the same thing over HTTP
 ```
 
 An app builds its Checker with `licenses/cli.Checker(app, trust)`, so its title
@@ -649,6 +650,13 @@ comes from its `serve.App` and its line from the build stamp (`build.Line()`).
 - `Checker.Show` is the `license show` answer, the same for a Settings page and
   the top bar's badge; it works out the state and warn once.
 - `Checker.Add` and `Checker.Remove` are `license add` and `license remove`.
+- `cli.Routes(c, list)` is the thing over HTTP at `cli.Path` (`/api/license`),
+  calling the same Checker: `GET` is `license show -o json`, byte for byte;
+  `POST` takes a license file as its JSON body, as `license add`; `DELETE` is
+  `license remove`. A change asks the CLI's question as serve asks every change
+  (428 with a Question, then `confirm=<id>`, or `confirm=yes` with Bearer); a
+  file it cannot keep (400) or nothing to remove (404 `not_found`) is answered
+  without a question.
 - `Checker.StartTrial(ctx, key, binary)` is the one call an app makes at
   start, with its built-in trial key and its executable's path
   (`os.Executable()` as it is: StartTrial resolves links itself). What it does

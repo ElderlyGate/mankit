@@ -187,6 +187,20 @@ func WriteError(w http.ResponseWriter, r *http.Request, status int, err error) {
 	WriteErrorNamed(w, r, "", status, err)
 }
 
+// StatusOf is the HTTP status of err: not_found 404, refused 400, anything else the server's own failure.
+func StatusOf(err error) int {
+	var p *problem.Problem
+	if errors.As(err, &p) {
+		switch p.Type {
+		case problem.TypeNotFound:
+			return http.StatusNotFound
+		case problem.TypeRefused:
+			return http.StatusBadRequest
+		}
+	}
+	return http.StatusInternalServerError
+}
+
 // WriteErrorNamed answers err like WriteError, naming the thing the answer is about.
 func WriteErrorNamed(w http.ResponseWriter, r *http.Request, name string, status int, err error) {
 	s := answering(r, name)

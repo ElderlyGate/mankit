@@ -125,8 +125,8 @@ func (w *world) putIn(dir string, raw []byte) {
 	}
 }
 
-// run runs `license` words as an app mounts the thing; the events feature is switched on, as an owner would.
-func (w *world) run(words ...string) (string, error) {
+// door is the Checker and the feature list an app mounts the thing license with, on the world's day and line; the events feature is switched on, as an owner would.
+func (w *world) door() (*licenses.Checker, *features.List) {
 	w.t.Helper()
 	cli.SetNow(w.t, func() time.Time { return day(w.today) })
 	cli.SetLine(w.t, w.line)
@@ -135,7 +135,13 @@ func (w *world) run(words ...string) (string, error) {
 		w.t.Fatal(err)
 	}
 	store := features.Store{Off: func() ([]string, error) { return nil, nil }, Keep: func(string, bool) error { return nil }, On: func() ([]string, error) { return []string{"events"}, nil }}
-	list := features.New(all, store, c.Closer(all))
+	return c, features.New(all, store, c.Closer(all))
+}
+
+// run runs `license` words as an app mounts the thing; the events feature is switched on, as an owner would.
+func (w *world) run(words ...string) (string, error) {
+	w.t.Helper()
+	c, list := w.door()
 	asked := func(cc *cobra.Command, a ask.Action) error {
 		w.asked = a.What
 		if f := cc.Flags().Lookup("yes"); f == nil || f.Value.String() != "true" {
@@ -149,7 +155,7 @@ func (w *world) run(words ...string) (string, error) {
 	root.SetOut(&out)
 	root.SetErr(&out)
 	root.SetArgs(append([]string{"license"}, words...))
-	err = root.Execute()
+	err := root.Execute()
 	return out.String(), err
 }
 

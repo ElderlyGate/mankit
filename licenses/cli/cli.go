@@ -70,16 +70,11 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		if err != nil {
 			return problem.FailAt(problem.TypeRefused, licenses.ReasonUnreadable, args[0], fmt.Sprintf("%s cannot be read: %v", args[0], err))
 		}
-		t, err := c.Check(raw, true)
+		action, err := adding(c, raw)
 		if err != nil {
 			return failAt(err, args[0])
 		}
-		found, err := c.Read()
-		if err != nil {
-			return err
-		}
-		what := fmt.Sprintf("keep the license for %s%s, read by every app, in %s%s", t.For, runs(t), t.File, replacing(found, t.File))
-		if err := confirm(cc, ask.Action{Type: ask.Settings, What: what, Name: "license"}); err != nil {
+		if err := confirm(cc, action); err != nil {
 			return err
 		}
 		if _, err := c.Add(cc.Context(), raw, true); err != nil {
@@ -98,16 +93,11 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 		if err := removeOut.Check(); err != nil {
 			return err
 		}
-		shown, err := c.Removing()
+		shown, action, err := removing(c)
 		if err != nil {
 			return err
 		}
-		files := make([]string, len(shown))
-		for i, r := range shown {
-			files[i] = r.File
-		}
-		what := "remove the license file " + strings.Join(files, " and ") + "; the trial stays"
-		if err := confirm(cc, ask.Action{Type: ask.Settings, What: what, Name: "license"}); err != nil {
+		if err := confirm(cc, action); err != nil {
 			return err
 		}
 		if err := c.Remove(cc.Context(), shown); err != nil {
@@ -117,6 +107,34 @@ func Command(a serve.App, c *licenses.Checker, list *features.List, confirm func
 	}
 	cmd.AddCommand(show, add, remove)
 	return cmd
+}
+
+// adding is the question license add asks before it keeps the license raw holds, from the CLI and over HTTP alike, or the Problem why raw cannot be kept.
+func adding(c *licenses.Checker, raw []byte) (ask.Action, error) {
+	t, err := c.Check(raw, true)
+	if err != nil {
+		return ask.Action{}, err
+	}
+	found, err := c.Read()
+	if err != nil {
+		return ask.Action{}, err
+	}
+	what := fmt.Sprintf("keep the license for %s%s, read by every app, in %s%s", t.For, runs(t), t.File, replacing(found, t.File))
+	return ask.Action{Type: ask.Settings, What: what, Name: "license"}, nil
+}
+
+// removing is what license remove takes away and the question it asks first, from the CLI and over HTTP alike; with nothing to remove it is a Problem not_found.
+func removing(c *licenses.Checker) ([]licenses.Removal, ask.Action, error) {
+	shown, err := c.Removing()
+	if err != nil {
+		return nil, ask.Action{}, err
+	}
+	files := make([]string, len(shown))
+	for i, r := range shown {
+		files[i] = r.File
+	}
+	what := "remove the license file " + strings.Join(files, " and ") + "; the trial stays"
+	return shown, ask.Action{Type: ask.Settings, What: what, Name: "license"}, nil
 }
 
 // runs is how long t runs, as the question says it: until its last day, or on with none.

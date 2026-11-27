@@ -26,7 +26,7 @@ func UnfinishedRoutes(open func() (*store.Scope, error)) []serve.Route {
 		{Pattern: http.MethodGet + " " + UnfinishedPath, Handler: func(w http.ResponseWriter, r *http.Request) {
 			data, err := listed(open, r.URL.Query().Get("thing"))
 			if err != nil {
-				serve.WriteError(w, r, statusOf(err), err)
+				serve.WriteError(w, r, serve.StatusOf(err), err)
 				return
 			}
 			serve.Write(w, r, http.StatusOK, UnfinishedListKind, data)
@@ -47,7 +47,7 @@ func UnfinishedRoutes(open func() (*store.Scope, error)) []serve.Route {
 			Handler: func(w http.ResponseWriter, r *http.Request) {
 				thing, err := store.ParseThing(r.PathValue("thing"))
 				if err != nil {
-					serve.WriteError(w, r, statusOf(err), err)
+					serve.WriteError(w, r, serve.StatusOf(err), err)
 					return
 				}
 				marks := r.URL.Query()["id"]
@@ -58,28 +58,17 @@ func UnfinishedRoutes(open func() (*store.Scope, error)) []serve.Route {
 				}
 				s, err := open()
 				if err != nil {
-					serve.WriteError(w, r, statusOf(err), err)
+					serve.WriteError(w, r, serve.StatusOf(err), err)
 					return
 				}
 				defer s.Close()
 				data, err := clearShown(r.Context(), s, thing, marks)
 				if err != nil {
-					serve.WriteError(w, r, statusOf(err), err)
+					serve.WriteError(w, r, serve.StatusOf(err), err)
 					return
 				}
 				serve.Write(w, r, http.StatusOK, ClearedKind, data)
 			},
 		},
 	}
-}
-
-// statusOf is the HTTP status of err: not_found 404, refused 400, anything else the server's own failure.
-func statusOf(err error) int {
-	switch problemType(err) {
-	case problem.TypeNotFound:
-		return http.StatusNotFound
-	case problem.TypeRefused:
-		return http.StatusBadRequest
-	}
-	return http.StatusInternalServerError
 }
