@@ -1,24 +1,31 @@
 package licenses
 
 import (
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/tugbayatilla/mankit/v4/features"
 	"github.com/tugbayatilla/mankit/v4/problem"
 )
 
-// ShowKind is the kind of the `<app> license show` answer; contracts mankit/v1 license-show says what each field of Show means.
+// ShowKind is the kind of the `<app> license show` answer; contracts mankit/v3 license-show says what each field of Show means.
 const ShowKind = "LicenseShow"
 
 // The words of Show.State.
 const (
-	StateNone       = "none"
-	StateTrial      = "trial"
+	StateFree     = "free"
+	StateTrial    = "trial"
+	StateLicensed = "licensed"
+	// Deprecated: no license or trial runs is StateFree.
+	StateNone = "none"
+	// Deprecated: an ended trial is StateFree with Show.Warn.
 	StateTrialEnded = "trial-ended"
-	StateLicensed   = "licensed"
-	StateEnding     = "ending"
-	StateEnded      = "ended"
+	// Deprecated: a license ending is StateLicensed with Show.Warn.
+	StateEnding = "ending"
+	// Deprecated: an ended license is StateFree with Show.EndedOn and Show.Warn.
+	StateEnded = "ended"
 )
 
 // Show is the `<app> license show` answer, the same for the CLI, its JSON and the License group of the app's Settings page (ADR-L8).
@@ -41,15 +48,38 @@ type Build struct {
 
 // ShownFile is one license taken.
 type ShownFile struct {
-	Kind      Kind    `json:"kind" yaml:"kind"`
-	For       string  `json:"for" yaml:"for"`
-	Until     string  `json:"until" yaml:"until"`
-	TrialEnds string  `json:"trialEnds,omitempty" yaml:"trialEnds,omitempty"`
-	OfferEnds string  `json:"offerEnds,omitempty" yaml:"offerEnds,omitempty"`
-	DaysLeft  int     `json:"daysLeft" yaml:"daysLeft"`
-	Ended     bool    `json:"ended" yaml:"ended"`
-	KeyID     string  `json:"keyId" yaml:"keyId"`
-	Window    *Window `json:"window,omitempty" yaml:"window,omitempty"`
+	Kind      Kind             `json:"kind" yaml:"kind"`
+	For       string           `json:"for" yaml:"for"`
+	Lines     map[string][]int `json:"lines,omitempty" yaml:"lines,omitempty"`
+	Until     string           `json:"until,omitempty" yaml:"until,omitempty"`
+	TrialEnds string           `json:"trialEnds,omitempty" yaml:"trialEnds,omitempty"`
+	DaysLeft  int              `json:"daysLeft" yaml:"daysLeft"` // written only when Ends has a day
+	Ended     bool             `json:"ended" yaml:"ended"`
+	KeyID     string           `json:"keyId" yaml:"keyId"`
+	Window    *Window          `json:"window,omitempty" yaml:"window,omitempty"`
+	// Deprecated: a trial's offer never ends, so it is always empty and never written.
+	OfferEnds string `json:"-" yaml:"-"`
+}
+
+// Ends is the last day DaysLeft counts to: a license's until, else a started trial's end; empty when there is none.
+func (r ShownFile) Ends() string {
+	if r.Until != "" {
+		return r.Until
+	}
+	return r.TrialEnds
+}
+
+// MarshalJSON writes daysLeft only when the row has a last day, as contracts mankit/v3 license-show takes it.
+func (r ShownFile) MarshalJSON() ([]byte, error) {
+	type row ShownFile
+	out := struct {
+		row
+		DaysLeft *int `json:"daysLeft,omitempty"`
+	}{row: row(r)}
+	if r.Ends() != "" {
+		out.DaysLeft = &r.DaysLeft
+	}
+	return json.Marshal(out)
 }
 
 // Window is the countdown the License group's bar shows; its days left are the license's DaysLeft.
@@ -79,7 +109,7 @@ type FeatureRow struct {
 	Until          string `json:"until,omitempty" yaml:"until,omitempty"`
 }
 
-// Show is the answer for the features list holds, which the Checker's Closer closes: its licenses as read now, and each feature's state and where it is unlocked from; any running paid license within LicenseExpiring's paid point makes it ending, as ADR-L3 counts per license and a product license may cover features the org license does not.
+// Show is the answer for the features list holds, which the Checker's Closer closes: its licenses as read now, the state and warn as verdict works them out, and each feature's state and where it is unlocked from.
 func (c *Checker) Show(list *features.List) (Show, error) {
 	states, err := list.States()
 	if err != nil {
@@ -89,23 +119,23 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	if err != nil {
 		return Show{}, err
 	}
-	state, endedOn := f.state()
-	out := Show{State: state, Build: Build{Release: c.Release()}, Licenses: []ShownFile{}, Refused: []RefusedRow{}, Features: []FeatureRow{}}
-	if !endedOn.IsZero() {
-		out.EndedOn = endedOn.Format(day)
+	v := f.verdict()
+	out := Show{State: v.state, Warn: v.warn, Build: Build{Release: c.Release()}, Licenses: []ShownFile{}, Refused: []RefusedRow{}, Features: []FeatureRow{}}
+	if !v.endedOn.IsZero() {
+		out.EndedOn = v.endedOn.Format(day)
 	}
 	for _, t := range f.Taken {
-		row := ShownFile{Kind: t.Kind, For: t.For, Until: t.LastDay.Format(day), DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
-		if t.Kind == ReleaseTrial {
-			row.OfferEnds = t.Until.Format(day)
-			if t.Started != nil {
-				row.TrialEnds = t.LastDay.Format(day)
-			}
+		row := ShownFile{Kind: t.Kind, For: t.For, Lines: t.Lines, DaysLeft: t.DaysLeft, Ended: t.Ended, KeyID: t.KeyID}
+		switch {
+		case t.Kind == KindLicense && !t.Until.IsZero():
+			row.Until = t.Until.Format(day)
+		case t.Kind == Trial && t.Started != nil:
+			row.TrialEnds = t.LastDay.Format(day)
 		}
 		switch {
-		case (t.Kind == Trial || t.Kind == ReleaseTrial) && t.Running():
+		case t.Kind == Trial && t.Running():
 			row.Window = &Window{Of: t.Days()}
-		case (t.Kind == Org || t.Kind == Product) && t.Running() && LicenseExpiring.Warns(t.Kind, t.DaysLeft):
+		case t.Running() && !t.LastDay.IsZero() && LicenseExpiring.Warns(t.Kind, t.DaysLeft):
 			row.Window = &Window{Of: LicenseExpiring.Paid}
 		}
 		out.Licenses = append(out.Licenses, row)
@@ -125,89 +155,97 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 		if s.By == features.License {
 			out.Counts.Locked++
 		}
-		row := FeatureRow{State: s, From: FromNone}
-		if from, until := f.From(s.Feature); from != FromNone {
-			row.From, row.Until = from, until.Format(day)
+		from, until := f.From(s.Feature)
+		row := FeatureRow{State: s, From: from}
+		if !until.IsZero() {
+			row.Until = until.Format(day)
 		}
 		out.Features = append(out.Features, row)
 	}
-	out.Sentence, out.Warn = says(out, c.c.Title)
+	out.Sentence = v.says(c.name())
 	return out, nil
 }
 
-// says is the owner's sentence for the state of s, naming the app as name, empty for a state it has none for, and whether that state warns.
-func says(s Show, name string) (string, bool) {
-	switch s.State {
-	case StateTrial:
-		for _, l := range s.Licenses {
-			// Only a running trial's row has a window.
-			if l.Window == nil {
-				continue
-			}
-			ends := l.Until
-			if l.TrialEnds != "" {
-				ends = l.TrialEnds
-			}
-			days := "days"
-			if l.DaysLeft == 1 {
-				days = "day"
-			}
-			return fmt.Sprintf("Trial: %d %s left (ends %s)", l.DaysLeft, days, ends), LicenseExpiring.Warns(l.Kind, l.DaysLeft)
-		}
-	case StateTrialEnded:
-		return "Your trial has ended. Buy a license to keep the paid features.", true
-	case StateEnded, StateEnding:
-		return "", true
-	case StateLicensed:
-		for _, l := range s.Licenses {
-			// The license names no product line yet (ADR-L10), so the line waits for the purchase MVP.
-			if (l.Kind == Org || l.Kind == Product) && !l.Ended {
-				return fmt.Sprintf("Licensed to %s · %s", l.For, name), false
-			}
-		}
-	case StateNone:
-		for _, l := range s.Licenses {
-			if l.Kind == ReleaseTrial && l.TrialEnds == "" && l.Ended {
-				return "This version doesn't include a free trial anymore. Download the latest version to try " + name + ".", false
-			}
-		}
+// name is the app as the sentence names it: its title and, when it has one, its line, like Designer 1 (V-10).
+func (c *Checker) name() string {
+	if c.c.Line > 0 {
+		return c.c.Title + " " + strconv.Itoa(c.c.Line)
 	}
-	return "", false
+	return c.c.Title
 }
 
-// state is one word for the app: a running paid license, ending once any running one is within LicenseExpiring's paid point, else an ended one, whose notice stays until it is replaced or removed (ADR-L3), else a running trial key or release-trial, else an ended one, else none; one not begun, or a release-trial not started, counts as none. When it is ended, the day is the latest last day of the ended paid licenses.
-func (f Found) state() (string, time.Time) {
-	var paid, ending, ended, trial, trialEnded bool
-	var endedOn time.Time
-	for _, t := range f.Taken {
-		isTrial := t.Kind == Trial || t.Kind == ReleaseTrial
+// verdict is the app's license state, worked out once for every surface (ADR-L3): the state and whether it warns, the day a license ended, the running license that ends last and the running trial, and whether a trial has ended.
+type verdict struct {
+	state      string
+	warn       bool
+	endedOn    time.Time
+	license    *Taken
+	trial      *Taken
+	trialEnded bool
+}
+
+// verdict is the state contracts mankit/v3 license-show names: licensed while a license runs, warning once the one that ends last is within LicenseExpiring; else trial while a trial runs, warning in its last days; else free, warning once a trial or a license has ended, until it is replaced or removed, with the latest day an ended license ran.
+func (f Found) verdict() verdict {
+	var v verdict
+	licenseEnded := false
+	for i := range f.Taken {
+		t := &f.Taken[i]
 		switch {
-		case t.Kind == ReleaseTrial && t.Started == nil:
-		case isTrial && t.Ended:
-			trialEnded = true
-		case isTrial && t.Running():
-			trial = true
-		case t.Ended:
-			ended = true
-			if t.Until.After(endedOn) {
-				endedOn = t.Until
-			}
+		case t.Kind == Trial && t.Running():
+			v.trial = t
+		case t.Kind == Trial:
+			v.trialEnded = v.trialEnded || t.Ended
 		case t.Running():
-			paid = true
-			ending = ending || LicenseExpiring.Warns(t.Kind, t.DaysLeft)
+			if v.license == nil || endsLater(*t, *v.license) {
+				v.license = t
+			}
+		case t.Ended && !t.Elsewhere:
+			licenseEnded = true
+			if t.Until.After(v.endedOn) {
+				v.endedOn = t.Until
+			}
 		}
 	}
 	switch {
-	case ending:
-		return StateEnding, time.Time{}
-	case paid:
-		return StateLicensed, time.Time{}
-	case ended:
-		return StateEnded, endedOn
-	case trial:
-		return StateTrial, time.Time{}
-	case trialEnded:
-		return StateTrialEnded, time.Time{}
+	case v.license != nil:
+		v.state = StateLicensed
+		v.warn = !v.license.LastDay.IsZero() && LicenseExpiring.Warns(KindLicense, v.license.DaysLeft)
+		v.endedOn = time.Time{}
+	case v.trial != nil:
+		v.state = StateTrial
+		v.warn = LicenseExpiring.Warns(Trial, v.trial.DaysLeft)
+		v.endedOn = time.Time{}
+	default:
+		v.state = StateFree
+		v.warn = v.trialEnded || licenseEnded
 	}
-	return StateNone, time.Time{}
+	return v
+}
+
+// endsLater reports whether a ends after b, a license that never ends after every other.
+func endsLater(a, b Taken) bool {
+	switch {
+	case b.LastDay.IsZero():
+		return false
+	case a.LastDay.IsZero():
+		return true
+	}
+	return a.LastDay.After(b.LastDay)
+}
+
+// says is the owner's sentence for the verdict, naming the app as name: a running license, a running trial and an ended trial have one, every other state none.
+func (v verdict) says(name string) string {
+	switch {
+	case v.state == StateLicensed:
+		return fmt.Sprintf("Licensed to %s · %s", v.license.For, name)
+	case v.state == StateTrial:
+		days := "days"
+		if v.trial.DaysLeft == 1 {
+			days = "day"
+		}
+		return fmt.Sprintf("Trial: %d %s left (ends %s)", v.trial.DaysLeft, days, v.trial.LastDay.Format(day))
+	case v.trialEnded:
+		return "Your trial has ended. Buy a license to keep the paid features."
+	}
+	return ""
 }
