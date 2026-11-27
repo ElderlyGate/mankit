@@ -457,7 +457,7 @@ func TestShowARefusedFile(t *testing.T) {
 	s, l := w.show(), w.list()
 	if s.State != licenses.StateFree || s.License != nil || len(l.Licenses) != 0 || len(l.Refused) != 2 ||
 		l.Refused[0].Reason != licenses.ReasonRetiredKind || l.Refused[0].File != filepath.Join(w.appDir(), "license") || l.Refused[0].ID != "ada-trial" ||
-		l.Refused[1].Reason != licenses.ReasonUnreadable || l.Refused[1].File != filepath.Join(w.org, "license") || l.Refused[1].ID != "" {
+		l.Refused[1].Reason != licenses.ReasonUnreadable || l.Refused[1].File != filepath.Join(w.org, "license") || l.Refused[1].ID != "old-org" {
 		t.Fatalf("show = %+v, list = %+v", s, l)
 	}
 }
@@ -676,5 +676,22 @@ func TestListShowAndShowIDGiveOneRow(t *testing.T) {
 	}
 	if table := w.mustRun("list"); !regexp.MustCompile(`(?m)^REFUSED +ID +REASON\n.*junk\.license +junk +`).MatchString(table) {
 		t.Fatalf("list table %q", table)
+	}
+}
+
+// A broken old single file keeps its id old-org or old-app in list and show <id>: refused, not not_found (remove <id> is checked in licenses).
+func TestAnOldFileWithNoIDIsKnownByItsPlaceEverywhere(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOldOrg([]byte("not a license"))
+	w.putOldApp([]byte(`{"metadata":{}}`))
+	l := w.list()
+	if len(l.Refused) != 2 || l.Refused[0].ID != "old-app" || l.Refused[1].ID != "old-org" {
+		t.Fatalf("list = %+v", l)
+	}
+	for _, id := range []string{"old-org", "old-app"} {
+		var p *problem.Problem
+		if _, err := w.run("show", id, "-o", "json"); !errors.As(err, &p) || p.Type != problem.TypeRefused {
+			t.Fatalf("show %s: %v", id, err)
+		}
 	}
 }

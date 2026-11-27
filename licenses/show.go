@@ -126,7 +126,7 @@ type Window struct {
 
 // RefusedRow is one license file refused.
 type RefusedRow struct {
-	ID     string `json:"id,omitempty" yaml:"id,omitempty"` // the id license remove takes for it; empty for an old single file too broken to give one
+	ID     string `json:"id,omitempty" yaml:"id,omitempty"` // the id show <id> and license remove take for it: old-org or old-app for an old single file too broken to give one
 	File   string `json:"file" yaml:"file"`
 	Type   string `json:"type" yaml:"type"`
 	Reason string `json:"reason" yaml:"reason"`
@@ -162,9 +162,10 @@ func (c *Checker) Show(list *features.List) (Show, error) {
 	if !v.endedOn.IsZero() {
 		out.EndedOn = v.endedOn.Format(day)
 	}
-	for i := range rows.Licenses {
-		if rows.Licenses[i].Active {
-			out.License = &rows.Licenses[i]
+	for _, row := range rows.Licenses {
+		if row.Active {
+			out.License = &row
+			break
 		}
 	}
 	if t := f.Trial; t != nil {
@@ -216,15 +217,10 @@ func (c *Checker) License(id string) (ShownFile, error) {
 			return row, nil
 		}
 	}
-	for _, r := range f.Refused {
-		if r.ID == id {
-			return ShownFile{}, problem.FailAt(problem.TypeRefused, r.Reason, r.File, fmt.Sprintf("the license %s is refused: %s", id, r.Detail))
-		}
-	}
-	return ShownFile{}, problem.Fail(problem.TypeNotFound, "", fmt.Sprintf("there is no license %s for %s", id, f.product))
+	return ShownFile{}, f.missing(id)
 }
 
-// list is the rows of f's licenses and refused files, built here alone, so license list, show and show <id> give a license alike (ADR-L8): a refused file's id is its file name in a licenses folder, and none for an old single file too broken to give one.
+// list is the rows of f's licenses and refused files, built here alone, so license list, show and show <id> give a license alike (ADR-L8): a refused file's id is the one refusal gives it.
 func (f Found) list() List {
 	out := List{Licenses: []ShownFile{}, Refused: []RefusedRow{}}
 	for _, t := range f.Taken {
@@ -241,11 +237,7 @@ func (f Found) list() List {
 		out.Licenses = append(out.Licenses, row)
 	}
 	for _, r := range f.Refused {
-		row := RefusedRow{ID: r.ID, File: r.File, Type: problem.TypeRefused, Reason: r.Reason}
-		if !inFolder(r.File) && (r.ID == oldID(PlaceApp) || r.ID == oldID(PlaceOrg)) {
-			row.ID = ""
-		}
-		out.Refused = append(out.Refused, row)
+		out.Refused = append(out.Refused, RefusedRow{ID: r.ID, File: r.File, Type: problem.TypeRefused, Reason: r.Reason})
 	}
 	return out
 }

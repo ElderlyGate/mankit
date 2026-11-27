@@ -12,14 +12,14 @@ import (
 	"github.com/tugbayatilla/mankit/v4/serve"
 )
 
-// Path is the thing license over HTTP (G-STACK-4).
+// Path is the app's license over HTTP: GET answers as `license show` does (G-STACK-4).
 const Path = "/api/license"
 
-// ListPath is the app's licenses over HTTP: GET ListPath answers as `license list` does, GET ListPath/{id} as `license show <id>` does.
+// ListPath is the root of the app's licenses over HTTP (G-STACK-4): one root, as every route with an id or a change is under it.
 const ListPath = "/api/licenses"
 
 // Routes are the thing license on the app's server, which every app adds to its Site's routes beside mounting Command, with the same c and list; each calls the Checker as the CLI does (ADR-L8):
-// GET Path answers LicenseShow as `license show` does; GET ListPath answers LicenseList as `license list` does; GET ListPath/{id} answers License as `license show <id>` does; POST Path takes a license file as its body and keeps it as `license add <file>` does, with org=true for --org; POST Path/{id}/use makes the license active as `license use <id>` does; DELETE Path/{id} takes it away as `license remove <id>` does.
+// GET Path answers LicenseShow as `license show` does; GET ListPath answers LicenseList as `license list` does; GET ListPath/{id} answers License as `license show <id>` does; POST ListPath takes a license file as its body and keeps it as `license add <file>` does, with org=true for --org; POST ListPath/{id}/use makes the license active as `license use <id>` does; DELETE ListPath/{id} takes it away as `license remove <id>` does.
 // A change asks first, as serve asks every change (a Question, then confirm=<id>, or confirm=yes with Bearer), with the words the CLI asks; only a file refused, or a license that is not there, is answered without a question, and any other failure asks with the route's own words, so nothing is written without a yes (ADR-S04).
 // The yes covers the request, not what was shown: a license file replaced between the question and the yes is removed as it is then.
 func Routes(c *licenses.Checker, list *features.List) []serve.Route {
@@ -74,7 +74,7 @@ func Routes(c *licenses.Checker, list *features.List) []serve.Route {
 			serve.Write(w, r, http.StatusOK, licenses.LicenseKind, l)
 		}},
 		{
-			Pattern: http.MethodPost + " " + Path,
+			Pattern: http.MethodPost + " " + ListPath,
 			Action:  add,
 			ActionFor: func(r *http.Request) (ask.Action, bool) {
 				raw, err := io.ReadAll(r.Body)
@@ -93,7 +93,7 @@ func Routes(c *licenses.Checker, list *features.List) []serve.Route {
 			},
 		},
 		{
-			Pattern: http.MethodPost + " " + Path + "/{id}/use",
+			Pattern: http.MethodPost + " " + ListPath + "/{id}/use",
 			Action:  use,
 			ActionFor: func(r *http.Request) (ask.Action, bool) {
 				action, err := using(c, r.PathValue("id"))
@@ -108,7 +108,7 @@ func Routes(c *licenses.Checker, list *features.List) []serve.Route {
 			},
 		},
 		{
-			Pattern: http.MethodDelete + " " + Path + "/{id}",
+			Pattern: http.MethodDelete + " " + ListPath + "/{id}",
 			Action:  remove,
 			ActionFor: func(r *http.Request) (ask.Action, bool) {
 				_, action, err := removing(c, r.PathValue("id"))

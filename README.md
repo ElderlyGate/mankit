@@ -672,10 +672,11 @@ licenses; an old trial file is refused (`retired_kind`).
   three take a license's row from one place.
 - `Checker.Add`, `Checker.Use` and `Checker.Removing`/`Remove` are `license
   add <file> [--org]`, `license use <id>` and `license remove <id>`.
-- `cli.Routes(c, list)` is the thing over HTTP at `cli.Path`: GET, POST
-  (`?org=true`), POST `{id}/use` and DELETE `{id}`, as its Go doc says, asking
-  the CLI's questions; and at `cli.ListPath`: GET is `license list`, GET
-  `{id}` is `license show <id>`, each the CLI's `-o json` byte for byte.
+- `cli.Routes(c, list)` is the thing over HTTP: GET `cli.Path` is `license
+  show`; under the one root `cli.ListPath` (`/api/licenses`) GET is `license
+  list`, GET `{id}` is `license show <id>`, POST (`?org=true`) is `license
+  add`, POST `{id}/use` and DELETE `{id}` are use and remove, asking the CLI's
+  questions; each GET is the CLI's `-o json` byte for byte.
 - `Checker.StartTrial(ctx, nil, binary)` is the one call an app makes at
   start, with its executable's path (`os.Executable()` as it is: StartTrial
   resolves links itself); its key argument is deprecated and ignored. What it
