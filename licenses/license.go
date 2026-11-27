@@ -188,7 +188,7 @@ func Verify(raw []byte, t Trust) (License, error) {
 	if err := t.check(); err != nil {
 		return License{}, err
 	}
-	// The spec and the payload take fields a newer nw-license adds, as one org license serves several app versions (ADR-S15, CT-RULE-4).
+	// The spec and the payload take fields a newer nw-license adds, as one license serves several app versions (ADR-S15, CT-RULE-4).
 	var f file
 	var head struct {
 		APIVersion string `json:"apiVersion"`
