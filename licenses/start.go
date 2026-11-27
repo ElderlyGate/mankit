@@ -5,13 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
+	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/problem"
 	"github.com/tugbayatilla/mankit/v4/store"
+)
+
+// trialDays is the trial's length, the one home of ADR-L9's 14 days.
+const trialDays = 14
+
+// The trial note's form and kind (contracts mankit/v3 trial-started).
+const (
+	noteAPIVersion = "elderlygate/mankit/trial/v1"
+	noteKind       = "TrialStarted"
 )
 
 // TrialOutcome is what StartTrial did, the word a program decides by (G-STACK-15).
@@ -19,120 +29,98 @@ type TrialOutcome string
 
 // The outcomes of StartTrial.
 const (
-	TrialStarted TrialOutcome = "started" // no license: the built-in trial is written, from today
-	TrialRenewed TrialOutcome = "renewed" // a new install: a fresh trial is written over the trial
-	TrialKept    TrialOutcome = "kept"    // the trial this install started is left as it is, ended or not
-	TrialSkipped TrialOutcome = "skipped" // a license, or a file it cannot take: nothing is written
-	TrialFailed  TrialOutcome = "failed"  // the key, the binary or the write failed: nothing is written and the old file is whole
+	TrialStarted TrialOutcome = "started" // no note: the trial's note is written, from today
+	TrialRenewed TrialOutcome = "renewed" // a note that is not this install's: a fresh note is written over it
+	TrialKept    TrialOutcome = "kept"    // the note this install wrote is left as it is, its trial ended or not
+	TrialSkipped TrialOutcome = "skipped" // an active license that runs in this build: no trial, and nothing is written
+	TrialFailed  TrialOutcome = "failed"  // a release with no line, the binary or the write failed: nothing is written and the old note is whole
 )
 
 // TrialStart is what StartTrial did and why, for the app's start log; a failed one never stops the app.
 type TrialStart struct {
 	Outcome TrialOutcome
 	Reason  string
-	File    string // the app's license file
+	File    string // the app's trial note
 	Err     error  // set when Outcome is TrialFailed
 }
 
 func (s TrialStart) String() string { return fmt.Sprintf("license: trial %s: %s", s.Outcome, s.Reason) }
 
-// StartTrial is the call an app makes at start with its built-in trial key and its executable's path, as os.Executable gives it (ADR-L9); a key of another line than the build's fails, and a release build with no line stamped starts no trial. With no license it writes the key as the app's license file, started today and stamped with the binary's path and file time; a new install, whose stamp differs, gets a fresh trial over a trial, an old release-trial among them; a license is never touched.
+// StartTrial is the call an app makes at start with its executable's path, as os.Executable gives it (ADR-L9). An active license that runs in this build (Taken.Running: it has started, has not ended and names this app and line) means no trial; one that does not run, such as a license of an older line after an upgrade, leaves the trial to run. Else a note of this app whose stamp is this binary's is kept, and any other, missing, broken or future-dated, gives way to a new note from today, stamped with the binary's path and file time. A release build with no line stamped starts no trial.
+// The key parameter is deprecated and ignored, as the trial is a rule in mankit and nothing about it is signed; pass nil.
 func (c *Checker) StartTrial(ctx context.Context, key []byte, binary string) TrialStart {
-	k, err := c.take(key, false)
-	switch {
-	case err != nil:
-	case k.old != "":
-		err = fmt.Errorf("it is a %s of the old license form %s, which mankit reads but never writes; a key is %s", k.old, APIVersion, FileAPIVersion)
-	case k.Kind != Trial:
-		err = fmt.Errorf("it is a %s, not a trial", k.Kind)
-	case c.c.Trust.Release && c.c.Line == 0:
-		err = errors.New("this release build has no product line stamped (build.line), so it starts no trial")
-	case c.c.Line > 0 && !slices.Contains(k.Lines[c.c.ID], c.c.Line):
-		err = fmt.Errorf("it is the trial of %s %v, not of this build's line %d", c.c.ID, k.Lines[c.c.ID], c.c.Line)
-	}
+	path, err := home.File(c.c.Folder, note)
 	if err != nil {
-		return failed("", "the built-in trial key is refused", err)
+		return failed("", "the app's folder cannot be found", err)
+	}
+	if c.noTrial() {
+		return failed(path, "no trial", errors.New("this release build has no product line stamped (build.line), so it starts no trial"))
 	}
 	stamp, err := stampOf(binary)
 	if err != nil {
-		return failed("", "the app's binary cannot be stamped", err)
+		return failed(path, "the app's binary cannot be stamped", err)
 	}
-	r, want := c.plan(k, stamp)
+	r, want := c.plan(path, stamp)
 	if r.Outcome != "" {
 		return r
 	}
 	stamp.Day = date(c.c.Now())
-	body, err := withStarted(key, stamp)
-	if err == nil {
-		_, err = c.take(body, false)
-	}
+	body, err := c.noteOf(stamp)
 	if err != nil {
-		return failed(r.File, "the trial cannot be written", err)
+		return failed(path, "the trial's note cannot be written", err)
 	}
 	s, err := c.scope(false)
 	if err != nil {
-		return failed(r.File, "the app's folder cannot be opened", err)
+		return failed(path, "the app's folder cannot be opened", err)
 	}
 	defer s.Close()
-	err = s.Change(ctx, name, "license trial", func(tx store.Tx) error { return tx.Put(name, body, want) })
+	err = s.Change(ctx, note, "license trial", func(tx store.Tx) error { return tx.Put(note, body, want) })
 	var p *problem.Problem
 	if errors.As(err, &p) && p.Type == problem.TypeRefused && p.Reason == store.ReasonChanged {
-		return c.again(k, stamp)
+		return c.again(path, stamp)
 	}
 	if err != nil {
-		return failed(r.File, "the license file is not written and the old one is whole", err)
+		return failed(path, "the trial's note is not written and the old one is whole", err)
 	}
 	did := TrialStarted
 	if want != store.Absent() {
 		did = TrialRenewed
 	}
-	r.Outcome, r.Reason = did, fmt.Sprintf("a %d-day trial from %s", k.TrialDays, stamp.Day.Format(day))
+	r.Outcome, r.Reason = did, fmt.Sprintf("a %d-day trial from %s", trialDays, stamp.Day.Format(day))
 	return r
 }
 
-// plan reads both places and decides: a TrialStart with an Outcome when nothing is to be written, else the app's file and what the write wants to find there.
-func (c *Checker) plan(k License, stamp Started) (TrialStart, store.Want) {
-	org, err := c.at(true)
+// plan reads the licenses and the note and decides: a TrialStart with an Outcome when nothing is to be written, else what the write wants to find at the note.
+func (c *Checker) plan(path string, stamp Started) (TrialStart, store.Want) {
+	r := TrialStart{File: path}
+	f, err := c.Read()
 	if err != nil {
-		return failed("", "the org's license cannot be found", err), store.Want{}
+		return failed(path, "the app's licenses cannot be read", err), store.Want{}
 	}
-	own, err := c.at(false)
-	if err != nil {
-		return failed("", "the app's license cannot be found", err), store.Want{}
-	}
-	r := TrialStart{File: own.path}
-	skip := func(why string) (TrialStart, store.Want) {
-		r.Outcome, r.Reason = TrialSkipped, why
+	if a := f.Active(); a != nil && a.Running() {
+		r.Outcome, r.Reason = TrialSkipped, fmt.Sprintf("the license %s is active, so there is no trial", a.ID)
 		return r, store.Want{}
 	}
-	for _, p := range []place{org, own} {
-		if p.refused != nil {
-			return skip(fmt.Sprintf("the license file %s is refused (%s: %s), so nothing is written", p.path, p.refused.Reason, p.refused.Detail))
-		}
+	raw, err := readFile(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return r, store.Absent()
+	case err != nil:
+		return failed(path, "the trial's note cannot be read", err), store.Want{}
 	}
-	if org.license != nil {
-		return skip(fmt.Sprintf("the license %s is kept", org.license.ID))
+	if n, ok := c.note(raw); ok && stamp.same(n) {
+		r.Outcome, r.Reason = TrialKept, fmt.Sprintf("this install started its trial on %s", n.Day.Format(day))
+		return r, store.Want{}
 	}
-	want := store.Absent()
-	if l := own.license; l != nil {
-		switch {
-		case l.Kind != Trial:
-			return skip(fmt.Sprintf("the %s license %s is kept", l.old, l.ID))
-		case l.Started != nil && stamp.same(*l.Started):
-			r.Outcome, r.Reason = TrialKept, fmt.Sprintf("this install started its trial on %s", l.Started.Day.Format(day))
-			return r, store.Want{}
-		}
-		want = store.Holds(store.SumOf(own.raw))
-	}
-	return r, want
+	return r, store.Holds(store.SumOf(raw))
 }
 
-// again is what the places hold once another start, or license add, changed the file while this one wrote: read once more, never written.
-func (c *Checker) again(k License, stamp Started) TrialStart {
-	r, _ := c.plan(k, stamp)
+// again is what the note and licenses hold once another start, or license add, changed them while this one wrote: read once more, never written.
+func (c *Checker) again(path string, stamp Started) TrialStart {
+	r, _ := c.plan(path, stamp)
 	switch r.Outcome {
 	case "":
-		r.Outcome, r.Reason = TrialSkipped, "the license file changed while the trial was written, so it is left as another start wrote it"
+		r.Outcome, r.Reason = TrialSkipped, "the trial's note changed while it was written, so it is left as another start wrote it"
 	case TrialKept, TrialSkipped:
 		r.Reason += "; another start wrote it"
 	}
@@ -144,7 +132,51 @@ func failed(file, why string, err error) TrialStart {
 	return TrialStart{Outcome: TrialFailed, Reason: fmt.Sprintf("%s: %v", why, err), File: file, Err: err}
 }
 
-// stampOf is the install stamp of the binary at path: its absolute path with every link resolved, as macOS may give a link where Linux does not, and its file time to the second, as spec.started keeps it.
+// noteFile is the trial note on disk (contracts mankit/v3 trial-started): closed but for spec, which a newer app may grow.
+type noteFile struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Metadata   struct {
+		ID string `json:"id"`
+	} `json:"metadata"`
+	Spec json.RawMessage `json:"spec"`
+}
+
+// noteSpec is the note's spec.
+type noteSpec struct {
+	Day      string `json:"day"`
+	Binary   string `json:"binary"`
+	FileTime string `json:"fileTime"`
+}
+
+// note is the trial the note raw says started, and whether it counts: a note of this app's id with a day, a binary and a file time, and a day not after today (ADR-L9).
+func (c *Checker) note(raw []byte) (Started, bool) {
+	var n noteFile
+	var s noteSpec
+	if decode(raw, &n, true) != nil || n.APIVersion != noteAPIVersion || n.Kind != noteKind || n.Metadata.ID != c.c.ID || decode(n.Spec, &s, false) != nil {
+		return Started{}, false
+	}
+	d, derr := time.Parse(day, s.Day)
+	ft, ferr := time.Parse(time.RFC3339, s.FileTime)
+	if derr != nil || ferr != nil || s.Binary == "" || date(d).After(date(c.c.Now())) {
+		return Started{}, false
+	}
+	return Started{Day: d, Binary: s.Binary, FileTime: ft}, true
+}
+
+// noteOf is the note of the trial s started, as note reads it.
+func (c *Checker) noteOf(s Started) ([]byte, error) {
+	spec, err := json.Marshal(noteSpec{Day: s.Day.Format(day), Binary: s.Binary, FileTime: s.FileTime.UTC().Format(time.RFC3339)})
+	if err != nil {
+		return nil, err
+	}
+	n := noteFile{APIVersion: noteAPIVersion, Kind: noteKind, Spec: spec}
+	n.Metadata.ID = c.c.ID
+	out, err := json.MarshalIndent(n, "", "  ")
+	return append(out, '\n'), err
+}
+
+// stampOf is the install stamp of the binary at path: its absolute path with every link resolved, as macOS may give a link where Linux does not, and its file time to the second, as the note keeps it.
 func stampOf(path string) (Started, error) {
 	abs, err := filepath.Abs(path)
 	if err == nil {
@@ -166,25 +198,4 @@ func stampOf(path string) (Started, error) {
 // same reports whether s and o stamp the same install: the same binary path and file time.
 func (s Started) same(o Started) bool {
 	return s.Binary == o.Binary && s.FileTime.Equal(o.FileTime.Truncate(time.Second))
-}
-
-// withStarted is the license file key with s as its spec.started, every other field kept as it is.
-func withStarted(key []byte, s Started) ([]byte, error) {
-	var f, spec map[string]json.RawMessage
-	if err := json.Unmarshal(key, &f); err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(f["spec"], &spec); err != nil {
-		return nil, err
-	}
-	started, err := json.Marshal(startedJSON{Day: s.Day.Format(day), Binary: s.Binary, FileTime: s.FileTime.UTC().Format(time.RFC3339)})
-	if err != nil {
-		return nil, err
-	}
-	spec["started"] = started
-	if f["spec"], err = json.Marshal(spec); err != nil {
-		return nil, err
-	}
-	out, err := json.MarshalIndent(f, "", "  ")
-	return append(out, '\n'), err
 }

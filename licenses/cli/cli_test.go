@@ -76,7 +76,12 @@ func (w *world) signed(l licenses.License) []byte {
 
 // license is a license for Acme Ltd naming designer's features, from issued until until.
 func (w *world) license(features []string, issued, until string) []byte {
-	return w.signed(licenses.License{ID: "acme-2026", Kind: licenses.KindLicense, For: "Acme Ltd", Products: map[string][]string{"designer": features}, Issued: day(issued), Until: day(until), KeyID: "test-2026"})
+	return w.licenseOf("acme-2026", "Acme Ltd", features, issued, until)
+}
+
+// licenseOf is a license of the id for whom, naming designer's features, from issued until until.
+func (w *world) licenseOf(id, whom string, features []string, issued, until string) []byte {
+	return w.signed(licenses.License{ID: id, For: whom, Kind: licenses.KindLicense, Products: map[string][]string{"designer": features}, Issued: day(issued), Until: day(until), KeyID: "test-2026"})
 }
 
 // perpetual is a license that never ends, opening designer's events in Designer 1 (ADR-L10).
@@ -84,21 +89,10 @@ func (w *world) perpetual() []byte {
 	return w.signed(licenses.License{ID: "acme-perpetual", Kind: licenses.KindLicense, For: "Acme Ltd", Products: map[string][]string{"designer": {"events"}}, Lines: map[string][]int{"designer": {1}}, Issued: day("2026-11-06"), KeyID: "test-2026"})
 }
 
-// trial is Designer 1's built-in trial key, started on the day when started is not empty, as the app writes it beside the signed payload.
-func (w *world) trial(started string) []byte {
-	raw := w.signed(licenses.License{ID: "designer-1-trial", Kind: licenses.Trial, For: "Designer 1", Lines: map[string][]int{"designer": {1}}, Issued: day("2026-11-23"), TrialDays: 14, KeyID: "test-2026"})
-	return w.started(raw, started)
-}
-
-func (w *world) started(raw []byte, on string) []byte {
-	if on == "" {
-		return raw
-	}
-	var f map[string]any
-	_ = json.Unmarshal(raw, &f)
-	f["spec"].(map[string]any)["started"] = map[string]any{"day": on, "binary": "/home/ada/.local/bin/designer", "fileTime": on + "T09:14:05Z"}
-	raw, _ = json.Marshal(f)
-	return raw
+// note writes designer's trial note, started on the day (contracts mankit/v3 trial-started).
+func (w *world) note(on string) {
+	w.t.Helper()
+	w.write(filepath.Join(w.dir, home.Folder("designer"), "trial"), []byte(`{"apiVersion":"elderlygate/mankit/trial/v1","kind":"TrialStarted","metadata":{"id":"designer"},"spec":{"day":"`+on+`","binary":"/home/ada/.local/bin/designer","fileTime":"`+on+`T09:14:05Z"}}`))
 }
 
 // old is a license file of the old form holding body.
@@ -110,17 +104,38 @@ func (w *world) old(body string) []byte {
 	return raw
 }
 
-// putApp puts the app's own file, its trial or an old product license.
-func (w *world) putApp(raw []byte) { w.putIn(filepath.Join(w.dir, home.Folder("designer")), raw) }
+// id is the id the license file raw names.
+func id(raw []byte) string {
+	var f struct{ Metadata struct{ ID string } }
+	_ = json.Unmarshal(raw, &f)
+	return f.Metadata.ID
+}
 
-// putOrg puts the license in the folder of the org's own files.
-func (w *world) putOrg(raw []byte) { w.putIn(w.org, raw) }
+// appDir is designer's config folder.
+func (w *world) appDir() string { return filepath.Join(w.dir, home.Folder("designer")) }
 
-func (w *world) putIn(dir string, raw []byte) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+// putApp puts the license in the app's own licenses folder; putOrg in the org's.
+func (w *world) putApp(raw []byte) {
+	w.write(filepath.Join(w.appDir(), "licenses", id(raw)+".license"), raw)
+}
+func (w *world) putOrg(raw []byte) {
+	w.write(filepath.Join(w.org, "licenses", id(raw)+".license"), raw)
+}
+
+// putOldApp and putOldOrg put the license in the old single files, read for one release.
+func (w *world) putOldApp(raw []byte) { w.write(filepath.Join(w.appDir(), "license"), raw) }
+func (w *world) putOldOrg(raw []byte) { w.write(filepath.Join(w.org, "license"), raw) }
+
+// choose makes id the app's choice, as license use leaves it.
+func (w *world) choose(id string) {
+	w.write(filepath.Join(w.appDir(), "license-active"), []byte(id+"\n"))
+}
+
+func (w *world) write(path string, raw []byte) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		w.t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "license"), raw, 0o600); err != nil {
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		w.t.Fatal(err)
 	}
 }
@@ -184,17 +199,16 @@ func from(s licenses.Show) string {
 	return strings.Join(words, " ")
 }
 
-const (
-	licensed = "Licensed to Acme Ltd · Designer 1"
-	ended    = "Your trial has ended. Buy a license to keep the paid features."
-)
+const licensed = "Licensed to Acme Ltd · Designer 1"
 
-// Each case is the three states plus warn, the day a license ended and the sentence, as contracts mankit/v3 license-show names them (ADR-L3).
+// Each case is the three states plus warn, the day the active license ended and the sentence, as contracts mankit/v3 license-show names them (ADR-L3, L8, L9); every answer meets the schema.
 func TestShowTheStateAndWarnOfEachCase(t *testing.T) {
-	const paid, trialDays = 14, 3 // licenses.LicenseExpiring's points
-	if licenses.LicenseExpiring.Paid != paid || licenses.LicenseExpiring.Trial != trialDays {
+	const paid, trialWarn = 14, 3 // licenses.LicenseExpiring's points
+	if licenses.LicenseExpiring.Paid != paid || licenses.LicenseExpiring.Trial != trialWarn {
 		t.Fatalf("LicenseExpiring = %+v", licenses.LicenseExpiring)
 	}
+	running := func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }
+	ended := func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2026-12-01")) }
 	for _, c := range []struct {
 		name, today   string
 		put           func(*world)
@@ -203,42 +217,61 @@ func TestShowTheStateAndWarnOfEachCase(t *testing.T) {
 		endedOn, says string
 	}{
 		{"no license", "2026-12-07", func(*world) {}, licenses.StateFree, false, "", ""},
-		{"a license running", "2026-12-07", func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }, licenses.StateLicensed, false, "", licensed},
-		{"a license a day before its warning", "2027-10-23", func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }, licenses.StateLicensed, false, "", licensed},
-		{"a license in its warning", "2027-10-24", func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }, licenses.StateLicensed, true, "", licensed},
-		{"a license on its last day", "2027-11-06", func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }, licenses.StateLicensed, true, "", licensed},
-		{"a license ended", "2027-11-07", func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }, licenses.StateFree, true, "2027-11-06", ""},
-		{"a license not begun", "2026-11-01", func(w *world) { w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06")) }, licenses.StateFree, false, "", ""},
+		{"a license running", "2026-12-07", running, licenses.StateLicensed, false, "", licensed},
+		{"a license a day before its warning", "2027-10-23", running, licenses.StateLicensed, false, "", licensed},
+		{"a license in its warning", "2027-10-24", running, licenses.StateLicensed, true, "", licensed},
+		{"a license on its last day", "2027-11-06", running, licenses.StateLicensed, true, "", licensed},
+		{"a license ended", "2027-11-07", running, licenses.StateFree, true, "2027-11-06", "The license for Acme Ltd ended on 2027-11-06"},
+		{"a license not begun", "2026-11-01", running, licenses.StateFree, false, "", "The license acme-2026 starts on 2026-11-06"},
 		{"a license that never ends", "2040-01-01", func(w *world) { w.putOrg(w.perpetual()) }, licenses.StateLicensed, false, "", licensed},
 		{"a license of another line", "2040-01-01", func(w *world) {
 			w.line = 2
 			w.putOrg(w.perpetual())
-		}, licenses.StateFree, false, "", ""},
-		{"a trial running", "2026-12-07", func(w *world) { w.putApp(w.trial("2026-12-03")) }, licenses.StateTrial, false, "", "Trial: 10 days left (ends 2026-12-16)"},
-		{"a trial a day before its last days", "2026-12-13", func(w *world) { w.putApp(w.trial("2026-12-03")) }, licenses.StateTrial, false, "", "Trial: 4 days left (ends 2026-12-16)"},
-		{"a trial in its last days", "2026-12-14", func(w *world) { w.putApp(w.trial("2026-12-03")) }, licenses.StateTrial, true, "", "Trial: 3 days left (ends 2026-12-16)"},
-		{"a trial on its last day", "2026-12-16", func(w *world) { w.putApp(w.trial("2026-12-03")) }, licenses.StateTrial, true, "", "Trial: 1 day left (ends 2026-12-16)"},
-		{"a trial ended", "2026-12-17", func(w *world) { w.putApp(w.trial("2026-12-03")) }, licenses.StateFree, true, "", ended},
-		{"a trial not started", "2026-12-07", func(w *world) { w.putApp(w.trial("")) }, licenses.StateFree, false, "", ""},
+		}, licenses.StateFree, false, "", "The license acme-perpetual is for Designer 1, not this build"},
+		{"a license of another line and a trial", "2026-12-07", func(w *world) {
+			w.line = 2
+			w.putApp(w.perpetual())
+			w.note("2026-12-03")
+		}, licenses.StateTrial, false, "", "The license acme-perpetual is for Designer 1, not this build · Trial: 10 days left, until 2026-12-16"},
+		{"a trial running", "2026-12-07", func(w *world) { w.note("2026-12-03") }, licenses.StateTrial, false, "", "Trial: 10 days left, until 2026-12-16"},
+		{"a trial a day before its last days", "2026-12-13", func(w *world) { w.note("2026-12-03") }, licenses.StateTrial, false, "", "Trial: 4 days left, until 2026-12-16"},
+		{"a trial in its last days", "2026-12-14", func(w *world) { w.note("2026-12-03") }, licenses.StateTrial, true, "", "Trial: 3 days left, until 2026-12-16"},
+		{"a trial on its last day", "2026-12-16", func(w *world) { w.note("2026-12-03") }, licenses.StateTrial, true, "", "Trial: 1 day left, until 2026-12-16"},
+		{"a trial ended", "2026-12-17", func(w *world) { w.note("2026-12-03") }, licenses.StateFree, true, "", "The trial ended on 2026-12-16"},
 		{"a license and a trial", "2026-12-07", func(w *world) {
-			w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
-			w.putApp(w.trial("2026-12-03"))
+			running(w)
+			w.note("2026-12-03")
 		}, licenses.StateLicensed, false, "", licensed},
-		{"a license ended and a trial running", "2026-12-07", func(w *world) {
-			w.putOrg(w.license([]string{"events"}, "2026-11-06", "2026-12-01"))
-			w.putApp(w.trial("2026-12-03"))
-		}, licenses.StateTrial, false, "", "Trial: 10 days left (ends 2026-12-16)"},
-		{"a license and a trial both ended", "2026-12-20", func(w *world) {
-			w.putOrg(w.license([]string{"events"}, "2026-11-06", "2026-12-01"))
-			w.putApp(w.trial("2026-12-03"))
-		}, licenses.StateFree, true, "2026-12-01", ended},
-		{"an old org license", "2026-12-07", func(w *world) { w.putOrg(w.old(oldOrg)) }, licenses.StateLicensed, false, "", licensed},
-		{"an old product license ended", "2027-03-02", func(w *world) { w.putApp(w.old(oldProduct)) }, licenses.StateFree, true, "2027-03-01", ""},
-		{"an old release-trial running", "2026-12-07", func(w *world) { w.putApp(w.started(w.old(oldReleaseTrial), "2026-12-03")) }, licenses.StateTrial, false, "", "Trial: 10 days left (ends 2026-12-16)"},
-		{"the latest end of the ended licenses", "2027-12-01", func(w *world) {
-			w.putOrg(w.old(oldOrg))
-			w.putApp(w.old(oldProduct))
-		}, licenses.StateFree, true, "2027-11-06", ""},
+		{"the active license ended while the trial runs", "2026-12-07", func(w *world) {
+			ended(w)
+			w.note("2026-12-03")
+		}, licenses.StateTrial, false, "", "The license for Acme Ltd ended on 2026-12-01 · Trial: 10 days left, until 2026-12-16"},
+		{"the active license and the trial both ended", "2026-12-20", func(w *world) {
+			ended(w)
+			w.note("2026-12-03")
+		}, licenses.StateFree, true, "2026-12-01", "The license for Acme Ltd ended on 2026-12-01"},
+		{"the chosen license ended beside one running: no switch", "2026-12-07", func(w *world) {
+			ended(w)
+			w.putApp(w.licenseOf("ada-2026", "Ada", []string{"events"}, "2026-01-01", "2027-12-01"))
+			w.choose("acme-2026")
+		}, licenses.StateFree, true, "2026-12-01", "The license for Acme Ltd ended on 2026-12-01"},
+		{"the chosen license refused", "2026-12-07", func(w *world) {
+			running(w)
+			w.putApp([]byte(`{"metadata":{"id":"ada-2026"}}`))
+			w.choose("ada-2026")
+			w.note("2026-12-03")
+		}, licenses.StateTrial, false, "", "The chosen license ada-2026 was refused: it is not a license file · Trial: 10 days left, until 2026-12-16"},
+		{"the chosen license gone", "2026-12-07", func(w *world) {
+			running(w)
+			w.choose("ada-2026")
+		}, licenses.StateFree, false, "", "The chosen license ada-2026 is not among this app's licenses"},
+		{"the newest of two", "2026-12-07", func(w *world) {
+			w.putApp(w.licenseOf("ada-2026", "Ada", []string{"events"}, "2026-01-01", "2026-12-01"))
+			running(w)
+		}, licenses.StateLicensed, false, "", licensed},
+		{"an old org license", "2026-12-07", func(w *world) { w.putOldOrg(w.old(oldOrg)) }, licenses.StateLicensed, false, "", licensed},
+		{"an old product license ended", "2027-03-02", func(w *world) { w.putOldApp(w.old(oldProduct)) }, licenses.StateFree, true, "2027-03-01", "The license for Acme Ltd ended on 2027-03-01"},
+		{"an old release-trial is refused", "2026-12-07", func(w *world) { w.putOldApp(w.old(oldReleaseTrial)) }, licenses.StateFree, false, "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			w := newWorld(t, c.today)
@@ -261,16 +294,17 @@ func TestShowTheStateAndWarnOfEachCase(t *testing.T) {
 
 func TestShowWithNoLicense(t *testing.T) {
 	s := newWorld(t, "2026-11-19").show()
-	if s.State != licenses.StateFree || !s.Build.Release || len(s.Licenses) != 0 || len(s.Refused) != 0 || s.Counts != (licenses.Counts{Free: 1, Enterprise: 3, On: 1, Locked: 3}) {
+	if s.State != licenses.StateFree || !s.Build.Release || len(s.Licenses) != 0 || len(s.Refused) != 0 || s.Trial != nil || s.Counts != (licenses.Counts{Free: 1, Enterprise: 3, On: 1, Locked: 3}) {
 		t.Fatalf("show = %+v", s)
 	}
 }
 
-// Each feature says where it is unlocked from, and until when: a license's until, a trial's end, none when nothing opens it.
+// Each license shows its id, place, issued day and whether it is active; each feature where it is unlocked from: the active license where it names it, else the trial.
 func TestShowSaysWhereEachFeatureIsUnlockedFrom(t *testing.T) {
 	w := newWorld(t, "2026-12-07")
 	w.putOrg(w.license([]string{"events", "multi-design"}, "2026-11-06", "2027-11-06"))
-	w.putApp(w.trial("2026-12-03"))
+	w.putApp(w.licenseOf("ada-2026", "Ada", []string{"sync"}, "2026-01-01", "2027-11-06"))
+	w.note("2026-12-03")
 	s := w.show()
 	if got := from(s); got != "edit=none events=license multi-design=license sync=trial" {
 		t.Fatalf("from = %s", got)
@@ -278,13 +312,39 @@ func TestShowSaysWhereEachFeatureIsUnlockedFrom(t *testing.T) {
 	if s.Features[0].Until != "" || s.Features[1].Until != "2027-11-06" || s.Features[3].Until != "2026-12-16" || s.Counts.Locked != 0 {
 		t.Fatalf("show = %+v", s)
 	}
-	if len(s.Licenses) != 2 || s.Licenses[0].Kind != licenses.KindLicense || s.Licenses[1].Kind != licenses.Trial {
+	if len(s.Licenses) != 2 || s.Licenses[0].ID != "ada-2026" || s.Licenses[0].Place != licenses.PlaceApp || s.Licenses[0].Active || s.Licenses[0].Issued != "2026-01-01" ||
+		s.Licenses[1].ID != "acme-2026" || s.Licenses[1].Place != licenses.PlaceOrg || !s.Licenses[1].Active {
 		t.Fatalf("licenses = %+v", s.Licenses)
 	}
+	if s.Trial == nil || s.Trial.Until != "2026-12-16" || s.Trial.DaysLeft != 10 || s.Trial.Window == nil || s.Trial.Window.Of != 14 {
+		t.Fatalf("trial = %+v", s.Trial)
+	}
 	table, err := w.run("show")
-	if err != nil || !strings.Contains(table, "licensed") || !strings.Contains(table, "multi-design  enterprise") {
+	if err != nil || !regexp.MustCompile(`(?m)^\* +acme-2026 +org +Acme Ltd`).MatchString(table) || !strings.Contains(table, "multi-design  enterprise") || !strings.Contains(table, "TRIAL") {
 		t.Fatalf("table %q, %v", table, err)
 	}
+	if list, err := w.run("list", "-o", "json"); err != nil || list != w.mustRun("show", "-o", "json") {
+		t.Fatalf("list is not show: %v\n%s", err, list)
+	}
+}
+
+// active is the id of the license show marks active, empty with none.
+func active(s licenses.Show) string {
+	for _, l := range s.Licenses {
+		if l.Active {
+			return l.ID
+		}
+	}
+	return ""
+}
+
+func (w *world) mustRun(words ...string) string {
+	w.t.Helper()
+	out, err := w.run(words...)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return out
 }
 
 // A license that never ends shows its lines, no last day and no days left, and opens its features with no last day.
@@ -292,7 +352,7 @@ func TestShowALicenseThatNeverEnds(t *testing.T) {
 	w := newWorld(t, "2040-01-01")
 	w.putOrg(w.perpetual())
 	out, err := w.run("show", "-o", "json")
-	if err != nil || strings.Contains(out, "daysLeft") || strings.Contains(out, `"until"`) {
+	if err != nil || strings.Contains(out, "daysLeft") || strings.Contains(out, `"until"`) || strings.Contains(out, `"kind": "license"`) {
 		t.Fatalf("err = %v, out =\n%s", err, out)
 	}
 	if y, err := w.run("show", "-o", "yaml"); err != nil || strings.Contains(y, "daysLeft") {
@@ -305,26 +365,8 @@ func TestShowALicenseThatNeverEnds(t *testing.T) {
 	if y, err := yaml.Marshal(s); err != nil || strings.Contains(string(y), "daysLeft") {
 		t.Fatalf("err = %v, yaml.Marshal =\n%s", err, y)
 	}
-	if y, err := yaml.Marshal(licenses.ShownFile{Kind: licenses.KindLicense, Until: "2027-11-06", DaysLeft: 3}); err != nil || !strings.Contains(string(y), "daysLeft: 3\n") {
+	if y, err := yaml.Marshal(licenses.ShownFile{Until: "2027-11-06", DaysLeft: 3}); err != nil || !strings.Contains(string(y), "daysLeft: 3\n") {
 		t.Fatalf("err = %v, a license with a last day =\n%s", err, y)
-	}
-	table, err := w.run("show")
-	if err != nil || !regexp.MustCompile(`(?m)^license +Acme Ltd +– +– +test-2026`).MatchString(table) {
-		t.Fatalf("err = %v, table =\n%s", err, table)
-	}
-}
-
-// A running trial shows its end and a window of its days; one not started shows neither.
-func TestShowATrialFromItsStartedDay(t *testing.T) {
-	w := newWorld(t, "2026-12-07")
-	w.putApp(w.trial("2026-12-03"))
-	l := w.show().Licenses[0]
-	if l.Kind != licenses.Trial || l.For != "Designer 1" || l.TrialEnds != "2026-12-16" || l.Until != "" || l.DaysLeft != 10 || l.Window == nil || *l.Window != (licenses.Window{Of: 14}) {
-		t.Fatalf("row = %+v", l)
-	}
-	w.putApp(w.trial(""))
-	if l := w.show().Licenses[0]; l.TrialEnds != "" || l.Window != nil || l.Ended {
-		t.Fatalf("not started: row = %+v", l)
 	}
 }
 
@@ -360,12 +402,15 @@ func TestShowSaysTheAppsName(t *testing.T) {
 	}
 }
 
+// A refused file is shown with its file and reason, an old trial as retired_kind.
 func TestShowARefusedFile(t *testing.T) {
 	w := newWorld(t, "2026-12-07")
-	w.putOrg([]byte("garbage"))
-	w.putApp(w.old(oldPersonTrial))
+	w.putOldOrg([]byte("garbage"))
+	w.putOldApp(w.old(oldPersonTrial))
 	s := w.show()
-	if s.State != licenses.StateFree || len(s.Licenses) != 0 || len(s.Refused) != 2 || s.Refused[0].Reason != licenses.ReasonUnreadable || s.Refused[0].File != filepath.Join(w.org, "license") || s.Refused[1].Reason != licenses.ReasonUnreadable {
+	if s.State != licenses.StateFree || len(s.Licenses) != 0 || len(s.Refused) != 2 ||
+		s.Refused[0].Reason != licenses.ReasonRetiredKind || s.Refused[0].File != filepath.Join(w.appDir(), "license") ||
+		s.Refused[1].Reason != licenses.ReasonUnreadable || s.Refused[1].File != filepath.Join(w.org, "license") {
 		t.Fatalf("show = %+v", s)
 	}
 }
@@ -386,47 +431,45 @@ func (w *world) file(raw []byte) string {
 	return file
 }
 
+// add asks first, keeps nothing without a yes, keeps the license in the app's own folder, or the org's with --org, and makes it active here.
 func TestAddChecksAsksAndKeeps(t *testing.T) {
-	w := newWorld(t, "2026-11-19")
-	file := w.file(w.license([]string{"sync"}, "2026-11-06", "2027-11-06"))
-	if _, err := w.run("add", file); !errors.Is(err, ask.ErrRefused) {
-		t.Fatalf("without a yes: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(w.org, "license")); !os.IsNotExist(err) {
-		t.Fatal("kept without a yes")
-	}
-	out, err := w.run("add", file, "--yes", "-o", "json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := contracts.Validate(schema, []byte(out)); err != nil || !strings.Contains(out, `"from": "license"`) {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	if !strings.Contains(w.asked, "keep the license for Acme Ltd until 2027-11-06, read by every app, in "+filepath.Join(w.org, "license")) {
-		t.Fatalf("asked %q", w.asked)
-	}
-}
-
-// --org is the old form for one release: hidden, still taken, and it keeps the one license.
-func TestAddTakesTheOldOrgFlag(t *testing.T) {
-	w := newWorld(t, "2026-11-19")
-	out, err := w.run("add", "--org", w.file(w.license([]string{"sync"}, "2026-11-06", "2027-11-06")), "--yes")
-	if err != nil || !strings.Contains(out, "deprecated") {
-		t.Fatalf("err = %v, out =\n%s", err, out)
-	}
-	if _, err := os.Stat(filepath.Join(w.org, "license")); err != nil {
-		t.Fatal(err)
-	}
-	help, _ := w.run("add", "--help")
-	if strings.Contains(help, "--org") {
-		t.Fatalf("help lists --org:\n%s", help)
+	for _, c := range []struct {
+		flags []string
+		kept  func(w *world) string
+		where string
+	}{
+		{nil, func(w *world) string { return filepath.Join(w.appDir(), "licenses", "acme-2026.license") }, "as this app's own"},
+		{[]string{"--org"}, func(w *world) string { return filepath.Join(w.org, "licenses", "acme-2026.license") }, "shared by every app it names"},
+	} {
+		w := newWorld(t, "2026-11-19")
+		w.putApp(w.licenseOf("ada-2026", "Ada", []string{"events"}, "2026-11-10", "2027-11-06"))
+		file := w.file(w.license([]string{"sync"}, "2026-11-06", "2027-11-06"))
+		if _, err := w.run(append([]string{"add", file}, c.flags...)...); !errors.Is(err, ask.ErrRefused) {
+			t.Fatalf("without a yes: %v", err)
+		}
+		if _, err := os.Stat(c.kept(w)); !os.IsNotExist(err) {
+			t.Fatal("kept without a yes")
+		}
+		if want := "keep the license acme-2026 for Acme Ltd until 2027-11-06 in " + c.kept(w) + ", " + c.where + ", and make it the active license of this app"; w.asked != want {
+			t.Fatalf("asked %q\nwant  %q", w.asked, want)
+		}
+		out, err := w.run(append([]string{"add", file, "--yes", "-o", "json"}, c.flags...)...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := contracts.Validate(schema, []byte(out)); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		if s := w.show(); len(s.Licenses) != 2 || active(s) != "acme-2026" || s.State != licenses.StateLicensed {
+			t.Fatalf("show = %+v", s)
+		}
 	}
 }
 
 func TestAddRefusesWhatItCannotTakeNamingTheFile(t *testing.T) {
 	w := newWorld(t, "2026-11-19")
 	for name, c := range map[string]struct{ file, want string }{
-		"a trial":            {w.file(w.trial("")), licenses.ReasonWrongPlace},
+		"an old trial":       {w.file(w.old(oldPersonTrial)), licenses.ReasonRetiredKind},
 		"an old org license": {w.file(w.old(oldOrg)), licenses.ReasonUnreadable},
 		"a missing file":     {filepath.Join(t.TempDir(), "gone"), licenses.ReasonUnreadable},
 	} {
@@ -438,39 +481,119 @@ func TestAddRefusesWhatItCannotTakeNamingTheFile(t *testing.T) {
 	}
 }
 
-// Adding a license where one is says it replaces that license before it asks (G-STACK-13).
+// Adding a license of an id that is there says it replaces that license before it asks (G-STACK-13).
 func TestAddNamesTheLicenseItReplaces(t *testing.T) {
 	w := newWorld(t, "2026-11-19")
 	w.putOrg(w.license([]string{"sync"}, "2026-03-01", "2027-03-01"))
-	if _, err := w.run("add", w.file(w.perpetual()), "--yes"); err != nil {
+	if _, err := w.run("add", w.file(w.license([]string{"sync"}, "2026-03-01", "2028-03-01")), "--org", "--yes"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(w.asked, "keep the license for Acme Ltd, which never ends") || !strings.Contains(w.asked, "replacing the license for Acme Ltd until 2027-03-01") {
+	if !strings.Contains(w.asked, "replacing the license for Acme Ltd until 2027-03-01") {
 		t.Fatalf("asked %q", w.asked)
 	}
 }
 
-// remove asks, naming the file, takes the license away and leaves the trial.
-func TestRemoveAsksAndLeavesTheTrial(t *testing.T) {
+// use asks first, naming the license it replaces as the active one, and makes the license active; a license not there is not found.
+func TestUseAsksAndChooses(t *testing.T) {
 	w := newWorld(t, "2026-12-07")
 	w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
-	w.putApp(w.trial("2026-12-03"))
-	if _, err := w.run("remove"); !errors.Is(err, ask.ErrRefused) {
+	w.putApp(w.licenseOf("ada-2026", "Ada", []string{"sync"}, "2026-01-01", "2027-11-06"))
+	if _, err := w.run("use", "ada-2026"); !errors.Is(err, ask.ErrRefused) {
 		t.Fatalf("without a yes: %v", err)
 	}
-	if w.asked != "remove the license file "+filepath.Join(w.org, "license")+"; the trial stays" {
+	if want := "make the license ada-2026 for Ada until 2027-11-06 the active license of this app, in place of acme-2026"; w.asked != want {
 		t.Fatalf("asked %q", w.asked)
 	}
-	out, err := w.run("remove", "--yes", "-o", "json")
+	if s := w.show(); !s.Licenses[1].Active {
+		t.Fatalf("chose without a yes: %+v", s.Licenses)
+	}
+	out, err := w.run("use", "ada-2026", "--yes", "-o", "json")
 	if err != nil || contracts.Validate(schema, []byte(out)) != nil {
 		t.Fatalf("err = %v, out =\n%s", err, out)
 	}
-	if s := w.show(); s.State != licenses.StateTrial || len(s.Licenses) != 1 || s.Licenses[0].Kind != licenses.Trial {
+	if s := w.show(); !s.Licenses[0].Active || s.Licenses[1].Active || from(s) != "edit=none events=none multi-design=none sync=license" {
 		t.Fatalf("show = %+v", s)
 	}
-	_, err = w.run("remove", "--yes")
+	var p *problem.Problem
+	if _, err := w.run("use", "nobody", "--yes"); !errors.As(err, &p) || p.Type != problem.TypeNotFound {
+		t.Fatalf("use nobody: %v", err)
+	}
+}
+
+// remove asks, naming the license and its file, takes it away, clears the choice that named it and leaves the trial.
+func TestRemoveAsksAndLeavesTheTrial(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
+	w.choose("acme-2026")
+	w.note("2026-12-03")
+	if _, err := w.run("remove", "acme-2026"); !errors.Is(err, ask.ErrRefused) {
+		t.Fatalf("without a yes: %v", err)
+	}
+	if want := "remove the license acme-2026, the file " + filepath.Join(w.org, "licenses", "acme-2026.license") + " in the org's licenses, shared by every app it names; the trial stays"; w.asked != want {
+		t.Fatalf("asked %q", w.asked)
+	}
+	out, err := w.run("remove", "acme-2026", "--yes", "-o", "json")
+	if err != nil || contracts.Validate(schema, []byte(out)) != nil {
+		t.Fatalf("err = %v, out =\n%s", err, out)
+	}
+	if s := w.show(); s.State != licenses.StateTrial || len(s.Licenses) != 0 || s.Trial == nil {
+		t.Fatalf("show = %+v", s)
+	}
+	if _, err := os.Stat(filepath.Join(w.appDir(), "license-active")); !os.IsNotExist(err) {
+		t.Fatalf("the choice stays: %v", err)
+	}
+	_, err = w.run("remove", "acme-2026", "--yes")
 	var p *problem.Problem
 	if !errors.As(err, &p) || p.Type != problem.TypeNotFound {
 		t.Fatalf("with nothing to remove: %v", err)
+	}
+}
+
+// A choice that cannot be read, here a folder, names nothing: no license is active, the sentence says why, and use writes over it.
+func TestAChoiceThatCannotBeReadNamesNothing(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putOrg(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
+	at := filepath.Join(w.appDir(), "license-active")
+	if err := os.MkdirAll(at, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := w.show()
+	if want := "The choice of license cannot be read (" + at + " is not a regular file), so no license is active"; s.State != licenses.StateFree || active(s) != "" || s.Sentence != want {
+		t.Fatalf("show = state %s, active %q, sentence %q", s.State, active(s), s.Sentence)
+	}
+	w.mustRun("use", "acme-2026", "--yes")
+	if s := w.show(); s.State != licenses.StateLicensed || active(s) != "acme-2026" {
+		t.Fatalf("show after use = %+v", s)
+	}
+}
+
+// add and use say in their question when the license opens nothing here: it has ended, it has not started, or it does not run in this build.
+func TestAddAndUseSayWhenTheLicenseDoesNotRunHere(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putApp(w.licenseOf("ada-2026", "Ada", []string{"sync"}, "2026-01-01", "2026-12-01"))
+	w.run("use", "ada-2026")
+	if want := "make the license ada-2026 for Ada until 2026-12-01, which has ended, the active license of this app"; w.asked != want {
+		t.Fatalf("asked %q", w.asked)
+	}
+	w.line = 2
+	w.run("add", w.file(w.perpetual()))
+	if want := ", which never ends, which opens nothing in this build, in "; !strings.Contains(w.asked, want) {
+		t.Fatalf("asked %q, want it to hold %q", w.asked, want)
+	}
+	w.line = 1
+	w.putApp(w.licenseOf("ada-2027", "Ada", []string{"sync"}, "2027-01-01", "2027-12-01"))
+	w.run("use", "ada-2027")
+	if want := "make the license ada-2027 for Ada until 2027-12-01, which starts on 2027-01-01, the active license of this app"; w.asked != want {
+		t.Fatalf("asked %q", w.asked)
+	}
+}
+
+// remove names a file of the app's own as this app's.
+func TestRemoveNamesTheAppsOwnFile(t *testing.T) {
+	w := newWorld(t, "2026-12-07")
+	w.putApp(w.license([]string{"events"}, "2026-11-06", "2027-11-06"))
+	w.run("remove", "acme-2026")
+	if want := "remove the license acme-2026, the file " + filepath.Join(w.appDir(), "licenses", "acme-2026.license") + " of this app; the trial stays"; w.asked != want {
+		t.Fatalf("asked %q", w.asked)
 	}
 }

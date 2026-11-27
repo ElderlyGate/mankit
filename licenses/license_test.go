@@ -54,8 +54,8 @@ var license = licenses.License{ID: "acme-2026", Kind: licenses.KindLicense, For:
 // perpetual is a license that never ends and opens designer's events and sync in Designer 1 (ADR-L10).
 var perpetual = licenses.License{ID: "acme-perpetual", Kind: licenses.KindLicense, For: "Acme Ltd", Products: map[string][]string{"designer": {"events", "sync"}}, Lines: map[string][]int{"designer": {1}}, Issued: day("2026-11-06"), KeyID: "test-2026"}
 
-// trial is the trial built into Designer 1: each trial it starts runs 14 days, and its offer never ends (ADR-L9).
-var trial = licenses.License{ID: "designer-1-trial", Kind: licenses.Trial, For: "Designer 1", Lines: map[string][]int{"designer": {1}}, Issued: day("2026-11-23"), TrialDays: 14, KeyID: "test-2026"}
+// oldTrial is the payload of a trial key of the retired form a dev build wrote before the trial became a rule (ADR-L9).
+const oldTrial = `{"id":"designer-1-trial","kind":"trial","for":"Designer 1","lines":{"designer":[1]},"issued":"2026-11-23","days":14,"keyId":"test-2026"}`
 
 // The old form's payloads (licenses.APIVersion), as nw-license signed them before.
 const (
@@ -68,24 +68,22 @@ const (
 // signOld is a license file of the old form holding body, signed by k with the key test-2026.
 func signOld(t *testing.T, k keys, body string) []byte {
 	t.Helper()
+	return signAs(t, k, licenses.APIVersion, body)
+}
+
+// signAs is a license file of the form apiVersion holding body as it is, signed by k with the key test-2026, as no Sign of today writes it.
+func signAs(t *testing.T, k keys, apiVersion, body string) []byte {
+	t.Helper()
 	var p struct{ ID string }
 	if err := json.Unmarshal([]byte(body), &p); err != nil {
 		t.Fatal(err)
 	}
 	sig, _ := k.Sign("test-2026", []byte(body))
-	raw, err := json.Marshal(map[string]any{"apiVersion": licenses.APIVersion, "kind": licenses.FileKind, "metadata": map[string]any{"id": p.ID}, "spec": map[string]any{"payload": []byte(body), "signature": sig}})
+	raw, err := json.Marshal(map[string]any{"apiVersion": apiVersion, "kind": licenses.FileKind, "metadata": map[string]any{"id": p.ID}, "spec": map[string]any{"payload": []byte(body), "signature": sig}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return raw
-}
-
-// start is the license file raw with the trial it started on the day, as the app writes it beside the signed payload.
-func start(t *testing.T, raw []byte, on string) []byte {
-	t.Helper()
-	return edit(t, raw, func(f map[string]any) {
-		f["spec"].(map[string]any)["started"] = map[string]any{"day": on, "binary": "/home/ada/.local/bin/designer", "fileTime": on + "T09:14:05Z"}
-	})
 }
 
 func sign(t *testing.T, k keys, l licenses.License) []byte {
@@ -120,26 +118,35 @@ func TestASignedLicenseVerifiesAsSigned(t *testing.T) {
 	}
 }
 
-// An old file is read for one release as today's kinds (ADR-L8): an org or product license as a license, a release-trial as a trial whose offer never ends.
-func TestAnOldFileIsReadAsTodaysKinds(t *testing.T) {
+// An old org or product file is read for one release as a license (ADR-L8).
+func TestAnOldFileIsReadAsALicense(t *testing.T) {
 	k, release, _ := signer(t)
-	for body, want := range map[string]licenses.Kind{oldOrg: licenses.KindLicense, oldProduct: licenses.KindLicense, oldReleaseTrial: licenses.Trial} {
+	for _, body := range []string{oldOrg, oldProduct} {
 		got, err := licenses.Verify(signOld(t, k, body), release)
-		if err != nil || got.Kind != want {
+		if err != nil || got.Kind != licenses.KindLicense {
 			t.Fatalf("%s: license = %+v, %v", body, got, err)
-		}
-		if want == licenses.Trial && (!got.Until.IsZero() || got.Days() != 14) {
-			t.Fatalf("an old release-trial = %+v", got)
 		}
 	}
 }
 
-// A person's trial key of the old form is refused, saying why (ADR-L8, L9).
-func TestAnOldPersonsTrialKeyIsRefused(t *testing.T) {
+// Every trial file, of the old form or the retired trial key, a started one among them, is refused as retired_kind, saying why (ADR-L8, L9).
+func TestAnOldTrialIsRefusedAsARetiredKind(t *testing.T) {
 	k, release, _ := signer(t)
-	_, err := licenses.Verify(signOld(t, k, oldPersonTrial), release)
-	if reason(err) != licenses.ReasonUnreadable || !strings.Contains(err.Error(), "person's trial key") {
-		t.Fatalf("err = %v", err)
+	started := func(raw []byte) []byte {
+		return edit(t, raw, func(f map[string]any) {
+			f["spec"].(map[string]any)["started"] = map[string]any{"day": "2026-12-03", "binary": "/bin/designer", "fileTime": "2026-12-03T09:14:05Z"}
+		})
+	}
+	for name, raw := range map[string][]byte{
+		"an old person's trial key": signOld(t, k, oldPersonTrial),
+		"an old release-trial":      signOld(t, k, oldReleaseTrial),
+		"a started release-trial":   started(signOld(t, k, oldReleaseTrial)),
+		"a trial key":               signAs(t, k, licenses.FileAPIVersion, oldTrial),
+		"a started trial key":       started(signAs(t, k, licenses.FileAPIVersion, oldTrial)),
+	} {
+		if _, err := licenses.Verify(raw, release); reason(err) != licenses.ReasonRetiredKind || !strings.Contains(err.Error(), "rule") {
+			t.Errorf("%s: err = %v, want retired_kind", name, err)
+		}
 	}
 }
 
@@ -236,12 +243,6 @@ func TestCheckRefusesExactlyWhatSignRefuses(t *testing.T) {
 		change(&l)
 		return l
 	}
-	tr := func(change func(*licenses.License)) licenses.License {
-		l := trial
-		l.Lines = map[string][]int{"designer": {1}}
-		change(&l)
-		return l
-	}
 	for _, tc := range []struct {
 		name  string
 		l     licenses.License
@@ -250,12 +251,15 @@ func TestCheckRefusesExactlyWhatSignRefuses(t *testing.T) {
 		{"a license until a day", license, true},
 		{"a license that names lines", perpetual, true},
 		{"a one-day license", lic(func(l *licenses.License) { l.Until = l.Issued }), true},
-		{"a trial", trial, true},
-		{"a trial of one day", tr(func(l *licenses.License) { l.TrialDays = 1 }), true},
+		{"deprecated days, ignored", lic(func(l *licenses.License) { l.TrialDays = 14 }), true},
+		{"a deprecated started trial, ignored", lic(func(l *licenses.License) {
+			l.Started = &licenses.Started{Day: day("2026-12-03"), Binary: "/bin/designer"}
+		}), true},
+		{"a trial", lic(func(l *licenses.License) { l.Kind = licenses.Trial }), false},
+		{"an old release-trial kind", lic(func(l *licenses.License) { l.Kind = licenses.ReleaseTrial }), false},
 		{"an unknown kind", lic(func(l *licenses.License) { l.Kind = "site" }), false},
 		{"an old org kind", lic(func(l *licenses.License) { l.Kind = licenses.Org }), false},
 		{"an old product kind", lic(func(l *licenses.License) { l.Kind = licenses.Product }), false},
-		{"an old release-trial kind", tr(func(l *licenses.License) { l.Kind = licenses.ReleaseTrial }), false},
 		{"no id", lic(func(l *licenses.License) { l.ID = "" }), false},
 		{"an id with a space", lic(func(l *licenses.License) { l.ID = "acme 2026" }), false},
 		{"nobody named", lic(func(l *licenses.License) { l.For = "  " }), false},
@@ -275,16 +279,6 @@ func TestCheckRefusesExactlyWhatSignRefuses(t *testing.T) {
 		{"a line below 1", lic(func(l *licenses.License) { l.Until, l.Lines = time.Time{}, map[string][]int{"designer": {0}} }), false},
 		{"a line twice", lic(func(l *licenses.License) { l.Until, l.Lines = time.Time{}, map[string][]int{"designer": {1, 1}} }), false},
 		{"a product naming no line", lic(func(l *licenses.License) { l.Until, l.Lines = time.Time{}, map[string][]int{"designer": {}} }), false},
-		{"days on a license", lic(func(l *licenses.License) { l.TrialDays = 14 }), false},
-		{"a started trial on a license", lic(func(l *licenses.License) {
-			l.Started = &licenses.Started{Day: day("2026-12-03"), Binary: "/bin/designer"}
-		}), false},
-		{"a trial that names features", tr(func(l *licenses.License) { l.Products = map[string][]string{"designer": {"events"}} }), false},
-		{"a trial with an until", tr(func(l *licenses.License) { l.Until = day("2027-11-23") }), false},
-		{"a trial of no days", tr(func(l *licenses.License) { l.TrialDays = 0 }), false},
-		{"a trial naming no line", tr(func(l *licenses.License) { l.Lines = nil }), false},
-		{"a trial naming two products", tr(func(l *licenses.License) { l.Lines = map[string][]int{"designer": {1}, "kanban": {1}} }), false},
-		{"a trial naming two lines", tr(func(l *licenses.License) { l.Lines = map[string][]int{"designer": {1, 2}} }), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &counted{keys: k}
@@ -306,71 +300,18 @@ func TestCheckRefusesExactlyWhatSignRefuses(t *testing.T) {
 	}
 }
 
-// Sign writes the key as the signing tool does: a started trial is the app's to write, never signed.
-func TestSignRefusesAStartedTrial(t *testing.T) {
-	k, _, _ := signer(t)
-	l := trial
-	l.Started = &licenses.Started{Day: day("2026-12-03"), Binary: "/bin/designer"}
-	if err := l.Check(); err != nil {
-		t.Fatal(err)
-	}
-	s := &counted{keys: k}
-	if _, err := licenses.Sign(l, s); err == nil || s.asked != 0 {
-		t.Fatalf("err = %v, asked %d", err, s.asked)
-	}
-}
-
-// A trial carries its days signed, and its length is them.
-func TestATrialVerifiesWithItsDays(t *testing.T) {
+// Sign never writes what is deprecated: no days and no started trial reach the signed file.
+func TestSignWritesNoTrial(t *testing.T) {
 	k, release, _ := signer(t)
-	got, err := licenses.Verify(sign(t, k, trial), release)
-	if err != nil {
-		t.Fatal(err)
+	l := license
+	l.TrialDays, l.Started = 14, &licenses.Started{Day: day("2026-12-03"), Binary: "/bin/designer"}
+	raw := sign(t, k, l)
+	if bytes.Contains(raw, []byte("started")) {
+		t.Fatalf("the file holds a started trial:\n%s", raw)
 	}
-	if got.Kind != licenses.Trial || got.TrialDays != 14 || got.Days() != 14 || got.Started != nil || got.Products != nil || !got.Until.IsZero() {
-		t.Fatalf("license = %+v", got)
-	}
-	changed := edit(t, sign(t, k, trial), func(f map[string]any) {
-		spec := f["spec"].(map[string]any)
-		body, _ := base64.StdEncoding.DecodeString(spec["payload"].(string))
-		spec["payload"] = base64.StdEncoding.EncodeToString(bytes.Replace(body, []byte(`"days":14`), []byte(`"days":99`), 1))
-	})
-	if _, err := licenses.Verify(changed, release); reason(err) != licenses.ReasonSignature {
-		t.Fatalf("changed days: err = %v, want refused for its signature", err)
-	}
-}
-
-// The started trial is read from beside the payload, unsigned, so writing it never breaks the signature; only a trial's file has it (contracts mankit/v3 license-file).
-func TestAStartedTrialIsReadUnsignedFromATrialsFileOnly(t *testing.T) {
-	k, release, _ := signer(t)
-	got, err := licenses.Verify(start(t, sign(t, k, trial), "2026-12-03"), release)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Started == nil || !got.Started.Day.Equal(day("2026-12-03")) || got.Started.Binary != "/home/ada/.local/bin/designer" || !got.Started.FileTime.Equal(day("2026-12-03").Add(9*time.Hour+14*time.Minute+5*time.Second)) {
-		t.Fatalf("started = %+v", got.Started)
-	}
-	if old, err := licenses.Verify(start(t, signOld(t, k, oldReleaseTrial), "2026-12-03"), release); err != nil || old.Started == nil {
-		t.Fatalf("an old release-trial's started trial = %+v, %v", old, err)
-	}
-	for name, raw := range map[string][]byte{
-		"on a license":                             start(t, sign(t, k, license), "2026-12-03"),
-		"on an old org license":                    start(t, signOld(t, k, oldOrg), "2026-12-03"),
-		"after an old key's last day to start one": start(t, signOld(t, k, oldReleaseTrial), "2027-11-24"),
-		"with no day": edit(t, start(t, sign(t, k, trial), "2026-12-03"), func(f map[string]any) {
-			delete(f["spec"].(map[string]any)["started"].(map[string]any), "day")
-		}),
-		"with no binary": edit(t, start(t, sign(t, k, trial), "2026-12-03"), func(f map[string]any) {
-			f["spec"].(map[string]any)["started"].(map[string]any)["binary"] = ""
-		}),
-		"with a file time that is no time": edit(t, start(t, sign(t, k, trial), "2026-12-03"), func(f map[string]any) {
-			f["spec"].(map[string]any)["started"].(map[string]any)["fileTime"] = "yesterday"
-		}),
-		"as text": edit(t, sign(t, k, trial), func(f map[string]any) { f["spec"].(map[string]any)["started"] = "2026-12-03" }),
-	} {
-		if _, err := licenses.Verify(raw, release); reason(err) != licenses.ReasonUnreadable {
-			t.Errorf("a started trial %s: err = %v, want unreadable", name, err)
-		}
+	got, err := licenses.Verify(raw, release)
+	if err != nil || got.TrialDays != 0 || got.Started != nil {
+		t.Fatalf("license = %+v, %v", got, err)
 	}
 }
 
@@ -385,15 +326,10 @@ func TestAKeyThatIsNoEd25519KeyIsAnErrorNotAPanic(t *testing.T) {
 // A signed file and its payload meet contracts mankit/v3 license-file and license-payload, the home of what each field means.
 func TestASignedFileMeetsItsSchema(t *testing.T) {
 	k, _, _ := signer(t)
-	for _, l := range []licenses.License{license, perpetual, trial} {
+	for _, l := range []licenses.License{license, perpetual} {
 		raw := sign(t, k, l)
 		if err := contracts.Validate("mankit/v3/license-file.schema.json", raw); err != nil {
 			t.Fatalf("%s file: %v\n%s", l.ID, err, raw)
-		}
-		if l.Kind == licenses.Trial {
-			if started := start(t, raw, "2026-12-03"); contracts.Validate("mankit/v3/license-file.schema.json", started) != nil {
-				t.Fatalf("a started trial's file does not meet its schema\n%s", started)
-			}
 		}
 		var f struct{ Spec struct{ Payload []byte } }
 		if err := json.Unmarshal(raw, &f); err != nil {
