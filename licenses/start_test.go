@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -245,9 +246,9 @@ func TestARemovedRefusedFileLetsTheTrialStart(t *testing.T) {
 	want(t, startTrial(t, key, release, "2026-12-03", bin), licenses.TrialStarted)
 }
 
-// A key of another line than the build's fails and writes nothing; a build with no line takes the key's.
+// A key of another line than the build's fails and writes nothing; a dev build with no line takes the key's, a release with none starts no trial.
 func TestAKeyOfAnotherLineFails(t *testing.T) {
-	k, release, _ := signer(t)
+	k, release, dev := signer(t)
 	key := sign(t, k, trial)
 	bin, _ := install(t)
 	if got := checkerOfLine(t, release, "2026-12-03", 2).StartTrial(context.Background(), key, bin); got.Outcome != licenses.TrialFailed {
@@ -256,7 +257,15 @@ func TestAKeyOfAnotherLineFails(t *testing.T) {
 	if _, there := read(t); there {
 		t.Fatal("a key of another line was written")
 	}
-	want(t, checkerOfLine(t, release, "2026-12-03", 0).StartTrial(context.Background(), key, bin), licenses.TrialStarted)
+	if got := checkerOfLine(t, release, "2026-12-03", 0).StartTrial(context.Background(), key, bin); got.Outcome != licenses.TrialFailed || !strings.Contains(got.Reason, "no product line") {
+		t.Fatalf("a release with no line: %v", got)
+	}
+	if _, there := read(t); there {
+		t.Fatal("a release with no line wrote a trial")
+	}
+	devKey := trial
+	devKey.KeyID = "dev-2026"
+	want(t, checkerOfLine(t, dev, "2026-12-03", 0).StartTrial(context.Background(), sign(t, k, devKey), bin), licenses.TrialStarted)
 }
 
 // A trial's offer never ends: a key starts a trial on any day (ADR-L9).

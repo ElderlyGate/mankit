@@ -15,6 +15,7 @@ import (
 	"github.com/tugbayatilla/mankit/v4/home"
 	"github.com/tugbayatilla/mankit/v4/licenses"
 	"github.com/tugbayatilla/mankit/v4/problem"
+	"github.com/tugbayatilla/mankit/v4/store"
 )
 
 var all = []features.Feature{
@@ -533,5 +534,98 @@ func TestRemoveTakesOnlyWhatWasShown(t *testing.T) {
 	}
 	if err := c.Remove(context.Background(), []licenses.Removal{{File: filepath.Join(t.TempDir(), "license"), Sum: shown[0].Sum}}); err == nil {
 		t.Fatal("a file that is no license file of the app was taken")
+	}
+}
+
+// Removing never offers a trial in the app's folder, taken or refused, whatever the refusal; a file that is no trial is offered.
+func TestRemovingNeverOffersATrialInTheAppsFolder(t *testing.T) {
+	k, release, _ := signer(t)
+	started := start(t, sign(t, k, trial), "2026-12-03")
+	forOther := trial
+	forOther.Lines = map[string][]int{"kanban": {1}}
+	forOther.ID = "kanban-trial"
+	untrusted := trial
+	untrusted.KeyID = "dev-2026"
+	for name, tc := range map[string]struct {
+		raw     []byte
+		offered bool
+	}{
+		"a started trial":                     {started, false},
+		"a trial of another product":          {start(t, sign(t, k, forOther), "2026-12-03"), false},
+		"a trial of an untrusted key":         {sign(t, k, untrusted), false},
+		"an old release-trial":                {start(t, signOld(t, k, oldReleaseTrial), "2026-12-03"), false},
+		"a trial whose signature is tampered": {edit(t, started, func(f map[string]any) { f["spec"].(map[string]any)["signature"] = "AAAA" }), false},
+		"a license in the app's folder":       {sign(t, k, license), true},
+		"garbage":                             {[]byte("garbage"), true},
+		"a trial too big to read":             {bytes.Repeat([]byte("x"), 70<<10), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			org(t)
+			put(t, appLicense(t), tc.raw)
+			put(t, orgLicense(t), sign(t, k, license))
+			shown, err := checker(t, release, "2026-12-05").Removing()
+			if err != nil {
+				t.Fatal(err)
+			}
+			own := slices.ContainsFunc(shown, func(r licenses.Removal) bool { return r.File == appLicense(t) })
+			if own != tc.offered {
+				t.Fatalf("shown = %+v, offered the app's file = %v", shown, own)
+			}
+		})
+	}
+}
+
+// Remove refuses the app's own file when it is a trial now, as a guard for a caller that hands in a Removal itself, and removes nothing.
+func TestRemoveRefusesATrialAsTheAppsOwn(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	put(t, orgLicense(t), sign(t, k, license))
+	put(t, appLicense(t), []byte("garbage"))
+	c := checker(t, release, "2026-12-05")
+	shown, err := c.Removing()
+	if err != nil || len(shown) != 2 {
+		t.Fatalf("shown = %+v, %v", shown, err)
+	}
+	trialFile := start(t, sign(t, k, trial), "2026-12-03")
+	put(t, appLicense(t), trialFile)
+	for i, r := range shown {
+		if r.File == appLicense(t) {
+			shown[i].Sum = store.SumOf(trialFile)
+		}
+	}
+	err = c.Remove(context.Background(), shown)
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Type != problem.TypeRefused {
+		t.Fatalf("err = %v", err)
+	}
+	if got, _ := os.ReadFile(appLicense(t)); !bytes.Equal(got, trialFile) {
+		t.Fatal("the trial was touched")
+	}
+	if _, err := os.Stat(orgLicense(t)); err != nil {
+		t.Fatal("the org's license was removed beside a refused trial")
+	}
+}
+
+// Remove leaves every file when one of them cannot be removed: no partial removal.
+func TestRemoveRemovesAllOrNone(t *testing.T) {
+	org(t)
+	k, release, _ := signer(t)
+	put(t, orgLicense(t), sign(t, k, license))
+	put(t, appLicense(t), []byte("garbage"))
+	c := checker(t, release, "2026-12-05")
+	shown, err := c.Removing()
+	if err != nil || len(shown) != 2 {
+		t.Fatalf("shown = %+v, %v", shown, err)
+	}
+	put(t, orgLicense(t), sign(t, k, perpetual))
+	err = c.Remove(context.Background(), shown)
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Type != problem.TypeRefused {
+		t.Fatalf("err = %v", err)
+	}
+	for _, f := range []string{orgLicense(t), appLicense(t)} {
+		if _, err := os.Stat(f); err != nil {
+			t.Fatalf("%s was removed by a refused Remove", f)
+		}
 	}
 }

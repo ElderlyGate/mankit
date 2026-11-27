@@ -15,7 +15,7 @@ func (t Threshold) Warns(k Kind, daysLeft int) bool {
 	switch k {
 	case KindLicense, Org, Product:
 		return daysLeft <= t.Paid
-	case Trial, ReleaseTrial:
+	case Trial:
 		return daysLeft <= t.Trial
 	}
 	return false

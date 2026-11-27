@@ -2,6 +2,7 @@ package licenses
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +30,7 @@ const most = 64 << 10
 type Config struct {
 	ID     string
 	Title  string           // the app's name people read, filled from serve.App.Name() by licenses/cli.Checker, the way apps build their Checker
-	Line   int              // the product line this build is (V-10); 0 is build.Line(), the build stamp, and only a test sets its own. A build with none is opened by no license naming lines
+	Line   int              // the product line this build is, see ADR-L10; 0 is build.Line(), the build stamp, and only a test sets its own
 	Folder string           // empty is ID
 	Trust  Trust            // Trusted() in every app, as a hand-built one skips ADR-L5; only a test hands in its own
 	Now    func() time.Time // nil is time.Now
@@ -180,7 +181,7 @@ type Removal struct {
 	Sum  string
 }
 
-// Removing is the files Remove takes away: the one in the org's folder, taken or refused, and in the app's own folder an old product license or a file refused, which would keep StartTrial from writing the trial; it never removes the trial file. With none it is a Problem not_found.
+// Removing is the files Remove takes away: the one in the org's folder, taken or refused, and in the app's own folder an old product license or a file refused, which would keep StartTrial from writing the trial; it never offers a trial there, taken or refused. With none it is a Problem not_found.
 func (c *Checker) Removing() ([]Removal, error) {
 	org, err := c.at(true)
 	if err != nil {
@@ -193,6 +194,9 @@ func (c *Checker) Removing() ([]Removal, error) {
 	var out []Removal
 	for i, p := range []place{org, own} {
 		inOrg := i == 0
+		if !inOrg && holdsTrial(p.raw) {
+			continue
+		}
 		if p.refused == nil && (p.license == nil || (!inOrg && p.license.old != Product)) {
 			continue
 		}
@@ -222,7 +226,7 @@ func (c *Checker) sum(p place, org bool) (string, error) {
 	return it.Sum, err
 }
 
-// Remove takes away the files shown, as Removing gave them, each through the store in the scope's own turn and only while it holds the sum it was shown with; a file changed since is a Problem refused, changed. The trial stays, so a removed license never starts a fresh one.
+// Remove takes away the files shown, as Removing gave them, each through the store in the scope's own turn and only while it holds the sum it was shown with; a file changed since is a Problem refused, changed. It never removes the app's trial, so a removed license never starts a fresh one. Every file is checked before any is removed, and the app's own goes first, so a refusal leaves them all.
 func (c *Checker) Remove(ctx context.Context, shown []Removal) error {
 	orgPath, err := c.path(true)
 	if err != nil {
@@ -232,21 +236,80 @@ func (c *Checker) Remove(ctx context.Context, shown []Removal) error {
 	if err != nil {
 		return err
 	}
-	for _, r := range shown {
+	order := slices.Clone(shown)
+	for _, r := range order {
 		if r.File != orgPath && r.File != ownPath {
 			return fmt.Errorf("licenses: %s is not a license file of %s", r.File, c.c.ID)
 		}
-		s, err := c.scope(r.File == orgPath)
+	}
+	slices.SortStableFunc(order, func(a, b Removal) int {
+		switch {
+		case (a.File == ownPath) == (b.File == ownPath):
+			return 0
+		case a.File == ownPath:
+			return -1
+		}
+		return 1
+	})
+	for _, r := range order {
+		if err := c.holds(r, r.File == orgPath); err != nil {
+			return err
+		}
+	}
+	for _, r := range order {
+		org := r.File == orgPath
+		s, err := c.scope(org)
 		if err != nil {
 			return err
 		}
-		err = s.Change(ctx, "", "license remove", func(tx store.Tx) error { return tx.Remove(name, store.Holds(r.Sum)) })
+		err = s.Change(ctx, "", "license remove", func(tx store.Tx) error {
+			if it, ok, err := tx.Get(name); err != nil {
+				return err
+			} else if ok && !org && holdsTrial(it.Body) {
+				return refusedTrial(r.File)
+			}
+			return tx.Remove(name, store.Holds(r.Sum))
+		})
 		s.Close()
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// holds checks, before anything is removed, that the file r shows is still as shown and, in the app's folder, no trial.
+func (c *Checker) holds(r Removal, org bool) error {
+	s, err := c.scope(org)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	it, ok, err := s.Get(name)
+	switch {
+	case err != nil:
+		return err
+	case ok && !org && holdsTrial(it.Body):
+		return refusedTrial(r.File)
+	case !ok || it.Sum != r.Sum:
+		return problem.FailAt(problem.TypeRefused, store.ReasonChanged, r.File, fmt.Sprintf("%s changed since it was shown, so nothing is removed", r.File))
+	}
+	return nil
+}
+
+// refusedTrial is the Problem for the app's own file when it is a trial, which stays (ADR-L9).
+func refusedTrial(file string) error {
+	return problem.FailAt(problem.TypeRefused, "", file, fmt.Sprintf("%s is a trial, which is never removed, so a removed license never starts a fresh one", file))
+}
+
+// holdsTrial reports whether the license file raw carries a payload of kind trial, or an old release-trial, signed or not.
+func holdsTrial(raw []byte) bool {
+	var f file
+	var p payload
+	if json.Unmarshal(raw, &f) != nil || json.Unmarshal(f.Spec.Payload, &p) != nil {
+		return false
+	}
+	return p.Kind == Trial || p.Kind == ReleaseTrial
 }
 
 // scope is the store scope the license is kept in: the app's own config folder, or the org's (home.OrgDir), opened with store.Own as a folder private to this user.
