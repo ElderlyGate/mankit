@@ -1,6 +1,7 @@
 package licenses
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -181,7 +182,7 @@ type Removal struct {
 	Sum  string
 }
 
-// Removing is the files Remove takes away: the one in the org's folder, taken or refused, and in the app's own folder an old product license or a file refused, which would keep StartTrial from writing the trial; it never offers a trial there, taken or refused. With none it is a Problem not_found.
+// Removing is the files Remove takes away: the one in the org's folder, taken or refused, and in the app's own folder an old product license or a file refused, which would keep StartTrial from writing the trial; it never offers a trial there, taken or refused. A refused trial blocks StartTrial until it is deleted by hand, which gives a fresh trial as ADR-L9 accepts. With none it is a Problem not_found.
 func (c *Checker) Removing() ([]Removal, error) {
 	org, err := c.at(true)
 	if err != nil {
@@ -226,7 +227,7 @@ func (c *Checker) sum(p place, org bool) (string, error) {
 	return it.Sum, err
 }
 
-// Remove takes away the files shown, as Removing gave them, each through the store in the scope's own turn and only while it holds the sum it was shown with; a file changed since is a Problem refused, changed. It never removes the app's trial, so a removed license never starts a fresh one. Every file is checked before any is removed, and the app's own goes first, so a refusal leaves them all.
+// Remove takes away the files shown, as Removing gave them, each through the store in the scope's own turn and only while it holds the sum it was shown with; a file changed since is a Problem refused, changed. It never removes the app's trial, so a removed license never starts a fresh one. Every file is checked before any is removed, and the app's own goes first, so a refusal leaves them all; a file changed by someone else between the check and its turn is still refused, after the ones before it went (best effort, not one transaction).
 func (c *Checker) Remove(ctx context.Context, shown []Removal) error {
 	orgPath, err := c.path(true)
 	if err != nil {
@@ -237,6 +238,8 @@ func (c *Checker) Remove(ctx context.Context, shown []Removal) error {
 		return err
 	}
 	order := slices.Clone(shown)
+	slices.SortFunc(order, func(a, b Removal) int { return cmp.Compare(a.File, b.File) })
+	order = slices.CompactFunc(order, func(a, b Removal) bool { return a.File == b.File })
 	for _, r := range order {
 		if r.File != orgPath && r.File != ownPath {
 			return fmt.Errorf("licenses: %s is not a license file of %s", r.File, c.c.ID)
