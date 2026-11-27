@@ -1,3 +1,4 @@
 [
-  {"id": "prod-2026", "publicKey": "1smIGzZA6qqe8OPGAbsraCo9VJzGS7mRmWOJ9S1hqvw=", "build": "prod"}
+  {"id": "prod-2026", "publicKey": "1smIGzZA6qqe8OPGAbsraCo9VJzGS7mRmWOJ9S1hqvw=", "build": "prod"},
+  {"id": "dev-2026", "publicKey": "KSSe6/ReTZ0lWWDOBEU23JNx5wMBVvX8vSclO3bdXxo=", "build": "dev"}
 ]
