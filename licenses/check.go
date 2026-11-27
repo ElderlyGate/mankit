@@ -186,14 +186,14 @@ func (c *Checker) read(f *Found, path string, pl Place) {
 		err = refused(ReasonIDMismatch, fmt.Sprintf("its file is named %s but its id is %q; a license file in a licenses folder is named <id>%s", base, l.ID, ext))
 	}
 	if err != nil {
-		f.Refused = append(f.Refused, refusal(path, raw, err))
+		f.Refused = append(f.Refused, refusal(path, pl, raw, err))
 		return
 	}
 	f.Taken = append(f.Taken, c.taken(l, path, pl))
 }
 
-// refusal is the Refused of the file at path for err, naming the id the file gives: its name in a licenses folder, as the unsigned metadata.id of a refused file proves nothing, else, in an old single file, its metadata.id.
-func refusal(path string, raw []byte, err error) Refused {
+// refusal is the Refused of the file at path in the place pl for err, naming the id the file gives: its name in a licenses folder, as the unsigned metadata.id of a refused file proves nothing, else, in an old single file, its metadata.id, or old-org or old-app when it is too broken to give one, so license remove still takes it away.
+func refusal(path string, pl Place, raw []byte, err error) Refused {
 	r := Refused{File: path, Reason: ReasonUnreadable, Detail: err.Error()}
 	var head struct {
 		Metadata struct {
@@ -203,8 +203,10 @@ func refusal(path string, raw []byte, err error) Refused {
 	switch {
 	case inFolder(path):
 		r.ID = strings.TrimSuffix(filepath.Base(path), ext)
-	case decode(raw, &head, false) == nil:
+	case decode(raw, &head, false) == nil && head.Metadata.ID != "":
 		r.ID = head.Metadata.ID
+	default:
+		r.ID = "old-" + string(pl)
 	}
 	var p *problem.Problem
 	if errors.As(err, &p) {
@@ -237,7 +239,7 @@ func (c *Checker) files(pl Place) ([]string, *Refused, error) {
 	return append(paths, filepath.Join(dir, old)), nil, nil
 }
 
-// chosen is the id of the license chosen in this app, empty when none is, and why the choice cannot be read when it cannot (a folder, a pipe, no permission): a choice that names nothing, which use and add write over. It fails only when the app's folder cannot be found.
+// chosen is the id of the license chosen in this app, empty when none is, and why the choice cannot be read when it cannot (a folder, a pipe, no permission, a link that leads nowhere): a choice that names nothing, which use and add write over. It fails only when the app's folder cannot be found.
 func (c *Checker) chosen() (string, string, error) {
 	path, err := home.File(c.c.Folder, choice)
 	if err != nil {
@@ -245,12 +247,31 @@ func (c *Checker) chosen() (string, string, error) {
 	}
 	raw, err := readFile(path)
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	case errors.Is(err, fs.ErrNotExist) && !there(path):
 		return "", "", nil
 	case err != nil:
 		return "", err.Error(), nil
 	}
 	return strings.TrimSpace(string(raw)), "", nil
+}
+
+// there reports whether anything is at path, a link that leads nowhere among them.
+func there(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// unreadable reports whether the file at path cannot be read for what it is, not a regular file (a folder, a pipe, a link), or for want of permission: a choice that names nothing.
+func unreadable(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	if !info.Mode().IsRegular() {
+		return true
+	}
+	_, err = readFile(path)
+	return errors.Is(err, fs.ErrPermission)
 }
 
 // noTrial reports whether the build runs no trial: a release with no line stamped (ADR-L9, L10).
@@ -499,18 +520,30 @@ func (c *Checker) Remove(ctx context.Context, shown []Removal) error {
 			return err
 		}
 	}
+	path, err := home.File(c.c.Folder, choice)
+	if err != nil {
+		return err
+	}
 	s, err := c.scope(false)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
-	return s.Change(ctx, "", "license remove", func(tx store.Tx) error {
-		it, ok, err := tx.Get(choice)
-		if err != nil || !ok || !slices.ContainsFunc(shown, func(r Removal) bool { return r.ID == strings.TrimSpace(string(it.Body)) }) {
-			return nil // a choice that cannot be read names nothing removed
-		}
-		return tx.Remove(choice, store.Holds(it.Sum))
-	})
+	return s.Change(ctx, "", "license remove", func(tx store.Tx) error { return unchoose(tx, path, shown) })
+}
+
+// unchoose clears the choice at path in tx when it names a license shown. A choice that cannot be read for what it is, or for want of permission, names nothing removed; any other error reading it is returned (G-CODE-6).
+func unchoose(tx store.Tx, path string, shown []Removal) error {
+	it, ok, err := tx.Get(choice)
+	switch {
+	case err != nil && unreadable(path):
+		return nil
+	case err != nil:
+		return err
+	case !ok || !slices.ContainsFunc(shown, func(r Removal) bool { return r.ID == strings.TrimSpace(string(it.Body)) }):
+		return nil
+	}
+	return tx.Remove(choice, store.Holds(it.Sum))
 }
 
 // holds checks, before anything is removed, that the file r shows is still as shown.

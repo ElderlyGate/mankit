@@ -192,11 +192,13 @@ func runs(t licenses.Taken) string {
 	return " until " + t.LastDay.Format("2006-01-02")
 }
 
-// idle says why t opens nothing here, as the question says it, the clause closed: it has ended, or it does not run in this build; empty while it runs.
+// idle says why t opens nothing here, as the question says it, the clause closed: it has ended, it has not started, or it does not run in this build; empty while it runs.
 func idle(t licenses.Taken) string {
 	switch {
 	case t.Ended:
 		return ", which has ended,"
+	case t.Early:
+		return ", which starts on " + t.Issued.Format("2006-01-02") + ","
 	case !t.Running():
 		return ", which opens nothing in this build,"
 	}

@@ -567,7 +567,7 @@ func TestAChoiceThatCannotBeReadNamesNothing(t *testing.T) {
 	}
 }
 
-// add and use say in their question when the license opens nothing here: it has ended, or it does not run in this build.
+// add and use say in their question when the license opens nothing here: it has ended, it has not started, or it does not run in this build.
 func TestAddAndUseSayWhenTheLicenseDoesNotRunHere(t *testing.T) {
 	w := newWorld(t, "2026-12-07")
 	w.putApp(w.licenseOf("ada-2026", "Ada", []string{"sync"}, "2026-01-01", "2026-12-01"))
@@ -579,6 +579,12 @@ func TestAddAndUseSayWhenTheLicenseDoesNotRunHere(t *testing.T) {
 	w.run("add", w.file(w.perpetual()))
 	if want := ", which never ends, which opens nothing in this build, in "; !strings.Contains(w.asked, want) {
 		t.Fatalf("asked %q, want it to hold %q", w.asked, want)
+	}
+	w.line = 1
+	w.putApp(w.licenseOf("ada-2027", "Ada", []string{"sync"}, "2027-01-01", "2027-12-01"))
+	w.run("use", "ada-2027")
+	if want := "make the license ada-2027 for Ada until 2027-12-01, which starts on 2027-01-01, the active license of this app"; w.asked != want {
+		t.Fatalf("asked %q", w.asked)
 	}
 }
 

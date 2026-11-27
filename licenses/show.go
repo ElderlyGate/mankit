@@ -234,6 +234,8 @@ func (f Found) says(v verdict, title, name string) string {
 		parts = append(parts, fmt.Sprintf("The license for %s ended on %s", a.For, a.Until.Format(day)))
 	case a != nil && a.Early:
 		parts = append(parts, fmt.Sprintf("The license %s starts on %s", a.ID, a.Issued.Format(day)))
+	case a != nil && a.Elsewhere && len(a.Lines[f.product]) == 0:
+		parts = append(parts, fmt.Sprintf("The license %s names no line of %s", a.ID, title))
 	case a != nil && a.Elsewhere:
 		lines := make([]string, len(a.Lines[f.product]))
 		for i, n := range a.Lines[f.product] {

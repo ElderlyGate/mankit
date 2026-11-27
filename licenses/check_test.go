@@ -686,3 +686,72 @@ func TestARefusedFileIsKnownByItsName(t *testing.T) {
 		t.Fatalf("refused = %+v", f.Refused)
 	}
 }
+
+// A choice that is a link leading nowhere or to a file it may not read names nothing: no license is active, and use writes a file over the link, never touching what it leads to.
+func TestAChoiceThatIsAnUnreadableLinkNamesNothing(t *testing.T) {
+	for name, target := range map[string]func(t *testing.T, path string){
+		"a link to nothing": func(*testing.T, string) {},
+		"a link to a file it may not read": func(t *testing.T, path string) {
+			put(t, path, []byte("acme-2026\n"))
+			if err := os.Chmod(path, 0); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			org(t)
+			k, release, _ := signer(t)
+			put(t, orgFile(t, "acme-2026"), sign(t, k, license))
+			path := appPath(t, "designer", "license-active")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			to := filepath.Join(t.TempDir(), "elsewhere")
+			target(t, to)
+			if err := os.Symlink(to, path); err != nil {
+				t.Fatal(err)
+			}
+			c := checker(t, release, "2026-11-19")
+			if f, err := c.Read(); err != nil || active(f) != "" || f.Chosen != "" {
+				t.Fatalf("found = %+v, %v", f, err)
+			}
+			if _, err := c.Use(context.Background(), "acme-2026"); err != nil {
+				t.Fatalf("use over the link: %v", err)
+			}
+			if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("the choice is not a file: %v, %v", info, err)
+			}
+			if f := found(t, release, "2026-11-19"); active(f) != "acme-2026" {
+				t.Fatalf("found after use = %+v", f)
+			}
+			if _, err := os.Lstat(to); err != nil && name != "a link to nothing" {
+				t.Fatalf("the file the link led to is gone: %v", err)
+			}
+		})
+	}
+}
+
+// An old single file too broken to name an id is known as old-org or old-app, by its place, so license remove still takes it away.
+func TestAnOldFileWithNoIDIsKnownByItsPlace(t *testing.T) {
+	org(t)
+	_, release, _ := signer(t)
+	put(t, oldOrgFile(t), []byte("not a license"))
+	put(t, oldAppFile(t), []byte(`{"metadata":{}}`))
+	c := checker(t, release, "2026-11-19")
+	f, err := c.Read()
+	if err != nil || len(f.Refused) != 2 || f.Refused[0].ID != "old-app" || f.Refused[1].ID != "old-org" {
+		t.Fatalf("refused = %+v, %v", f.Refused, err)
+	}
+	for id, file := range map[string]string{"old-org": oldOrgFile(t), "old-app": oldAppFile(t)} {
+		shown, err := c.Removing(id)
+		if err != nil || len(shown) != 1 || shown[0].File != file {
+			t.Fatalf("%s: removing = %+v, %v", id, shown, err)
+		}
+		if err := c.Remove(context.Background(), shown); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(file); err == nil {
+			t.Fatalf("%s is still there", file)
+		}
+	}
+}
